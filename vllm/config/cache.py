@@ -26,6 +26,8 @@ CacheDType = Literal[
     "fp8_ds_mla",
     "int8_per_token_head",
     "fp8_per_token_head",
+    "turboquant25",  # nvllm: TurboQuant 2.5-bit KV cache
+    "turboquant35",  # nvllm: TurboQuant 3.5-bit KV cache
 ]
 MambaDType = Literal["auto", "float32", "float16"]
 MambaCacheMode = Literal["all", "align", "none"]
@@ -99,6 +101,11 @@ class CacheConfig:
     (e.g., '0', '2', '4') or attention type names (e.g., 'sliding_window')."""
     cpu_kvcache_space_bytes: int | None = None
     """(CPU backend only) CPU key-value cache space."""
+    enable_turboquant: bool = False  # nvllm: TurboQuant KV cache flag
+    """Enable the GB10-only TurboQuant KV cache (requires NVIDIA GB10 / SM121)."""
+    turboquant_metadata_path: str | None = None  # nvllm: TurboQuant metadata path
+    """Optional path to the TurboQuant per-layer metadata JSON artifact.
+    If unset, vLLM looks for `turboquant_kv.json` under the local model path."""
     mamba_page_size_padded: int | None = None
     """ Optional override for mamba page size; used by hybrid mamba/attention
     models to ensure exact alignment with attention page size."""
@@ -257,7 +264,31 @@ class CacheConfig:
                 "scaling factor",
                 str(cache_dtype),
             )
+        elif cache_dtype.startswith("turboquant"):  # nvllm: TurboQuant warning
+            logger.warning(
+                "Using TurboQuant KV cache with the Triton attention backend "
+                "(requires NVIDIA GB10 / SM121)."
+            )
         return cache_dtype
+
+    @model_validator(mode="after")  # nvllm: TurboQuant device validator
+    def _validate_turboquant(self) -> "CacheConfig":
+        if not self.cache_dtype.startswith("turboquant"):
+            return self
+
+        # Auto-enable when turboquant KV dtype is selected  # nvllm
+        if not self.enable_turboquant:
+            self.enable_turboquant = True
+
+        from vllm.platforms import current_platform
+
+        if not current_platform.is_cuda():
+            raise ValueError("TurboQuant KV cache requires CUDA.")
+
+        capability = current_platform.get_device_capability()
+        if capability is None or (capability.major, capability.minor) != (12, 1):
+            raise ValueError("TurboQuant KV cache requires NVIDIA GB10 / SM121.")
+        return self
 
     def __post_init__(self):
         if self.enable_mamba_cache_stochastic_rounding:
