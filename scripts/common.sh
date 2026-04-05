@@ -47,12 +47,11 @@ nvllm_check_hf_auth() {
 # ---------------------------------------------------------------------------
 nvllm_ensure_model() {
   local model_id="$1"
-  # Convert "ORG/MODEL" → "models--ORG--MODEL"
-  local cache_dir="$HOME/.cache/huggingface/hub/models--${model_id//\//-}"
-  # Also try the double-dash convention (standard HF hub layout)
-  local cache_dir_std="$HOME/.cache/huggingface/hub/models--${model_id/\//--}"
+  local hf_home="${HF_HOME:-$HOME/.cache/huggingface}"
+  local cache_dir="$hf_home/hub/models--${model_id/\//--}"
 
-  if [ -d "$cache_dir" ] || [ -d "$cache_dir_std" ]; then
+  if [[ -d "$cache_dir" ]]; then
+    echo "Model found in cache: $model_id"
     return 0
   fi
 
@@ -87,19 +86,4 @@ nvllm_check_port() {
     echo "WARNING: Port $port is already in use by container '$user'." >&2
     echo "         Stop it first or choose a different port." >&2
   fi
-}
-
-# ---------------------------------------------------------------------------
-# nvllm_common_docker_args
-#   Echo the common docker run flags used by all run scripts.
-#   Caller should eval or use in an array.
-# ---------------------------------------------------------------------------
-nvllm_common_docker_args() {
-  echo "--gpus all"
-  echo "--ipc=host"
-  echo "--network host"
-  echo "-v $HOME/.cache/huggingface:/root/.cache/huggingface"
-  echo "-v $HOME/.cache/flashinfer:/root/.cache/flashinfer"
-  echo "-e VLLM_NVFP4_GEMM_BACKEND=cutlass"
-  echo "-e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
 }

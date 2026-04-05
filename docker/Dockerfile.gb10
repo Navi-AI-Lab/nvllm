@@ -93,12 +93,13 @@ RUN pip install --no-cache-dir flashinfer-python==0.6.3 \
     || echo "WARN: flashinfer install failed -- will need manual install"
 
 # -- Additional runtime deps --
+RUN pip install --no-cache-dir --no-deps compressed-tensors==0.13.0
 RUN pip install --no-cache-dir \
     scipy \
     numba==0.61.2 \
     "ray[cgraph]>=2.48.0" \
-    compressed-tensors==0.13.0 --no-deps \
-    && pip install --no-cache-dir \
+    || true
+RUN pip install --no-cache-dir \
     "transformers @ git+https://github.com/huggingface/transformers.git" \
     "tokenizers>=0.21.1" \
     depyf==0.20.0 \
