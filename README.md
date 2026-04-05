@@ -56,6 +56,13 @@ docker build -f docker/Dockerfile.gb10 -t nvllm:gb10 .
 First run downloads the model automatically (~25 GB).
 API available at `http://localhost:8000/v1`.
 
+All models are served as `default` — use `"model": "default"` in API calls:
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "default", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
 ### Available Models
 
 | Script | Model | Active Params | Speed | Context |
