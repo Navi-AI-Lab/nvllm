@@ -35,8 +35,16 @@ If you use vLLM for your research, please cite their [paper](https://arxiv.org/a
 - Hugging Face account with model access
 - `huggingface-cli` on host (`pip install huggingface-hub`)
 
-### 1. Build the image
+### 1. Clone and build
+```bash
+git clone https://github.com/Navi-AI-Lab/nvllm.git
+cd nvllm
+docker build -f docker/Dockerfile.gb10 -t nvllm:gb10 .
 ```
+
+Already cloned? Pull the latest first:
+```bash
+cd nvllm && git pull
 docker build -f docker/Dockerfile.gb10 -t nvllm:gb10 .
 ```
 
