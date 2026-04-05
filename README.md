@@ -26,3 +26,40 @@ If you use vLLM for your research, please cite their [paper](https://arxiv.org/a
   year={2023}
 }
 ```
+
+## Quick Start
+
+### Prerequisites
+- NVIDIA DGX Spark (GB10) or GH200
+- Docker with NVIDIA Container Toolkit
+- Hugging Face account with model access
+- `huggingface-cli` on host (`pip install huggingface-hub`)
+
+### 1. Build the image
+```
+docker build -f docker/Dockerfile.gb10 -t nvllm:gb10 .
+```
+
+### 2. Run a model
+```
+./scripts/run_qwen35.sh
+```
+
+First run downloads the model automatically (~25 GB).
+API available at `http://localhost:8000/v1`.
+
+### Available Models
+
+| Script | Model | Active Params | Speed | Context |
+|--------|-------|---------------|-------|---------|
+| `run_nemotron.sh` | Nemotron-3-Super-120B | 12B | ~20 tok/s | 16K (128K w/ --tq) |
+| `run_qwen35.sh` | Qwen3.5-122B-A10B | 10B | ~25 tok/s | 32K |
+| `run_qwen3_coder_next.sh` | Qwen3-Coder-Next | 3B | ~34 tok/s | 128K |
+| `run_gemma4.sh` | Gemma 4 31B IT | 31B | ~7 tok/s | 32K |
+
+### Flags
+
+| Flag | Effect |
+|------|--------|
+| `--tq` | TurboQuant 3.5-bit KV cache (saves memory, enables longer context) |
+| `--debug` | Eager mode, no CUDA graphs (for debugging) |
