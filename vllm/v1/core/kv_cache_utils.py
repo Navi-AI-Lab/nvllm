@@ -14,6 +14,9 @@ from typing import Any, NewType, TypeAlias, overload
 from vllm import envs
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
+from vllm.model_executor.models.utils import (
+    extract_layer_index,  # nvllm: drafter layer id
+)
 from vllm.utils.hashing import sha256_cbor, xxhash_cbor
 from vllm.utils.math_utils import cdiv
 from vllm.utils.mem_utils import format_gib
@@ -958,6 +961,7 @@ def is_kv_cache_type_attention_free(kv_cache_spec: dict[str, KVCacheSpec]) -> bo
 
 def _get_kv_cache_groups_uniform_page_size(
     kv_cache_spec: dict[str, KVCacheSpec],
+    drafter_layers: set[str] | None = None,  # nvllm: PR #35062 drafter separation
 ) -> list[KVCacheGroupSpec]:
     """
     Generates the KV cache groups for hybrid models with multiple
@@ -1028,6 +1032,26 @@ def _get_kv_cache_groups_uniform_page_size(
     for layer_name, layer_spec in kv_cache_spec.items():
         same_type_layers[layer_spec].append(layer_name)
 
+    # nvllm: PR #35062 — separate drafter layers into their own group before the
+    # heuristic below runs, so drafter layers don't get scattered across groups.
+    drafter_group_layers: list[str] = []
+    if drafter_layers:
+        for spec in list(same_type_layers.keys()):
+            layers = same_type_layers[spec]
+            spec_in_group = [n for n in layers if n in drafter_layers]
+            if spec_in_group:
+                non_spec = [n for n in layers if n not in drafter_layers]
+                if non_spec:
+                    same_type_layers[spec] = non_spec
+                else:
+                    del same_type_layers[spec]
+                drafter_group_layers.extend(spec_in_group)
+        if drafter_group_layers:
+            logger.info(
+                "Separated %d drafter layers into dedicated KV cache group",
+                len(drafter_group_layers),
+            )
+
     # Split each group into smaller groups, to make the number of layers in each
     # group identical. Add padding to the last group of each type if necessary.
     # E.g., (full.0, full.1), (sw.0, sw.1, sw.2)
@@ -1075,6 +1099,15 @@ def _get_kv_cache_groups_uniform_page_size(
         # instead of layers[i * group_size: (i + 1) * group_size]
         for i in range(num_groups):
             grouped_layers.append(layers[i::num_groups])
+
+    # nvllm: PR #35062 — prepend drafter layers as dedicated groups (one per type)
+    if drafter_group_layers:
+        drafter_by_type: dict[KVCacheSpec, list[str]] = defaultdict(list)
+        for name in drafter_group_layers:
+            drafter_by_type[kv_cache_spec[name]].append(name)
+        for drafter_type_layers in drafter_by_type.values():
+            grouped_layers.insert(0, drafter_type_layers)
+
     return create_kv_cache_group_specs(kv_cache_spec, grouped_layers)
 
 
@@ -1219,6 +1252,37 @@ def unify_hybrid_kv_cache_specs(kv_cache_spec: dict[str, KVCacheSpec]):
         )
 
 
+# nvllm: PR #35062 — identify speculative decoding drafter layers
+def _identify_drafter_layers(
+    vllm_config: VllmConfig, all_layer_names: list[str]
+) -> set[str] | None:
+    """Identify layers belonging to the speculative decoding drafter."""
+    spec_config = vllm_config.speculative_config
+    if spec_config is None:
+        return None
+    target_num_layers = vllm_config.model_config.get_total_num_hidden_layers()
+    drafter_layers: set[str] = set()
+    for name in all_layer_names:
+        if name.startswith("draft_model."):
+            drafter_layers.add(name)
+            continue
+        try:
+            layer_idx = extract_layer_index(name)
+            if layer_idx >= target_num_layers:
+                drafter_layers.add(name)
+        except (AssertionError, ValueError):
+            low = name.lower()
+            if "drafter" in low or "eagle" in low or "mtp" in low:
+                drafter_layers.add(name)
+    if drafter_layers:
+        logger.debug(
+            "Identified %d drafter layers for KV cache grouping: %s",
+            len(drafter_layers),
+            sorted(drafter_layers),
+        )
+    return drafter_layers if drafter_layers else None
+
+
 def get_kv_cache_groups(
     vllm_config: VllmConfig, kv_cache_spec: dict[str, KVCacheSpec]
 ) -> list[KVCacheGroupSpec]:
@@ -1259,7 +1323,11 @@ def get_kv_cache_groups(
     # have the same physical memory per block per layer. Split the layers
     # into groups with the same number of layers, and thus same total page
     # size.
-    return _get_kv_cache_groups_uniform_page_size(kv_cache_spec)
+    # nvllm: PR #35062 — identify drafter layers so they stay in one KV cache group
+    drafter_layers = _identify_drafter_layers(
+        vllm_config, list(kv_cache_spec.keys())
+    )
+    return _get_kv_cache_groups_uniform_page_size(kv_cache_spec, drafter_layers)
 
 
 def generate_scheduler_kv_cache_config(

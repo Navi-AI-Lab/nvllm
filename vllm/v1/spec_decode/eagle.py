@@ -1329,6 +1329,7 @@ class SpecDecodeBaseProposer:
                 "GlmOcrForConditionalGeneration",
                 "Qwen3_5ForConditionalGeneration",
                 "Qwen3_5MoeForConditionalGeneration",
+                "Gemma4ForConditionalGeneration",  # nvllm: Gemma4 spec decode support
             ]:
                 self.model.config.image_token_index = target_model.config.image_token_id
             elif self.get_model_name(target_model) == "PixtralForConditionalGeneration":
