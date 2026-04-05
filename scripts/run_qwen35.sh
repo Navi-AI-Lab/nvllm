@@ -46,10 +46,12 @@ fi
 MAX_MODEL_LEN=32768
 MAX_NUM_SEQS=16
 
+# Build extra args as array to preserve JSON quoting
+EXTRA_ARGS=()
 if [ "$DEBUG" -eq 1 ]; then
-  COMPILE_FLAGS="--enforce-eager"
+  EXTRA_ARGS+=(--enforce-eager)
 else
-  COMPILE_FLAGS="--compilation-config '{\"cudagraph_mode\":\"PIECEWISE\"}'"
+  EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"PIECEWISE"}')
 fi
 
 echo "=== Launching Qwen3.5-122B-A10B (NVFP4) ==="
@@ -62,7 +64,6 @@ if [ "$TQ" -eq 1 ];   then echo "  Mode:        TurboQuant KV cache"; fi
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs)"; fi
 echo ""
 
-# shellcheck disable=SC2086
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -87,7 +88,7 @@ docker run -d \
   --gpu-memory-utilization 0.92 \
   --max-num-batched-tokens 16384 \
   --speculative-config '{"method": "mtp", "num_speculative_tokens": 1}' \
-  $COMPILE_FLAGS
+  "${EXTRA_ARGS[@]}"
 
 echo "Container started: $CONTAINER"
 echo "  API:  http://localhost:${PORT}/v1"

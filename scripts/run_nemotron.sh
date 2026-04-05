@@ -48,10 +48,12 @@ else
   MAX_NUM_SEQS=16
 fi
 
+# Build extra args as array to preserve JSON quoting
+EXTRA_ARGS=()
 if [ "$DEBUG" -eq 1 ]; then
-  COMPILE_FLAGS="--enforce-eager"
+  EXTRA_ARGS+=(--enforce-eager)
 else
-  COMPILE_FLAGS="--compilation-config '{\"cudagraph_mode\":\"PIECEWISE\"}'"
+  EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"PIECEWISE"}')
 fi
 
 echo "=== Launching Nemotron-3-Super-120B ==="
@@ -63,7 +65,6 @@ if [ "$TQ" -eq 1 ];   then echo "  Mode:     TurboQuant KV cache"; fi
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:     Debug (eager, no CUDA graphs)"; fi
 echo ""
 
-# shellcheck disable=SC2086
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -71,6 +72,7 @@ docker run -d \
   --network host \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
+  -v "$HOME/.cache/vllm_compile:/root/.cache/vllm/torch_compile_cache" \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_USE_FLASHINFER_MOE_FP4=0 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
@@ -92,7 +94,7 @@ docker run -d \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \
   --chat-template /templates/nemotron_no_think.jinja \
-  $COMPILE_FLAGS
+  "${EXTRA_ARGS[@]}"
 
 echo "Container started: $CONTAINER"
 echo "  API:  http://localhost:${PORT}/v1"

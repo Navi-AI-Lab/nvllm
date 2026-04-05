@@ -46,10 +46,12 @@ fi
 MAX_MODEL_LEN=131072
 MAX_NUM_SEQS=8
 
+# Build extra args as array to preserve JSON quoting
+EXTRA_ARGS=()
 if [ "$DEBUG" -eq 1 ]; then
-  COMPILE_FLAGS="--enforce-eager"
+  EXTRA_ARGS+=(--enforce-eager)
 else
-  COMPILE_FLAGS="--compilation-config '{\"cudagraph_mode\":\"PIECEWISE\"}'"
+  EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"PIECEWISE"}')
 fi
 
 echo "=== Launching Qwen3-Coder-Next (NVFP4) ==="
@@ -64,7 +66,6 @@ if [ "$TQ" -eq 1 ];   then echo "  Mode:     TurboQuant KV cache"; fi
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:     Debug (eager, no CUDA graphs)"; fi
 echo ""
 
-# shellcheck disable=SC2086
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -90,7 +91,7 @@ docker run -d \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \
   --override-generation-config '{"chat_template_kwargs": {"enable_thinking": false}}' \
-  $COMPILE_FLAGS
+  "${EXTRA_ARGS[@]}"
 
 echo "Container started: $CONTAINER"
 echo "  API:  http://localhost:${PORT}/v1"

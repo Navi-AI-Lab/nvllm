@@ -55,10 +55,12 @@ else
   ATTN_BACKEND="triton_attn"
 fi
 
+# JSON args passed via env vars to avoid quoting issues inside bash -c
+SPEC_CONFIG='{"method": "ngram", "num_speculative_tokens": 3, "prompt_lookup_max": 3}'
 if [ "$DEBUG" -eq 1 ]; then
-  COMPILE_FLAGS="--enforce-eager"
+  COMPILE_ARG="--enforce-eager"
 else
-  COMPILE_FLAGS="--compilation-config '{\"cudagraph_mode\":\"PIECEWISE\"}'"
+  COMPILE_ARG="--compilation-config {\"cudagraph_mode\":\"PIECEWISE\"}"
 fi
 
 echo "=== Launching Gemma 4 31B IT (NVFP4) ==="
@@ -75,6 +77,8 @@ echo ""
 # Gemma4 requires a numba workaround: pip install inside the container
 # before starting vLLM. We use --entrypoint bash for this.
 # The model directory is mounted as /model inside the container.
+# JSON args are passed via environment variables to avoid quoting issues
+# inside the bash -c string.
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -82,9 +86,12 @@ docker run -d \
   --network host \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
+  -v "$HOME/.cache/vllm_compile:/root/.cache/vllm/torch_compile_cache" \
   -v "$MODEL:/model" \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -e NVLLM_SPEC_CONFIG="$SPEC_CONFIG" \
+  -e NVLLM_COMPILE_ARG="$COMPILE_ARG" \
   --entrypoint bash \
   "$NVLLM_IMAGE" \
   -c "pip install --no-deps 'numba>=0.65' 2>&1 | tail -1 && \
@@ -102,8 +109,8 @@ docker run -d \
   --trust-remote-code \
   --gpu-memory-utilization 0.90 \
   --max-num-batched-tokens 16384 \
-  --speculative-config '{\"method\": \"ngram\", \"num_speculative_tokens\": 3, \"prompt_lookup_max\": 3}' \
-  $COMPILE_FLAGS"
+  --speculative-config \"\$NVLLM_SPEC_CONFIG\" \
+  \$NVLLM_COMPILE_ARG"
 
 echo "Container started: $CONTAINER"
 echo "  API:  http://localhost:${PORT}/v1"
