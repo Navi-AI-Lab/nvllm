@@ -335,6 +335,9 @@ class Attention(nn.Module, AttentionLayerBase):
             cache_config.enable_prefix_caching = False
 
         impl_cls = self.attn_backend.get_impl_cls()
+        # nvllm: pass layer name to TurboQuant-capable backends
+        if kv_cache_dtype.startswith("turboquant"):
+            extra_impl_args["turboquant_layer_name"] = prefix
         self.impl = impl_cls(
             num_heads,
             head_size,
