@@ -89,7 +89,7 @@ docker run -d \
   --language-model-only \
   --enable-prefix-caching \
   --trust-remote-code \
-  --gpu-memory-utilization 0.92 \
+  --gpu-memory-utilization 0.85 \
   --max-num-batched-tokens 16384 \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \

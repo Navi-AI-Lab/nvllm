@@ -85,7 +85,7 @@ docker run -d \
   --language-model-only \
   --enable-prefix-caching \
   --trust-remote-code \
-  --gpu-memory-utilization 0.92 \
+  --gpu-memory-utilization 0.85 \
   --max-num-batched-tokens 16384 \
   --speculative-config '{"method": "mtp", "num_speculative_tokens": 1}' \
   "${EXTRA_ARGS[@]}"

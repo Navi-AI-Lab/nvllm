@@ -86,7 +86,7 @@ docker run -d \
   --max-num-seqs "$MAX_NUM_SEQS" \
   --enable-prefix-caching \
   --trust-remote-code \
-  --gpu-memory-utilization 0.92 \
+  --gpu-memory-utilization 0.85 \
   --max-num-batched-tokens 16384 \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \

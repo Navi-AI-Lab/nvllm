@@ -107,7 +107,7 @@ docker run -d \
   --language-model-only \
   --enable-prefix-caching \
   --trust-remote-code \
-  --gpu-memory-utilization 0.90 \
+  --gpu-memory-utilization 0.85 \
   --max-num-batched-tokens 16384 \
   --speculative-config \"\$NVLLM_SPEC_CONFIG\" \
   \$NVLLM_COMPILE_ARG"
