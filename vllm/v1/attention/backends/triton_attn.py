@@ -35,7 +35,40 @@ from vllm.v1.attention.ops.triton_reshape_and_cache_flash import (
     triton_reshape_and_cache_flash,
     triton_reshape_and_cache_flash_per_token_head_quant,
 )
+
+# nvllm: TurboQuant imports
+from vllm.v1.attention.ops.triton_turboquant_decode import (
+    get_turboquant_norm_lut,
+    turboquant_decode_attention_fwd,
+)
+from vllm.v1.attention.ops.triton_turboquant_kv_update import (
+    turboquant_write_packed_kv,
+)
 from vllm.v1.attention.ops.triton_unified_attention import unified_attention
+from vllm.v1.attention.ops.turboquant_kv_cache import (
+    TurboQuantLayout,
+    get_turboquant_bits,
+    get_turboquant_centroids,
+    get_turboquant_group_dims,
+    get_turboquant_layout,
+    get_turboquant_mse_inverse_transform_matrix,
+    get_turboquant_mse_to_qjl_matrix,
+    get_turboquant_mse_transform_matrix,
+    get_turboquant_qjl_inverse_transform_matrix,
+    get_turboquant_qjl_matrix,
+    get_turboquant_qjl_transform_matrix,
+    get_turboquant_rotation,
+    is_turboquant_kv_cache,
+)
+from vllm.v1.attention.ops.turboquant_metadata import (
+    TurboQuantLayerMetadata,
+    TurboQuantMetadata,
+    build_default_turboquant_metadata,
+    discover_turboquant_metadata_path,
+    load_turboquant_metadata,
+)
+
+# nvllm: end TurboQuant imports
 from vllm.v1.kv_cache_interface import (
     AttentionSpec,
     get_kv_quant_mode,
@@ -48,6 +81,12 @@ logger = init_logger(__name__)
 # constants
 MIN_LAUNCH_GRID_SIZE_2D = 128  # Minimum launch grid size of 2D kernel
 NUM_PAR_SOFTMAX_SEGMENTS = 16  # Number of parallel tiled softmax segments
+# nvllm: TurboQuant constants
+GB10_CAPABILITY = DeviceCapability(12, 1)
+# The Triton prefill kernel already handles power-of-two head sizes up to
+# 256. Keep TurboQuant prefill on that kernel for common Qwen 27B/35B-class
+# models instead of dropping to the slow Python fallback on the first prompt.
+TURBOQUANT_TRITON_PREFILL_MAX_HEAD_SIZE = 256
 
 
 @dataclass
@@ -85,6 +124,10 @@ class TritonAttentionMetadata:
     scheduler_metadata: torch.Tensor | None = None
     prefix_scheduler_metadata: torch.Tensor | None = None
     mm_prefix_range: dict[int, list[tuple[int, int]]] | None = None
+    # nvllm: TurboQuant per-token metadata (precomputed in build())
+    turboquant_seq_ids: torch.Tensor | None = None
+    turboquant_token_seq_lens: torch.Tensor | None = None
+    turboquant_query_positions: torch.Tensor | None = None
 
     @property
     def mm_prefix_range_tensor(self) -> torch.Tensor | None:
@@ -204,6 +247,13 @@ class TritonAttentionMetadataBuilder(AttentionMetadataBuilder[TritonAttentionMet
         # max_model_len will cause graph capture to be extremely
         # slow, so here we set it to 1.
         attn_metadata.seq_lens.fill_(1)
+        # nvllm: Force TQ decode path during graph capture. The dummy
+        # seq_lens=1 makes tq_is_dense_prefill=True (since
+        # max_query_len==max_seq_len==1), which would capture the
+        # dense prefill kernel instead of the TQ decode kernel.
+        # During replay the prefill kernel cannot decode TQ-compressed
+        # KV cache, so we must always capture the decode path.
+        attn_metadata._tq_is_dense_prefill = False  # type: ignore[attr-defined]
         return attn_metadata
 
     def build(
@@ -223,6 +273,7 @@ class TritonAttentionMetadataBuilder(AttentionMetadataBuilder[TritonAttentionMet
 
         use_cascade = common_prefix_len > 0
 
+        prefix_scheduler_metadata = None
         if use_cascade:
             cu_prefix_query_lens = torch.tensor(
                 [0, num_actual_tokens], dtype=torch.int32, device=self.device
@@ -236,7 +287,48 @@ class TritonAttentionMetadataBuilder(AttentionMetadataBuilder[TritonAttentionMet
             cu_prefix_query_lens = None
             prefix_kv_lens = None
             suffix_kv_lens = None
-            prefix_scheduler_metadata = None
+
+        # nvllm: Precompute TurboQuant token metadata here (outside any
+        # CUDA graph capture) so that _forward_turboquant never needs to
+        # call data-dependent ops like repeat_interleave or .cpu().
+        tq_seq_ids = None
+        tq_token_kv_lens = None
+        tq_query_positions = None
+        tq_is_dense_prefill = False
+        query_lens = query_start_loc[1:] - query_start_loc[:-1]
+        if num_actual_tokens > 0:
+            tq_seq_ids = torch.repeat_interleave(
+                torch.arange(
+                    seq_lens.shape[0],
+                    device=seq_lens.device,
+                    dtype=torch.int32,
+                ),
+                query_lens,
+            )
+            tq_token_kv_lens = seq_lens.index_select(
+                0, tq_seq_ids.to(torch.int64)
+            ).to(torch.int32)
+            token_offsets = torch.arange(
+                num_actual_tokens,
+                device=query_start_loc.device,
+                dtype=torch.int32,
+            ) - query_start_loc.index_select(
+                0, tq_seq_ids.to(torch.int64)
+            )
+            tq_query_positions = (
+                seq_lens.index_select(0, tq_seq_ids.to(torch.int64))
+                - query_lens.index_select(0, tq_seq_ids.to(torch.int64))
+                + token_offsets
+            ).to(torch.int32)
+            # Dense prefill decision (needs .cpu() -- safe here, outside
+            # graph)
+            query_lens_cpu = query_lens.cpu()
+            seq_lens_cpu = seq_lens.cpu()
+            tq_is_dense_prefill = (
+                not use_cascade
+                and max_query_len == max_seq_len
+                and torch.equal(query_lens_cpu, seq_lens_cpu)
+            )
 
         attn_metadata = TritonAttentionMetadata(
             num_actual_tokens=num_actual_tokens,
@@ -257,7 +349,13 @@ class TritonAttentionMetadataBuilder(AttentionMetadataBuilder[TritonAttentionMet
             softmax_segm_output=self.softmax_segm_output,
             softmax_segm_max=self.softmax_segm_max,
             softmax_segm_expsum=self.softmax_segm_expsum,
+            # nvllm: TurboQuant precomputed token metadata
+            turboquant_seq_ids=tq_seq_ids,
+            turboquant_token_seq_lens=tq_token_kv_lens,
+            turboquant_query_positions=tq_query_positions,
         )
+        # nvllm: stash dense-prefill flag for _forward_turboquant
+        attn_metadata._tq_is_dense_prefill = tq_is_dense_prefill  # type: ignore[attr-defined]
         return attn_metadata
 
 
@@ -277,6 +375,9 @@ class TritonAttentionBackend(AttentionBackend):
         "fp8_e5m2",
         "int8_per_token_head",
         "fp8_per_token_head",
+        # nvllm: TurboQuant KV cache dtypes
+        "turboquant25",
+        "turboquant35",
     ]
 
     @staticmethod
@@ -456,6 +557,11 @@ class TritonAttentionImpl(AttentionImpl):
         attn_type: AttentionType = AttentionType.DECODER,
         kv_sharing_target_layer_name: int | None = None,
         sinks: torch.Tensor | None = None,
+        # nvllm: TurboQuant parameters
+        turboquant_layer_name: str | None = None,
+        turboquant_model_name: str | None = None,
+        turboquant_metadata_path: str | None = None,
+        turboquant_metadata: TurboQuantMetadata | None = None,
         use_alibi_sqrt: bool = False,
     ) -> None:
         self.num_heads = num_heads
@@ -495,6 +601,919 @@ class TritonAttentionImpl(AttentionImpl):
 
         self._kv_quant_mode = get_kv_quant_mode(kv_cache_dtype)
         self._is_per_token_head_quant = self._kv_quant_mode.is_per_token_head
+
+        # nvllm: ---- TurboQuant state ----
+        self.turboquant_bits = (
+            get_turboquant_bits(kv_cache_dtype)
+            if is_turboquant_kv_cache(kv_cache_dtype)
+            else None
+        )
+        self._turboquant_tables: dict[
+            tuple[str, int | None],
+            tuple[
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+                dict[int, torch.Tensor],
+                torch.Tensor,
+                TurboQuantLayout,
+            ],
+        ] = {}
+        self._turboquant_masks: dict[
+            tuple[str, int | None],
+            tuple[
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+            ],
+        ] = {}
+        self._turboquant_query_group_indices: dict[
+            tuple[str, int | None],
+            tuple[
+                torch.Tensor,
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+            ],
+        ] = {}
+        self._turboquant_update_tables: dict[
+            tuple[str, int | None],
+            tuple[
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+            ],
+        ] = {}
+        self._turboquant_decode_tables: dict[
+            tuple[str, int | None],
+            tuple[
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+            ],
+        ] = {}
+        self._turboquant_metadata = turboquant_metadata
+        self._turboquant_layer_name = turboquant_layer_name
+        self._turboquant_layer_metadata: (
+            TurboQuantLayerMetadata | None
+        ) = None
+
+        if self.turboquant_bits is not None:
+            capability = current_platform.get_device_capability()
+            if (
+                not current_platform.is_cuda()
+                or capability != GB10_CAPABILITY
+            ):
+                raise RuntimeError(
+                    "TurboQuant KV cache requires NVIDIA GB10 / SM121."
+                )
+            if turboquant_layer_name is None:
+                raise ValueError(
+                    "TurboQuant KV cache requires the attention layer "
+                    "name for metadata lookup."
+                )
+            if self._turboquant_metadata is None:
+                resolved_metadata_path = (
+                    discover_turboquant_metadata_path(
+                        turboquant_model_name,
+                        turboquant_metadata_path,
+                    )
+                )
+                if resolved_metadata_path is None:
+                    logger.warning(
+                        "No TurboQuant metadata found -- building "
+                        "default metadata for layer %s.",
+                        turboquant_layer_name,
+                    )
+                    self._turboquant_metadata = (
+                        build_default_turboquant_metadata(
+                            recipe=kv_cache_dtype,
+                            head_size=self.head_size,
+                            num_kv_heads=self.num_kv_heads,
+                            layer_names=[turboquant_layer_name],
+                            model_name=turboquant_model_name,
+                        )
+                    )
+                else:
+                    self._turboquant_metadata = (
+                        load_turboquant_metadata(
+                            resolved_metadata_path
+                        )
+                    )
+                    logger.info(
+                        "Resolved TurboQuant metadata from %s.",
+                        resolved_metadata_path,
+                    )
+            if (
+                self._turboquant_metadata.recipe
+                != self.kv_cache_dtype
+            ):
+                raise ValueError(
+                    "TurboQuant metadata recipe does not match "
+                    "kv_cache_dtype: "
+                    f"{self._turboquant_metadata.recipe} "
+                    f"vs {self.kv_cache_dtype}."
+                )
+            if (
+                self._turboquant_metadata.head_size
+                != self.head_size
+            ):
+                raise ValueError(
+                    "TurboQuant metadata head_size does not match "
+                    "layer head size: "
+                    f"{self._turboquant_metadata.head_size} "
+                    f"vs {self.head_size}."
+                )
+            layer_metadata = (
+                self._turboquant_metadata.get_layer(
+                    turboquant_layer_name
+                )
+            )
+            self._turboquant_layer_metadata = layer_metadata
+            if (
+                len(layer_metadata.key.high_precision_indices)
+                != self.num_kv_heads
+            ):
+                raise ValueError(
+                    "TurboQuant metadata key KV head count does not "
+                    "match layer: "
+                    f"{len(layer_metadata.key.high_precision_indices)}"
+                    f" vs {self.num_kv_heads}."
+                )
+            if (
+                len(layer_metadata.value.high_precision_indices)
+                != self.num_kv_heads
+            ):
+                raise ValueError(
+                    "TurboQuant metadata value KV head count does "
+                    "not match layer: "
+                    f"{len(layer_metadata.value.high_precision_indices)}"
+                    f" vs {self.num_kv_heads}."
+                )
+            logger.info(
+                "TurboQuant enabled for layer %s with %s on "
+                "Triton/GB10.",
+                turboquant_layer_name,
+                self.kv_cache_dtype,
+            )
+        # nvllm: end TurboQuant state
+
+    # nvllm: ---- TurboQuant helper methods ----
+
+    def _get_turboquant_tables(
+        self,
+        device: torch.device,
+    ) -> tuple[
+        tuple[torch.Tensor, torch.Tensor],
+        tuple[torch.Tensor, torch.Tensor],
+        dict[int, torch.Tensor],
+        torch.Tensor,
+        TurboQuantLayout,
+    ]:
+        assert self.turboquant_bits is not None
+        cache_key = (device.type, device.index)
+        tables = self._turboquant_tables.get(cache_key)
+        if tables is None:
+            group_dims = get_turboquant_group_dims(
+                self.head_size, self.kv_cache_dtype
+            )
+            layout = get_turboquant_layout(
+                self.kv_cache_dtype, self.head_size
+            )
+            centroid_dims = {
+                group.mse_bits: group.dim
+                for group in layout.groups
+                if group.mse_bits > 0
+            }
+            centroids = {
+                mse_bits: get_turboquant_centroids(
+                    device, dim, mse_bits
+                )
+                for mse_bits, dim in centroid_dims.items()
+            }
+            tables = (
+                (
+                    get_turboquant_rotation(
+                        device, group_dims[0], seed_offset=101
+                    ),
+                    get_turboquant_rotation(
+                        device, group_dims[1], seed_offset=211
+                    ),
+                ),
+                (
+                    get_turboquant_qjl_matrix(
+                        device, group_dims[0], seed_offset=307
+                    ),
+                    get_turboquant_qjl_matrix(
+                        device, group_dims[1], seed_offset=401
+                    ),
+                ),
+                centroids,
+                get_turboquant_norm_lut(device),
+                layout,
+            )
+            self._turboquant_tables[cache_key] = tables
+        return tables
+
+    def _validate_turboquant_device(
+        self, device: torch.device
+    ) -> None:
+        if device.type != "cuda":
+            raise RuntimeError(
+                "TurboQuant KV cache requires CUDA."
+            )
+        if torch.cuda.get_device_capability(device) != (12, 1):
+            raise RuntimeError(
+                "TurboQuant KV cache requires NVIDIA GB10 / SM121."
+            )
+
+    def _get_turboquant_update_tables(
+        self,
+        device: torch.device,
+    ) -> tuple[
+        tuple[torch.Tensor, torch.Tensor],
+        tuple[torch.Tensor, torch.Tensor],
+        tuple[torch.Tensor, torch.Tensor],
+    ]:
+        cache_key = (device.type, device.index)
+        tables = self._turboquant_update_tables.get(cache_key)
+        if tables is not None:
+            return tables
+        group_dims = get_turboquant_group_dims(
+            self.head_size, self.kv_cache_dtype
+        )
+        mse_seed_offsets = (101, 211)
+        qjl_seed_offsets = (307, 401)
+        tables = (
+            tuple(
+                get_turboquant_mse_transform_matrix(
+                    device, dim, seed_offset
+                )
+                for dim, seed_offset in zip(
+                    group_dims, mse_seed_offsets, strict=True
+                )
+            ),
+            tuple(
+                get_turboquant_qjl_transform_matrix(
+                    device, dim, seed_offset
+                )
+                for dim, seed_offset in zip(
+                    group_dims, qjl_seed_offsets, strict=True
+                )
+            ),
+            tuple(
+                get_turboquant_mse_to_qjl_matrix(
+                    device,
+                    dim,
+                    mse_seed_offset,
+                    qjl_seed_offset,
+                )
+                for dim, mse_seed_offset, qjl_seed_offset in zip(
+                    group_dims,
+                    mse_seed_offsets,
+                    qjl_seed_offsets,
+                    strict=True,
+                )
+            ),
+        )
+        self._turboquant_update_tables[cache_key] = tables
+        return tables
+
+    def _get_turboquant_decode_tables(
+        self,
+        device: torch.device,
+    ) -> tuple[
+        tuple[torch.Tensor, torch.Tensor],
+        tuple[torch.Tensor, torch.Tensor],
+    ]:
+        cache_key = (device.type, device.index)
+        tables = self._turboquant_decode_tables.get(cache_key)
+        if tables is not None:
+            return tables
+        group_dims = get_turboquant_group_dims(
+            self.head_size, self.kv_cache_dtype
+        )
+        mse_seed_offsets = (101, 211)
+        qjl_seed_offsets = (307, 401)
+        tables = (
+            tuple(
+                get_turboquant_mse_inverse_transform_matrix(
+                    device, dim, seed_offset
+                )
+                for dim, seed_offset in zip(
+                    group_dims, mse_seed_offsets, strict=True
+                )
+            ),
+            tuple(
+                get_turboquant_qjl_inverse_transform_matrix(
+                    device, dim, seed_offset
+                )
+                for dim, seed_offset in zip(
+                    group_dims, qjl_seed_offsets, strict=True
+                )
+            ),
+        )
+        self._turboquant_decode_tables[cache_key] = tables
+        return tables
+
+    def _ensure_turboquant_masks(
+        self,
+        device: torch.device,
+    ) -> tuple[
+        tuple[torch.Tensor, torch.Tensor],
+        tuple[torch.Tensor, torch.Tensor],
+    ]:
+        cache_key = (device.type, device.index)
+        masks = self._turboquant_masks.get(cache_key)
+        if masks is not None:
+            return masks
+        if self._turboquant_layer_metadata is None:
+            raise RuntimeError(
+                "TurboQuant metadata is not initialized."
+            )
+        masks = (
+            self._turboquant_layer_metadata.key.get_group_indices(
+                device=device,
+                head_size=self.head_size,
+                kv_cache_dtype=self.kv_cache_dtype,
+            ),
+            self._turboquant_layer_metadata.value.get_group_indices(
+                device=device,
+                head_size=self.head_size,
+                kv_cache_dtype=self.kv_cache_dtype,
+            ),
+        )
+        self._turboquant_masks[cache_key] = masks
+        return masks
+
+    def _get_turboquant_query_group_indices(
+        self,
+        device: torch.device,
+    ) -> tuple[
+        torch.Tensor,
+        tuple[torch.Tensor, torch.Tensor],
+        tuple[torch.Tensor, torch.Tensor],
+    ]:
+        cache_key = (device.type, device.index)
+        indices = self._turboquant_query_group_indices.get(
+            cache_key
+        )
+        if indices is not None:
+            return indices
+        key_masks, value_masks = self._ensure_turboquant_masks(
+            device
+        )
+        kv_head_for_query_head = (
+            torch.arange(
+                self.num_heads, device=device, dtype=torch.int64
+            )
+            // self.num_queries_per_kv
+        )
+        indices = (
+            kv_head_for_query_head,
+            tuple(
+                group.index_select(0, kv_head_for_query_head)
+                for group in key_masks
+            ),
+            tuple(
+                group.index_select(0, kv_head_for_query_head)
+                for group in value_masks
+            ),
+        )
+        self._turboquant_query_group_indices[cache_key] = indices
+        return indices
+
+    def _build_turboquant_token_metadata(
+        self,
+        attn_metadata: TritonAttentionMetadata,
+        *,
+        kv_lens: torch.Tensor | None = None,
+        query_position_offset: int = 0,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if (
+            kv_lens is None
+            and attn_metadata.turboquant_seq_ids is not None
+        ):
+            assert (
+                attn_metadata.turboquant_token_seq_lens is not None
+            )
+            assert (
+                attn_metadata.turboquant_query_positions is not None
+            )
+            return (
+                attn_metadata.turboquant_seq_ids,
+                attn_metadata.turboquant_token_seq_lens,
+                attn_metadata.turboquant_query_positions,
+            )
+
+        if (
+            attn_metadata.turboquant_seq_ids is None
+            or kv_lens is not None
+        ):
+            query_lens = (
+                attn_metadata.query_start_loc[1:]
+                - attn_metadata.query_start_loc[:-1]
+            )
+            seq_ids = torch.repeat_interleave(
+                torch.arange(
+                    attn_metadata.seq_lens.shape[0],
+                    device=attn_metadata.seq_lens.device,
+                    dtype=torch.int32,
+                ),
+                query_lens,
+            )
+            base_kv_lens = (
+                kv_lens
+                if kv_lens is not None
+                else attn_metadata.seq_lens
+            )
+            token_kv_lens = base_kv_lens.index_select(
+                0, seq_ids.to(torch.int64)
+            ).to(torch.int32)
+            token_offsets = torch.arange(
+                attn_metadata.num_actual_tokens,
+                device=attn_metadata.query_start_loc.device,
+                dtype=torch.int32,
+            ) - attn_metadata.query_start_loc.index_select(
+                0, seq_ids.to(torch.int64)
+            )
+            query_positions = (
+                attn_metadata.seq_lens.index_select(
+                    0, seq_ids.to(torch.int64)
+                )
+                - query_lens.index_select(
+                    0, seq_ids.to(torch.int64)
+                )
+                + token_offsets
+                + query_position_offset
+            ).to(torch.int32)
+            if kv_lens is None and query_position_offset == 0:
+                attn_metadata.turboquant_seq_ids = seq_ids
+                attn_metadata.turboquant_token_seq_lens = (
+                    token_kv_lens
+                )
+                attn_metadata.turboquant_query_positions = (
+                    query_positions
+                )
+            return seq_ids, token_kv_lens, query_positions
+
+        assert (
+            attn_metadata.turboquant_query_positions is not None
+        )
+        return (
+            attn_metadata.turboquant_seq_ids,
+            attn_metadata.turboquant_token_seq_lens,
+            attn_metadata.turboquant_query_positions,
+        )
+
+    def _can_use_turboquant_dense_prefill(
+        self,
+        query: torch.Tensor,
+        attn_metadata: TritonAttentionMetadata,
+    ) -> bool:
+        if (
+            self.logits_soft_cap != 0
+            or attn_metadata.mm_prefix_range is not None
+            or self.sinks is not None
+            or query.shape[-1]
+            > TURBOQUANT_TRITON_PREFILL_MAX_HEAD_SIZE
+        ):
+            return False
+        # The heavy checks (cascade, query_lens==seq_lens, .cpu())
+        # were precomputed in build() to avoid GPU->CPU syncs during
+        # graph capture.
+        return getattr(
+            attn_metadata, "_tq_is_dense_prefill", False
+        )
+
+    def _fallback_turboquant_attention(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        output: torch.Tensor,
+        attn_metadata: TritonAttentionMetadata,
+    ) -> torch.Tensor:
+        kv_seq_lens_cpu = attn_metadata.seq_lens.cpu()
+        query_start_loc_cpu = attn_metadata.query_start_loc.cpu()
+        kv_head_for_query_head = (
+            torch.arange(
+                self.num_heads,
+                device=query.device,
+                dtype=torch.int64,
+            )
+            // self.num_queries_per_kv
+        )
+        left_window, right_window = self.sliding_window
+        key_cursor = 0
+
+        for seq_idx, kv_seq_len in enumerate(
+            kv_seq_lens_cpu.tolist()
+        ):
+            q_start = int(query_start_loc_cpu[seq_idx].item())
+            q_end = int(
+                query_start_loc_cpu[seq_idx + 1].item()
+            )
+            q_len = q_end - q_start
+            if q_len == 0:
+                key_cursor += kv_seq_len
+                continue
+
+            seq_query = query[q_start:q_end]
+            seq_key = key[key_cursor : key_cursor + kv_seq_len]
+            seq_value = value[
+                key_cursor : key_cursor + kv_seq_len
+            ]
+            key_cursor += kv_seq_len
+
+            q_states = seq_query.permute(1, 0, 2).to(
+                torch.float32
+            )
+            k_states = (
+                seq_key.permute(1, 0, 2)
+                .index_select(0, kv_head_for_query_head)
+                .to(torch.float32)
+            )
+            v_states = (
+                seq_value.permute(1, 0, 2)
+                .index_select(0, kv_head_for_query_head)
+                .to(torch.float32)
+            )
+
+            logits = (
+                torch.einsum("hqd,hkd->hqk", q_states, k_states)
+                * self.scale
+            )
+            key_positions = torch.arange(
+                kv_seq_len, device=query.device
+            )
+            query_positions = torch.arange(
+                kv_seq_len - q_len,
+                kv_seq_len,
+                device=query.device,
+            )
+            allowed = key_positions.unsqueeze(
+                0
+            ) <= query_positions.unsqueeze(1)
+            if left_window != -1:
+                allowed &= key_positions.unsqueeze(0) >= (
+                    query_positions.unsqueeze(1) - left_window
+                )
+            if right_window != -1:
+                allowed &= key_positions.unsqueeze(0) <= (
+                    query_positions.unsqueeze(1) + right_window
+                )
+            if attn_metadata.mm_prefix_range is not None:
+                for (
+                    range_start,
+                    range_end,
+                ) in attn_metadata.mm_prefix_range.get(
+                    seq_idx, []
+                ):
+                    q_in_range = (
+                        query_positions >= range_start
+                    ) & (query_positions <= range_end)
+                    k_in_range = (
+                        key_positions >= range_start
+                    ) & (key_positions <= range_end)
+                    allowed |= q_in_range[:, None] & k_in_range[
+                        None, :
+                    ]
+            logits = logits.masked_fill(
+                ~allowed.unsqueeze(0),
+                float("-inf"),
+            )
+
+            if self.logits_soft_cap:
+                logits = self.logits_soft_cap * torch.tanh(
+                    logits / self.logits_soft_cap
+                )
+
+            if self.sinks is not None:
+                sink_logits = (
+                    self.sinks[:, None, None]
+                    .to(torch.float32)
+                    .expand(-1, q_len, 1)
+                )
+                zero_value = torch.zeros(
+                    (self.num_heads, 1, self.head_size),
+                    dtype=torch.float32,
+                    device=query.device,
+                )
+                logits = torch.cat(
+                    (logits, sink_logits), dim=-1
+                )
+                v_states = torch.cat(
+                    (v_states, zero_value), dim=1
+                )
+
+            attn = torch.softmax(logits, dim=-1)
+            seq_output = torch.einsum(
+                "hqk,hkd->hqd", attn, v_states
+            )
+            output[q_start:q_end].copy_(
+                seq_output.permute(1, 0, 2).to(output.dtype)
+            )
+
+        return output
+
+    def _forward_turboquant(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
+        output: torch.Tensor,
+        attn_metadata: TritonAttentionMetadata,
+    ) -> torch.Tensor:
+        # nvllm: Pure prompt-prefill batches do not need to read
+        # back quantized KV from cache. Reuse the dense Triton
+        # prefill kernel so first-token latency is dominated by
+        # attention work instead of TurboQuant decode setup.
+        _is_prefill = self._can_use_turboquant_dense_prefill(
+            query, attn_metadata
+        )
+        if _is_prefill:
+            context_attention_fwd(
+                q=query,
+                k=key,
+                v=value,
+                o=output,
+                b_start_loc=attn_metadata.query_start_loc,
+                b_seq_len=attn_metadata.seq_lens,
+                max_input_len=attn_metadata.max_query_len,
+                is_causal=True,
+                softmax_scale=self.scale,
+                sliding_window_q=self.sliding_window[0],
+                sliding_window_k=self.sliding_window[1],
+            )
+            return output
+
+        if key_cache.numel() == 0 or value_cache.numel() == 0:
+            self._fallback_turboquant_attention(
+                query=query,
+                key=key,
+                value=value,
+                output=output,
+                attn_metadata=attn_metadata,
+            )
+            return output
+
+        assert self.turboquant_bits is not None
+        self._validate_turboquant_device(query.device)
+        (
+            rotations,
+            qjl_matrices,
+            centroids,
+            norm_lut,
+            _,
+        ) = self._get_turboquant_tables(query.device)
+        key_masks, value_masks = self._ensure_turboquant_masks(
+            query.device
+        )
+
+        # For decode batches (1 token per sequence), derive TQ
+        # metadata directly from seq_lens instead of using
+        # precomputed values.
+        # This is critical for FULL CUDA graph replay: the
+        # precomputed TQ tensors are stale (from graph capture
+        # time), but seq_lens is a shared reference that gets
+        # updated by the scheduler.
+        # All ops here (arange with constant N, indexing,
+        # subtraction) are CUDA-graph safe.
+        num_tokens = query.shape[0]
+        if attn_metadata.max_query_len == 1:
+            # Decode: each sequence contributes exactly 1 query
+            # token
+            token_seq_ids = torch.arange(
+                num_tokens,
+                device=query.device,
+                dtype=torch.int32,
+            )
+            token_kv_lens = attn_metadata.seq_lens[
+                :num_tokens
+            ].to(torch.int32)
+            token_query_positions = (
+                attn_metadata.seq_lens[:num_tokens] - 1
+            ).to(torch.int32)
+        else:
+            # Prefill/mixed: use the precomputed metadata
+            # (computed fresh by build() which runs outside CUDA
+            # graphs)
+            (
+                token_seq_ids,
+                token_kv_lens,
+                token_query_positions,
+            ) = self._build_turboquant_token_metadata(
+                attn_metadata
+            )
+        (
+            kv_head_for_query_head,
+            key_query_group_indices,
+            value_query_group_indices,
+        ) = self._get_turboquant_query_group_indices(query.device)
+        (
+            value_mse_inverse_matrices,
+            value_qjl_inverse_matrices,
+        ) = self._get_turboquant_decode_tables(query.device)
+        mm_prefix_range_tensor = (
+            attn_metadata.mm_prefix_range_tensor
+        )
+
+        if attn_metadata.use_cascade:
+            if self.sliding_window != (-1, -1):
+                raise NotImplementedError(
+                    "TurboQuant cascade attention does not "
+                    "support sliding window attention yet."
+                )
+            if attn_metadata.mm_prefix_range is not None:
+                raise NotImplementedError(
+                    "TurboQuant cascade attention does not "
+                    "support mm-prefix ranges yet."
+                )
+            from vllm.v1.attention.ops.merge_attn_states import (
+                merge_attn_states,
+            )
+
+            common_prefix_len = attn_metadata.common_prefix_len
+            block_size = key_cache.shape[1]
+            assert common_prefix_len % block_size == 0
+            num_common_blocks = common_prefix_len // block_size
+
+            prefix_output = torch.empty_like(output)
+            prefix_lse = torch.empty(
+                (query.shape[1], query.shape[0]),
+                dtype=torch.float32,
+                device=query.device,
+            )
+            prefix_query_start_loc = torch.tensor(
+                [0, query.shape[0]],
+                dtype=torch.int32,
+                device=query.device,
+            )
+            prefix_seq_lens = torch.tensor(
+                [common_prefix_len],
+                dtype=torch.int32,
+                device=query.device,
+            )
+            prefix_seq_ids = torch.zeros(
+                query.shape[0],
+                dtype=torch.int32,
+                device=query.device,
+            )
+            prefix_kv_lens = torch.full(
+                (query.shape[0],),
+                common_prefix_len,
+                dtype=torch.int32,
+                device=query.device,
+            )
+            prefix_query_positions = torch.zeros(
+                query.shape[0],
+                dtype=torch.int32,
+                device=query.device,
+            )
+            turboquant_decode_attention_fwd(
+                query=query,
+                key_cache=key_cache,
+                value_cache=value_cache,
+                block_table=attn_metadata.block_table[
+                    :1, :num_common_blocks
+                ],
+                query_start_loc=prefix_query_start_loc,
+                seq_lens=prefix_seq_lens,
+                key_group_indices=key_masks,
+                value_group_indices=value_masks,
+                key_rotations=rotations,
+                key_qjl_matrices=qjl_matrices,
+                value_rotations=rotations,
+                value_qjl_matrices=qjl_matrices,
+                centroids=centroids,
+                norm_lut=norm_lut,
+                softmax_scale=self.scale,
+                kv_cache_dtype=self.kv_cache_dtype,
+                token_seq_ids=prefix_seq_ids,
+                token_kv_lens=prefix_kv_lens,
+                token_query_positions=prefix_query_positions,
+                kv_head_for_query_head=kv_head_for_query_head,
+                key_query_group_indices=key_query_group_indices,
+                value_query_group_indices=(
+                    value_query_group_indices
+                ),
+                value_mse_inverse_matrices=(
+                    value_mse_inverse_matrices
+                ),
+                value_qjl_inverse_matrices=(
+                    value_qjl_inverse_matrices
+                ),
+                causal=False,
+                sinks=self.sinks,
+                logits_soft_cap=self.logits_soft_cap,
+                output_lse=prefix_lse,
+                out=prefix_output,
+            )
+
+            assert attn_metadata.suffix_kv_lens is not None
+            suffix_output = torch.empty_like(output)
+            suffix_lse = torch.empty(
+                (query.shape[1], query.shape[0]),
+                dtype=torch.float32,
+                device=query.device,
+            )
+            (
+                suffix_seq_ids,
+                suffix_kv_lens,
+                suffix_query_positions,
+            ) = self._build_turboquant_token_metadata(
+                attn_metadata,
+                kv_lens=attn_metadata.suffix_kv_lens,
+                query_position_offset=-common_prefix_len,
+            )
+            turboquant_decode_attention_fwd(
+                query=query,
+                key_cache=key_cache,
+                value_cache=value_cache,
+                block_table=attn_metadata.block_table[
+                    :, num_common_blocks:
+                ],
+                query_start_loc=attn_metadata.query_start_loc,
+                seq_lens=attn_metadata.suffix_kv_lens,
+                key_group_indices=key_masks,
+                value_group_indices=value_masks,
+                key_rotations=rotations,
+                key_qjl_matrices=qjl_matrices,
+                value_rotations=rotations,
+                value_qjl_matrices=qjl_matrices,
+                centroids=centroids,
+                norm_lut=norm_lut,
+                softmax_scale=self.scale,
+                kv_cache_dtype=self.kv_cache_dtype,
+                token_seq_ids=suffix_seq_ids,
+                token_kv_lens=suffix_kv_lens,
+                token_query_positions=suffix_query_positions,
+                kv_head_for_query_head=kv_head_for_query_head,
+                key_query_group_indices=key_query_group_indices,
+                value_query_group_indices=(
+                    value_query_group_indices
+                ),
+                value_mse_inverse_matrices=(
+                    value_mse_inverse_matrices
+                ),
+                value_qjl_inverse_matrices=(
+                    value_qjl_inverse_matrices
+                ),
+                causal=True,
+                sinks=None,
+                logits_soft_cap=self.logits_soft_cap,
+                output_lse=suffix_lse,
+                out=suffix_output,
+            )
+            merge_attn_states(
+                output,
+                prefix_output,
+                prefix_lse,
+                suffix_output,
+                suffix_lse,
+            )
+            return output
+
+        turboquant_decode_attention_fwd(
+            query=query,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            block_table=attn_metadata.block_table,
+            query_start_loc=attn_metadata.query_start_loc,
+            seq_lens=attn_metadata.seq_lens,
+            key_group_indices=key_masks,
+            value_group_indices=value_masks,
+            key_rotations=rotations,
+            key_qjl_matrices=qjl_matrices,
+            value_rotations=rotations,
+            value_qjl_matrices=qjl_matrices,
+            centroids=centroids,
+            norm_lut=norm_lut,
+            softmax_scale=self.scale,
+            kv_cache_dtype=self.kv_cache_dtype,
+            token_seq_ids=token_seq_ids,
+            token_kv_lens=token_kv_lens,
+            token_query_positions=token_query_positions,
+            kv_head_for_query_head=kv_head_for_query_head,
+            key_query_group_indices=key_query_group_indices,
+            value_query_group_indices=(
+                value_query_group_indices
+            ),
+            value_mse_inverse_matrices=(
+                value_mse_inverse_matrices
+            ),
+            value_qjl_inverse_matrices=(
+                value_qjl_inverse_matrices
+            ),
+            causal=True,
+            sliding_window=self.sliding_window,
+            sinks=self.sinks,
+            mm_prefix_range=mm_prefix_range_tensor,
+            logits_soft_cap=self.logits_soft_cap,
+            out=output,
+        )
+        return output
+
+    # nvllm: end TurboQuant helper methods
 
     def forward(
         self,
@@ -556,6 +1575,24 @@ class TritonAttentionImpl(AttentionImpl):
                 output[:num_actual_tokens],
                 attn_metadata,
                 layer,
+            )
+
+        # nvllm: TurboQuant KV cache: dispatch to dedicated kernel.
+        if is_turboquant_kv_cache(self.kv_cache_dtype):
+            key_cache, value_cache = kv_cache.unbind(1)
+            packed_dim = get_turboquant_layout(
+                self.kv_cache_dtype, self.head_size
+            ).packed_dim
+            key_cache = key_cache.narrow(-1, 0, packed_dim)
+            value_cache = value_cache.narrow(-1, 0, packed_dim)
+            return self._forward_turboquant(
+                query=query[:num_actual_tokens],
+                key=key[:num_actual_tokens],
+                value=value[:num_actual_tokens],
+                key_cache=key_cache,
+                value_cache=value_cache,
+                output=output[:num_actual_tokens],
+                attn_metadata=attn_metadata,
             )
 
         # Per-token-head quantized KV cache: use separate scale caches.
@@ -694,6 +1731,64 @@ class TritonAttentionImpl(AttentionImpl):
             # For encoder attention,
             # we use direct Q, K, V tensors without caching
             return
+        # nvllm: TurboQuant KV cache: write packed KV.
+        if is_turboquant_kv_cache(self.kv_cache_dtype):
+            if kv_cache.numel() == 0:
+                return
+            self._validate_turboquant_device(key.device)
+            # NOTE: removed `(slot_mapping >= 0).any().item()`
+            # guard here because .item() triggers a GPU->CPU sync
+            # that is illegal during CUDA graph capture. The Triton
+            # write kernel already skips negative slot_mapping
+            # entries, so the guard is redundant.
+
+            assert self.turboquant_bits is not None
+            key_cache, value_cache = kv_cache.unbind(1)
+            (
+                _,
+                _,
+                centroids,
+                _,
+                layout,
+            ) = self._get_turboquant_tables(key.device)
+            key_masks, value_masks = (
+                self._ensure_turboquant_masks(key.device)
+            )
+            (
+                mse_transform_matrices,
+                qjl_transform_matrices,
+                mse_to_qjl_matrices,
+            ) = self._get_turboquant_update_tables(key.device)
+            key_cache_tq = key_cache.narrow(
+                -1, 0, layout.packed_dim
+            )
+            value_cache_tq = value_cache.narrow(
+                -1, 0, layout.packed_dim
+            )
+            turboquant_write_packed_kv(
+                x=key,
+                cache=key_cache_tq,
+                slot_mapping=slot_mapping,
+                layout=layout,
+                group_indices=key_masks,
+                mse_transform_matrices=mse_transform_matrices,
+                qjl_transform_matrices=qjl_transform_matrices,
+                mse_to_qjl_matrices=mse_to_qjl_matrices,
+                centroids=centroids,
+            )
+            turboquant_write_packed_kv(
+                x=value,
+                cache=value_cache_tq,
+                slot_mapping=slot_mapping,
+                layout=layout,
+                group_indices=value_masks,
+                mse_transform_matrices=mse_transform_matrices,
+                qjl_transform_matrices=qjl_transform_matrices,
+                mse_to_qjl_matrices=mse_to_qjl_matrices,
+                centroids=centroids,
+            )
+            return
+
         # Reshape the input keys and values and store them in the cache.
         if self._is_per_token_head_quant:
             self._ensure_scale_caches(kv_cache)
