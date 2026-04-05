@@ -82,7 +82,7 @@ nvllm_check_port() {
   local port="$1"
   local user
   user=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
-    | grep -E ":${port}->" | awk '{print $1}' | head -1)
+    | grep -E ":${port}->" | awk '{print $1}' | head -1 || true)
   if [ -n "$user" ]; then
     echo "WARNING: Port $port is already in use by container '$user'." >&2
     echo "         Stop it first or choose a different port." >&2
