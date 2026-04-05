@@ -15,7 +15,7 @@ source "$(dirname "$0")/common.sh"
 
 MODEL_ID="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 CONTAINER="nvllm"
-SERVED_NAME="agents"
+SERVED_NAME="default"
 PORT=8000
 
 # Parse flags

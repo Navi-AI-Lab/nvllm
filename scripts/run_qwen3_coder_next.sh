@@ -15,7 +15,7 @@ source "$(dirname "$0")/common.sh"
 
 MODEL_ID="GadflyII/Qwen3-Coder-Next-NVFP4"
 CONTAINER="nvllm"
-SERVED_NAME="agents"
+SERVED_NAME="default"
 PORT=8000
 
 # Parse flags

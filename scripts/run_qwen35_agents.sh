@@ -15,7 +15,7 @@ source "$(dirname "$0")/common.sh"
 
 MODEL_ID="Sehyo/Qwen3.5-122B-A10B-NVFP4"
 CONTAINER="nvllm"
-SERVED_NAME="agents"
+SERVED_NAME="default"
 PORT=8000
 
 # Parse flags
