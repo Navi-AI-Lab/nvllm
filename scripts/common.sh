@@ -15,7 +15,8 @@ nvllm_check_image() {
   if ! docker image inspect "$image" &>/dev/null; then
     echo "ERROR: Docker image '$image' not found." >&2
     echo "" >&2
-    echo "Build it first:" >&2
+    echo "Build it first (from the repo root):" >&2
+    echo "  cd $(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || echo /home/natfii/docker/nvllm)" >&2
     echo "  docker build -t nvllm:gb10 -f docker/Dockerfile.gb10 ." >&2
     exit 1
   fi
