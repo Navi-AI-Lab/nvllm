@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 MODEL_ID="GadflyII/Qwen3-Coder-Next-NVFP4"
-CONTAINER="nvllm-agents"
+CONTAINER="nvllm"
 SERVED_NAME="agents"
 PORT=8000
 

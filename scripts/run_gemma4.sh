@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 MODEL="${GEMMA4_MODEL_PATH:-$HOME/.cache/huggingface/hub/gemma-4-31B-it-NVFP4}"
-CONTAINER="nvllm-gemma4"
+CONTAINER="nvllm"
 SERVED_NAME="gemma4"
 PORT=8000
 

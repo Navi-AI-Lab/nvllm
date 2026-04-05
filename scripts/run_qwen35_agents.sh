@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 MODEL_ID="Sehyo/Qwen3.5-122B-A10B-NVFP4"
-CONTAINER="nvllm-agents"
+CONTAINER="nvllm"
 SERVED_NAME="agents"
 PORT=8000
 

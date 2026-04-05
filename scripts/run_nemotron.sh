@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
 MODEL_ID="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
-CONTAINER="nvllm-nemotron"
+CONTAINER="nvllm"
 SERVED_NAME="agents"
 PORT=8000
 
