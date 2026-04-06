@@ -4,6 +4,7 @@
 
 import copy
 import hashlib
+import math
 import os
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -935,22 +936,64 @@ def unify_kv_cache_spec_page_size(
         return kv_cache_spec
 
     max_page_size = max(page_sizes)
+
+    # Ensure block_size scaling works for attention layers by rounding
+    # max_page_size up.  Attention layers use .view() during reshape, which
+    # cannot tolerate inter-block padding (unlike MambaSpec's as_strided).
+    # Two constraints must be satisfied:
+    #   1. max_page_size must be divisible by each scalable layer's page_size
+    #      (so the block_size ratio is an integer).
+    #   2. The resulting scaled block_size for each scalable layer must be
+    #      divisible by ALL block_sizes in the model (for hash_block_size
+    #      compatibility in HybridKVCacheCoordinator).
+    #
+    # We achieve both by first normalising each scalable layer's page_size
+    # to what it would be at block_size = LCM(all block_sizes), then
+    # rounding max_page_size to a multiple of the LCM of those values.
+    all_block_sizes = {
+        spec.block_size for spec in kv_cache_spec.values()
+        if spec.block_size is not None
+    }
+    scalable_unit_pages = set()
+    if all_block_sizes:
+        lcm_bs = math.lcm(*all_block_sizes)
+        for layer_spec in kv_cache_spec.values():
+            if (layer_spec.block_size is not None
+                    and layer_spec.page_size_bytes < max_page_size):
+                # Scale this layer's page_size up to block_size = lcm_bs
+                unit = layer_spec.page_size_bytes * (
+                    lcm_bs // layer_spec.block_size)
+                scalable_unit_pages.add(unit)
+
+    if scalable_unit_pages:
+        lcm_unit = math.lcm(*scalable_unit_pages)
+        if max_page_size % lcm_unit != 0:
+            max_page_size = cdiv(max_page_size, lcm_unit) * lcm_unit
+
     new_kv_cache_spec = {}
     for layer_name, layer_spec in kv_cache_spec.items():
-        if layer_spec.page_size_bytes == max_page_size:
+        layer_page_size = layer_spec.page_size_bytes
+        if layer_page_size == max_page_size:
             new_kv_cache_spec[layer_name] = layer_spec
         else:
-            layer_page_size = layer_spec.page_size_bytes
-            if max_page_size % layer_page_size != 0:
-                raise NotImplementedError(
-                    "The page size of the layer is not divisible by the "
-                    "maximum page size. Cannot unify by adjusting block_size."
-                )
-            ratio = max_page_size // layer_page_size
-            new_block_size = layer_spec.block_size * ratio
-            new_spec = replace(layer_spec, block_size=new_block_size)
-            assert new_spec.page_size_bytes == max_page_size
-            new_kv_cache_spec[layer_name] = new_spec
+            # Try adjusting block_size first (works for attention layers
+            # where page_size scales linearly with block_size).
+            if (layer_spec.block_size is not None
+                    and max_page_size % layer_page_size == 0):
+                ratio = max_page_size // layer_page_size
+                new_spec = replace(layer_spec,
+                                   block_size=layer_spec.block_size * ratio)
+                if new_spec.page_size_bytes == max_page_size:
+                    new_kv_cache_spec[layer_name] = new_spec
+                    continue
+            # Fall back to page_size_padded for layers where block_size
+            # scaling doesn't yield the target (e.g. MambaSpec / SSM).
+            if hasattr(layer_spec, 'page_size_padded'):
+                new_spec = replace(layer_spec,
+                                   page_size_padded=max_page_size)
+                new_kv_cache_spec[layer_name] = new_spec
+            else:
+                new_kv_cache_spec[layer_name] = layer_spec
     return new_kv_cache_spec
 
 
@@ -1362,9 +1405,10 @@ def _report_kv_cache_config(
         vllm_config: The global VllmConfig
         kv_cache_config: The resolved KV cache configuration
     """
-    min_block_size = min(
-        [group.kv_cache_spec.block_size for group in kv_cache_config.kv_cache_groups]
-    )
+    block_sizes = [group.kv_cache_spec.block_size
+                   for group in kv_cache_config.kv_cache_groups
+                   if group.kv_cache_spec.block_size is not None]
+    min_block_size = min(block_sizes) if block_sizes else 1
 
     # Log the KV cache size and maximum concurrency.
     num_tokens = (

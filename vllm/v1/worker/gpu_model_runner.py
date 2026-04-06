@@ -6492,15 +6492,25 @@ class GPUModelRunner(
                 continue
             block_size = kv_cache_group.kv_cache_spec.block_size
             block_sizes.append(block_size)
-            max_num_blocks_per_req = cdiv(
-                max_model_len, block_size * get_total_cp_world_size()
-            )
             if isinstance(kv_cache_group.kv_cache_spec, MambaSpec):
+                # MambaSpec (SSM/linear attention) may have block_size=None
+                if block_size is not None:
+                    max_num_blocks_per_req = cdiv(
+                        max_model_len,
+                        block_size * get_total_cp_world_size()
+                    )
+                else:
+                    max_num_blocks_per_req = 1
                 max_num_blocks_per_req = (
                     max_num_blocks_per_req
                     if self.cache_config.enable_prefix_caching
                     else 1
                 ) + kv_cache_group.kv_cache_spec.num_speculative_blocks
+            else:
+                max_num_blocks_per_req = cdiv(
+                    max_model_len,
+                    block_size * get_total_cp_world_size()
+                )
             max_num_blocks.append(max_num_blocks_per_req)
 
         if (

@@ -270,9 +270,11 @@ class EngineCore:
         vllm_config.cache_config.num_gpu_blocks = scheduler_kv_cache_config.num_blocks
         kv_cache_groups = scheduler_kv_cache_config.kv_cache_groups
         if kv_cache_groups:
-            vllm_config.cache_config.block_size = min(
-                g.kv_cache_spec.block_size for g in kv_cache_groups
-            )
+            valid_block_sizes = [g.kv_cache_spec.block_size
+                                 for g in kv_cache_groups
+                                 if g.kv_cache_spec.block_size is not None]
+            if valid_block_sizes:
+                vllm_config.cache_config.block_size = min(valid_block_sizes)
 
         vllm_config.validate_block_size()
 
