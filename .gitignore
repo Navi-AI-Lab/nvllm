@@ -242,6 +242,13 @@ vllm/grpc/vllm_engine_pb2.pyi
 # Ignore generated cpu headers 
 csrc/cpu/cpu_attn_dispatch_generated.h
 
+# nvllm-perf benchmark results & profiles
+benchmarks/nvllm/results/*.json
+benchmarks/nvllm/results/*.csv
+benchmarks/nvllm/results/*.html
+benchmarks/nvllm/results/*.nsys-rep
+benchmarks/nvllm/results/*.sqlite
+
 # nvllm: excluded from fork
 .claude/
 docs/superpowers/
@@ -250,3 +257,4 @@ __pycache__/
 *.log
 ab_results/
 training/
+scripts/local/

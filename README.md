@@ -67,14 +67,26 @@ curl http://localhost:8000/v1/chat/completions \
 
 | Script | Model | Active Params | Speed | Context |
 |--------|-------|---------------|-------|---------|
+| `run_qwen35_27b_nvfp4.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | 27B | TBD | 64K |
 | `run_nemotron.sh` | Nemotron-3-Super-120B | 12B | ~20 tok/s | 16K (128K w/ --tq) |
 | `run_qwen35.sh` | Qwen3.5-122B-A10B | 10B | ~25 tok/s | 32K |
 | `run_qwen3_coder_next.sh` | Qwen3-Coder-Next | 3B | ~34 tok/s | 128K |
 | `run_gemma4.sh` | Gemma 4 31B IT | 31B | ~7 tok/s | 32K |
 
+### Baseline Config
+
+All launch scripts use a standard baseline for consistent benchmarking:
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `max-num-seqs` | 4 | Fixed across all scripts — baseline for multi-user serving comparisons |
+| `kv-cache-dtype` | turboquant35 | TurboQuant 3.5-bit KV cache — default for all scripts |
+| `gpu-memory-utilization` | varies | Tuned per model to only what's needed for the target context length |
+
+Benchmarks are always run with `max-num-seqs=4` and TurboQuant KV so results are comparable across models and optimizations.
+
 ### Flags
 
 | Flag | Effect |
 |------|--------|
-| `--tq` | TurboQuant 3.5-bit KV cache (saves memory, enables longer context) |
 | `--debug` | Eager mode, no CUDA graphs (for debugging) |

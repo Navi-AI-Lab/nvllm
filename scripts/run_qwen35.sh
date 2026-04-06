@@ -6,7 +6,6 @@
 #
 # Usage:
 #   ./scripts/run_qwen35.sh          # Standard launch
-#   ./scripts/run_qwen35.sh --tq     # TurboQuant KV cache (saves memory)
 #   ./scripts/run_qwen35.sh --debug  # Eager mode, no CUDA graphs
 
 set -euo pipefail
@@ -19,11 +18,9 @@ SERVED_NAME="default"
 PORT=8000
 
 # Parse flags
-TQ=0
 DEBUG=0
 for arg in "$@"; do
   case "$arg" in
-    --tq)    TQ=1 ;;
     --debug) DEBUG=1 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
@@ -35,16 +32,11 @@ nvllm_ensure_model "$MODEL_ID"
 nvllm_cleanup_container "$CONTAINER"
 nvllm_check_port "$PORT"
 
-# Mode-specific flags
-if [ "$TQ" -eq 1 ]; then
-  KV_CACHE="turboquant35"
-  ATTN_BACKEND="TRITON_ATTN"
-else
-  KV_CACHE="fp8"
-  ATTN_BACKEND="triton_attn"
-fi
+# Serving config — TurboQuant KV cache for max context
+KV_CACHE="turboquant35"
+ATTN_BACKEND="TRITON_ATTN"
 MAX_MODEL_LEN=32768
-MAX_NUM_SEQS=16
+MAX_NUM_SEQS=4
 
 # Build extra args as array to preserve JSON quoting
 EXTRA_ARGS=()
@@ -60,7 +52,6 @@ echo "  KV cache:    $KV_CACHE"
 echo "  Context:     $MAX_MODEL_LEN tokens"
 echo "  Spec decode: MTP (native, 1 token)"
 echo "  Port:        $PORT"
-if [ "$TQ" -eq 1 ];   then echo "  Mode:        TurboQuant KV cache"; fi
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs)"; fi
 echo ""
 

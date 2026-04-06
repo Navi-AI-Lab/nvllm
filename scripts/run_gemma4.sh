@@ -6,7 +6,6 @@
 #
 # Usage:
 #   ./scripts/run_gemma4.sh          # Standard launch
-#   ./scripts/run_gemma4.sh --tq     # TurboQuant KV cache (saves memory)
 #   ./scripts/run_gemma4.sh --debug  # Eager mode, no CUDA graphs
 
 set -euo pipefail
@@ -19,11 +18,9 @@ SERVED_NAME="default"
 PORT=8000
 
 # Parse flags
-TQ=0
 DEBUG=0
 for arg in "$@"; do
   case "$arg" in
-    --tq)    TQ=1 ;;
     --debug) DEBUG=1 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
@@ -46,14 +43,9 @@ if [ ! -d "$MODEL" ]; then
   exit 1
 fi
 
-# Mode-specific flags
-if [ "$TQ" -eq 1 ]; then
-  KV_CACHE="turboquant35"
-  ATTN_BACKEND="TRITON_ATTN"
-else
-  KV_CACHE="fp8"
-  ATTN_BACKEND="triton_attn"
-fi
+# Serving config — TurboQuant KV cache for max context
+KV_CACHE="turboquant35"
+ATTN_BACKEND="TRITON_ATTN"
 
 # JSON args passed via env vars to avoid quoting issues inside bash -c
 SPEC_CONFIG='{"method": "ngram", "num_speculative_tokens": 3, "prompt_lookup_max": 3}'
@@ -68,9 +60,8 @@ echo "  Model:       $MODEL"
 echo "  KV cache:    $KV_CACHE"
 echo "  Context:     32768 tokens"
 echo "  Spec decode: ngram (3 tokens, prompt lookup max 3)"
-echo "  Max seqs:    16"
+echo "  Max seqs:    4"
 echo "  Port:        $PORT"
-if [ "$TQ" -eq 1 ];   then echo "  Mode:        TurboQuant KV cache"; fi
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs)"; fi
 echo ""
 
@@ -102,7 +93,7 @@ docker run -d \
   --kv-cache-dtype $KV_CACHE \
   --attention-backend $ATTN_BACKEND \
   --max-model-len 32768 \
-  --max-num-seqs 16 \
+  --max-num-seqs 4 \
   --quantization modelopt_fp4 \
   --language-model-only \
   --enable-prefix-caching \

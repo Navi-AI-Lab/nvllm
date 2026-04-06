@@ -2,7 +2,7 @@
 
 ## Our Standards
 
-This project is maintained by a small team focused on making vLLM run well on NVIDIA GB10 hardware. We welcome respectful discussion about the project.
+This project is personally maintained and focused on making vLLM run well on NVIDIA GB10 hardware. We welcome respectful discussion about the project.
 
 Be kind, be constructive, be patient.
 
