@@ -65,6 +65,8 @@ curl http://localhost:8000/v1/chat/completions \
 
 ### Available Models
 
+Benchmarks will eventually be dated and version pinned once repo is stable. For now ignore tok/s here.
+
 | Script | Model | Active Params | Speed | Context |
 |--------|-------|---------------|-------|---------|
 | `run_qwen35_27b_nvfp4.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | 27B | TBD | 64K |
