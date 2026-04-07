@@ -82,6 +82,8 @@ docker run -d \
   --trust-remote-code \
   --gpu-memory-utilization 0.80 \
   --max-num-batched-tokens 65536 \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes \
   "${EXTRA_ARGS[@]}"
 
 # MTP spec decode not yet supported for Qwen3_5ForCausalLM in this vLLM build.

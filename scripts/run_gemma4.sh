@@ -100,6 +100,8 @@ docker run -d \
   --trust-remote-code \
   --gpu-memory-utilization 0.85 \
   --max-num-batched-tokens 16384 \
+  --enable-auto-tool-choice \
+  --tool-call-parser gemma4 \
   --speculative-config \"\$NVLLM_SPEC_CONFIG\" \
   \$NVLLM_COMPILE_ARG"
 

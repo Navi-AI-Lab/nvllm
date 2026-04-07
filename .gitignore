@@ -249,6 +249,9 @@ benchmarks/nvllm/results/*.html
 benchmarks/nvllm/results/*.nsys-rep
 benchmarks/nvllm/results/*.sqlite
 
+# nvllm evaluation results (evals/)
+benchmarks/nvllm/results/evals/
+
 # nvllm: excluded from fork
 .claude/
 docs/superpowers/

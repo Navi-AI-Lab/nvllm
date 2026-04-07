@@ -110,8 +110,8 @@ def fused_sigmoid_gating_delta_rule_update_kernel(
             state_idx = tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(
                 tl.int64
             )
-            # Skip if state index is invalid (PAD_SLOT_ID = -1)
-            if state_idx < 0:
+            # Skip if state index is invalid (NULL_BLOCK_ID = 0 or PAD_SLOT_ID = -1)
+            if state_idx <= 0:
                 return
             p_h0 = h0 + state_idx * stride_init_state_token
         else:
