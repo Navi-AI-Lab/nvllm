@@ -56,6 +56,8 @@ echo "  Port:        $PORT"
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs)"; fi
 echo ""
 
+# NOTE: --enable-prefix-caching removed — corrupts SSM state in hybrid attention models.
+# Re-evaluate when upstream vLLM explicitly supports prefix caching + FLA/mamba.
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -76,7 +78,6 @@ docker run -d \
   --max-model-len "$MAX_MODEL_LEN" \
   --max-num-seqs "$MAX_NUM_SEQS" \
   --language-model-only \
-  --enable-prefix-caching \
   --mamba-cache-mode align \
   --mamba-block-size 64 \
   --trust-remote-code \
