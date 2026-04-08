@@ -81,8 +81,12 @@ docker run -d \
   --max-num-batched-tokens 16384 \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \
-  --override-generation-config '{"chat_template_kwargs": {"enable_thinking": false}}' \
   "${EXTRA_ARGS[@]}"
+
+# NOTE: --override-generation-config chat_template_kwargs does NOT work on this
+# vLLM build. To disable thinking, clients must send:
+#   "chat_template_kwargs": {"enable_thinking": false}
+# in each request body.
 
 echo "Container started: $CONTAINER"
 echo "  API:  http://localhost:${PORT}/v1"

@@ -85,12 +85,16 @@ docker run -d \
   --max-num-batched-tokens 65536 \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \
-  --override-generation-config '{"chat_template_kwargs": {"enable_thinking": false}}' \
   "${EXTRA_ARGS[@]}"
 
 # MTP spec decode not yet supported for Qwen3_5ForCausalLM in this vLLM build.
 # Re-enable when upstream adds support:
 #  --speculative-config '{"method": "mtp", "num_speculative_tokens": 1}'
+
+# NOTE: --override-generation-config chat_template_kwargs does NOT work on this
+# vLLM build. To disable thinking, clients must send:
+#   "chat_template_kwargs": {"enable_thinking": false}
+# in each request body.
 
 echo "Container started: $CONTAINER"
 echo "  API:  http://localhost:${PORT}/v1"
