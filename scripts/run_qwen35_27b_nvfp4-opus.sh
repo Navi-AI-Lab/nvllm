@@ -32,9 +32,9 @@ nvllm_check_image
 nvllm_cleanup_container "$CONTAINER"
 nvllm_check_port "$PORT"
 
-# Serving config — TurboQuant KV cache for max context
-KV_CACHE="turboquant35"
-ATTN_BACKEND="TRITON_ATTN"
+# Serving config — FP8 KV cache for max throughput
+KV_CACHE="auto"
+ATTN_BACKEND="triton_attn"
 MAX_MODEL_LEN=65536
 MAX_NUM_SEQS=4
 
