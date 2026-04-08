@@ -84,7 +84,8 @@ docker run -d \
   --gpu-memory-utilization 0.80 \
   --max-num-batched-tokens 65536 \
   --enable-auto-tool-choice \
-  --tool-call-parser hermes \
+  --tool-call-parser qwen3_coder \
+  --override-generation-config '{"chat_template_kwargs": {"enable_thinking": false}}' \
   "${EXTRA_ARGS[@]}"
 
 # MTP spec decode not yet supported for Qwen3_5ForCausalLM in this vLLM build.

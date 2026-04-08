@@ -79,7 +79,7 @@ docker run -d \
   --gpu-memory-utilization 0.85 \
   --max-num-batched-tokens 16384 \
   --enable-auto-tool-choice \
-  --tool-call-parser hermes \
+  --tool-call-parser qwen3_coder \
   --speculative-config '{"method": "mtp", "num_speculative_tokens": 1}' \
   "${EXTRA_ARGS[@]}"
 
