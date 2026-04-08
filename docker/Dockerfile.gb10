@@ -73,7 +73,7 @@ RUN pip install --no-cache-dir -r requirements/build.txt \
 
 # Build + install vLLM (editable so patches land in-place)
 RUN --mount=type=cache,target=/tmp/ccache \
-    pip install --no-build-isolation --no-deps -e . 2>&1 | tail -80
+    bash -c 'set -o pipefail && pip install --no-build-isolation --no-deps -e . 2>&1 | tail -80'
 
 # -- Triton (nightly, must match torch nightly's requirement) --
 RUN pip install --no-cache-dir triton \
