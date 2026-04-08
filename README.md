@@ -70,10 +70,10 @@ Benchmarks will eventually be dated and version pinned once repo is stable. For 
 | Script | Model | Active Params | Speed | Context |
 |--------|-------|---------------|-------|---------|
 | `run_qwen35_27b_nvfp4-opus.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | 27B | ~29 tok/s | 64K |
-| `run_nemotron.sh` | Nemotron-3-Super-120B | 12B | ~20 tok/s | 16K (128K w/ --tq) |
-| `run_qwen35.sh` | Qwen3.5-122B-A10B | 10B | ~25 tok/s | 32K |
-| `run_qwen3_coder_next.sh` | Qwen3-Coder-Next | 3B | ~34 tok/s | 128K |
-| `run_gemma4.sh` | Gemma 4 31B IT | 31B | ~7 tok/s | 32K |
+| `run_nemotron.sh` | Nemotron-3-Super-120B | 12B | TBD | 16K (128K w/ --tq) |
+| `run_qwen35.sh` | Qwen3.5-122B-A10B | 10B | TBD | 32K |
+| `run_qwen3_coder_next.sh` | Qwen3-Coder-Next | 3B | TBD | 128K |
+| `run_gemma4.sh` | Gemma 4 31B IT | 31B | TBD | 32K |
 
 ### Baseline Config
 
