@@ -69,7 +69,7 @@ Benchmarks will eventually be dated and version pinned once repo is stable. For 
 
 | Script | Model | Active Params | Speed | Context |
 |--------|-------|---------------|-------|---------|
-| `run_qwen35_27b_nvfp4-opus.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | 27B | ~29 tok/s | 64K |
+| `run_qwen35_27b_nvfp4-opus.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | 27B | ~45 tok/s | 64K |
 | `run_nemotron.sh` | Nemotron-3-Super-120B | 12B | TBD | 16K (128K w/ --tq) |
 | `run_qwen35.sh` | Qwen3.5-122B-A10B | 10B | TBD | 32K |
 | `run_qwen3_coder_next.sh` | Qwen3-Coder-Next | 3B | TBD | 128K |
@@ -93,3 +93,22 @@ Benchmarks are always run with `max-num-seqs=4` and FP8 KV so results are compar
 |------|--------|
 | `--tq` | TurboQuant KV cache — more context capacity, ~25% lower throughput |
 | `--debug` | Eager mode, no CUDA graphs (for debugging) |
+
+### SM120 Stream-K Decode Optimization
+
+This fork includes a custom CUTLASS FP4 GEMM kernel with **stream-K scheduling** for small-M decode (M≤16). Stream-K distributes K-dimension work across SMs, improving utilization when the batch size is too small to fill all SMs with standard tile scheduling.
+
+Based on CUTLASS's own `sm120_bs_gemm_nvf4_nvf4_f32_f32_stream_k` test kernel, adapted for vLLM's dispatch:
+- **Tile:** 128×128×256 (K doubled from default 128)
+- **Schedule:** `KernelTmaWarpSpecializedCooperative`
+- **Tile scheduler:** `StreamKScheduler`
+
+Benchmarked on Qwen3.5-27B-NVFP4 (rate=8, max-num-seqs=4):
+
+| Metric | Baseline | Stream-K | Delta |
+|--------|----------|----------|-------|
+| Output tok/s | 40.0 | 44.9 | **+12.2%** |
+| TPOT p50 | 89.2 ms | 80.0 ms | **-10.2%** |
+| TPOT p99 | 91.7 ms | 82.7 ms | **-9.8%** |
+
+> **Warning:** Large models (>75 GB) that leave minimal memory headroom on the GB10's 128 GB unified memory may crash during CUDA graph capture with the stream-K kernel. Use `--debug` (eager mode) to test first, or use a smaller model.

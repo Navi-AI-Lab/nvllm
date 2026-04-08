@@ -26,6 +26,7 @@
 #include "cutlass/epilogue/collective/collective_builder.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/gemm/dispatch_policy.hpp"
 
 #include "cutlass/util/packed_stride.hpp"
 
@@ -58,6 +59,14 @@ struct sm120_fp4_config_default {
   using ClusterShape = Shape<_1, _1, _1>;
   using MmaTileShape = Shape<_256, _128, _128>;
   using PerSmTileShape_MNK = Shape<_256, _128, _128>;
+};
+
+// Stream-K config for small-M decode: K=256, cooperative schedule
+// Distributes K-dimension work across SMs for better utilization at M=1-4
+struct sm120_fp4_config_stream_k {
+  using ClusterShape = Shape<_1, _1, _1>;
+  using MmaTileShape = Shape<_128, _128, _256>;
+  using PerSmTileShape_MNK = Shape<_128, _128, _256>;
 };
 
 template <typename Config, typename OutType>
@@ -104,6 +113,56 @@ struct Fp4GemmSm120 {
 
   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
       Shape<int, int, int, int>, CollectiveMainloop, CollectiveEpilogue, void>;
+
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+};
+
+// Stream-K variant: uses cooperative schedule + StreamKScheduler for small-M
+template <typename Config, typename OutType>
+struct Fp4GemmSm120StreamK {
+  using ElementA = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
+  using LayoutATag = cutlass::layout::RowMajor;
+  static constexpr int AlignmentA = 32;
+
+  using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
+  using LayoutBTag = cutlass::layout::ColumnMajor;
+  static constexpr int AlignmentB = 32;
+
+  using ElementD = OutType;
+  using ElementC = OutType;
+  using LayoutCTag = cutlass::layout::RowMajor;
+  using LayoutDTag = cutlass::layout::RowMajor;
+  static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
+  static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
+
+  using ElementAccumulator = float;
+  using ArchTag = cutlass::arch::Sm120;
+  using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
+
+  using MmaTileShape = typename Config::MmaTileShape;
+  using ClusterShape = typename Config::ClusterShape;
+  using PerSmTileShape_MNK = typename Config::PerSmTileShape_MNK;
+
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag, cutlass::arch::OpClassTensorOp, PerSmTileShape_MNK,
+          ClusterShape, cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator, ElementAccumulator, ElementC, LayoutCTag,
+          AlignmentC, ElementD, LayoutDTag, AlignmentD,
+          cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
+
+  using CollectiveMainloop =
+      typename cutlass::gemm::collective::CollectiveBuilder<
+          ArchTag, OperatorClass, ElementA, LayoutATag, AlignmentA, ElementB,
+          LayoutBTag, AlignmentB, ElementAccumulator, MmaTileShape,
+          ClusterShape,
+          cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+              sizeof(typename CollectiveEpilogue::SharedStorage))>,
+          cutlass::gemm::KernelTmaWarpSpecializedCooperative>::CollectiveOp;
+
+  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+      Shape<int, int, int, int>, CollectiveMainloop, CollectiveEpilogue,
+      cutlass::gemm::StreamKScheduler>;
 
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 };
@@ -188,7 +247,11 @@ void cutlass_fp4_bf16_gemm_dispatch(torch::stable::Tensor& D,
                                     torch::stable::Tensor const& alpha, int m,
                                     int n, int k, cudaStream_t stream) {
   uint32_t const mp2 = std::max(static_cast<uint32_t>(16), next_pow_2(m));
-  if (mp2 <= 256) {
+  if (mp2 <= 16) {
+    // Stream-K for small-M decode: better SM utilization at M=1-4
+    runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::bfloat16_t>::Gemm>(
+        D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
+  } else if (mp2 <= 256) {
     runGemm<Fp4GemmSm120<sm120_fp4_config_M256, cutlass::bfloat16_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else {
@@ -205,7 +268,10 @@ void cutlass_fp4_f16_gemm_dispatch(torch::stable::Tensor& D,
                                    torch::stable::Tensor const& alpha, int m,
                                    int n, int k, cudaStream_t stream) {
   uint32_t const mp2 = std::max(static_cast<uint32_t>(16), next_pow_2(m));
-  if (mp2 <= 256) {
+  if (mp2 <= 16) {
+    runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::half_t>::Gemm>(
+        D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
+  } else if (mp2 <= 256) {
     runGemm<Fp4GemmSm120<sm120_fp4_config_M256, cutlass::half_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else {
