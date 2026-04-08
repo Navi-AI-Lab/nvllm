@@ -6,7 +6,8 @@
 # Automatically downloads the model from Hugging Face on first run.
 #
 # Usage:
-#   ./scripts/run_qwen35_27b_nvfp4.sh          # Standard launch
+#   ./scripts/run_qwen35_27b_nvfp4.sh          # Standard launch (FP8 KV)
+#   ./scripts/run_qwen35_27b_nvfp4.sh --tq     # TurboQuant KV cache (more context)
 #   ./scripts/run_qwen35_27b_nvfp4.sh --debug  # Eager mode, no CUDA graphs
 
 set -euo pipefail
@@ -19,9 +20,11 @@ SERVED_NAME="default"
 PORT=8000
 
 # Parse flags
+TQ=0
 DEBUG=0
 for arg in "$@"; do
   case "$arg" in
+    --tq)    TQ=1 ;;
     --debug) DEBUG=1 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
@@ -32,9 +35,14 @@ nvllm_check_image
 nvllm_cleanup_container "$CONTAINER"
 nvllm_check_port "$PORT"
 
-# Serving config — FP8 KV cache for max throughput
-KV_CACHE="auto"
-ATTN_BACKEND="triton_attn"
+# Serving config
+if [ "$TQ" -eq 1 ]; then
+  KV_CACHE="turboquant35"
+  ATTN_BACKEND="TRITON_ATTN"
+else
+  KV_CACHE="auto"
+  ATTN_BACKEND="triton_attn"
+fi
 MAX_MODEL_LEN=65536
 MAX_NUM_SEQS=4
 
@@ -53,6 +61,7 @@ echo "  Context:     $MAX_MODEL_LEN tokens"
 echo "  Max seqs:    $MAX_NUM_SEQS"
 echo "  Spec decode: disabled (MTP pending upstream support)"
 echo "  Port:        $PORT"
+if [ "$TQ" -eq 1 ];   then echo "  Mode:        TurboQuant KV cache"; fi
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs)"; fi
 echo ""
 
