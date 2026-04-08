@@ -69,7 +69,7 @@ Benchmarks will eventually be dated and version pinned once repo is stable. For 
 
 | Script | Model | Active Params | Speed | Context |
 |--------|-------|---------------|-------|---------|
-| `run_qwen35_27b_nvfp4.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | 27B | TBD | 64K |
+| `run_qwen35_27b_nvfp4-opus.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | 27B | ~29 tok/s | 64K |
 | `run_nemotron.sh` | Nemotron-3-Super-120B | 12B | ~20 tok/s | 16K (128K w/ --tq) |
 | `run_qwen35.sh` | Qwen3.5-122B-A10B | 10B | ~25 tok/s | 32K |
 | `run_qwen3_coder_next.sh` | Qwen3-Coder-Next | 3B | ~34 tok/s | 128K |
@@ -82,13 +82,14 @@ All launch scripts use a standard baseline for consistent benchmarking:
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | `max-num-seqs` | 4 | Fixed across all scripts — baseline for multi-user serving comparisons |
-| `kv-cache-dtype` | turboquant35 | TurboQuant 3.5-bit KV cache — default for all scripts |
+| `kv-cache-dtype` | auto (FP8) | FP8 KV cache — best throughput. Use `--tq` for TurboQuant (more context, ~25% slower) |
 | `gpu-memory-utilization` | varies | Tuned per model to only what's needed for the target context length |
 
-Benchmarks are always run with `max-num-seqs=4` and TurboQuant KV so results are comparable across models and optimizations.
+Benchmarks are always run with `max-num-seqs=4` and FP8 KV so results are comparable across models and optimizations.
 
 ### Flags
 
 | Flag | Effect |
 |------|--------|
+| `--tq` | TurboQuant KV cache — more context capacity, ~25% lower throughput |
 | `--debug` | Eager mode, no CUDA graphs (for debugging) |
