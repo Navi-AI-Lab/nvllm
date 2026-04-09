@@ -27,6 +27,43 @@ If you use vLLM for your research, please cite their [paper](https://arxiv.org/a
 }
 ```
 
+## Quick Start (Prebuilt Image)
+
+Pull the prebuilt image (~15-25 GB) and run a model:
+
+```bash
+docker pull ghcr.io/navi-ai-lab/nvllm:latest
+
+docker run --gpus all --ipc=host --network host \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  -v ~/.cache/flashinfer:/root/.cache/flashinfer \
+  --entrypoint bash \
+  ghcr.io/navi-ai-lab/nvllm:latest \
+  scripts/serve_qwen35.sh
+```
+
+**Required flags:** `--gpus all --ipc=host --network host` (vLLM needs shared memory and GPU access).
+
+**Cache mounts** (recommended — avoid re-downloads and JIT recompilation on restart):
+- `~/.cache/huggingface` — model weights
+- `~/.cache/flashinfer` — FlashInfer JIT kernels
+- `~/.cache/vllm_compile` → `/root/.cache/vllm/torch_compile_cache` — CUDA graph cache
+
+**For gated models** (e.g., Gemma 4): pass `-e HF_TOKEN=hf_...` or mount a token file.
+
+### Available Serve Scripts
+
+| Script | Model | Context |
+|--------|-------|---------|
+| `serve_qwen35.sh` | Qwen3.5-122B-A10B-NVFP4 (MoE) | 32K |
+| `serve_qwen35_27b.sh` | Qwen3.5-27B-NVFP4-Opus (dense) | 64K |
+| `serve_nemotron.sh` | Nemotron-3-Super-120B-A12B-NVFP4 | 128K |
+| `serve_gemma4.sh` | Gemma 4 31B IT NVFP4 (local quant) | 32K |
+| `serve_qwen35_agents.sh` | Qwen3.5-122B-A10B-NVFP4 (agents) | 64K |
+| `serve_qwen3_coder_next.sh` | Qwen3-Coder-Next-NVFP4 | 128K |
+
+Also available on Docker Hub: `docker.io/naviailab/nvllm:latest`
+
 ## Quick Start
 
 ### Prerequisites
