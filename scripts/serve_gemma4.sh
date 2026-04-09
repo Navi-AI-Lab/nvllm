@@ -2,7 +2,8 @@
 # nvllm serve -- Gemma 4 31B IT (NVFP4) inside container
 #
 # Dense vision-language model with ngram speculative decoding.
-# Model must be quantized locally — bind mount the checkpoint as /model.
+# Supports both local mounts (-v /path:/model) and HF model IDs
+# (set GEMMA4_MODEL=RedHatAI/gemma-4-31B-it-NVFP4).
 #
 # Usage (from host):
 #   docker run --gpus all --ipc=host --network host \
@@ -21,7 +22,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 pip install --no-deps 'numba>=0.65' 2>&1 | tail -1
 
 exec vllm serve \
-  --model /model \
+  --model "${GEMMA4_MODEL:-/model}" \
   --served-model-name default \
   --host 0.0.0.0 --port 8000 \
   --kv-cache-dtype turboquant35 \

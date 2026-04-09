@@ -246,7 +246,7 @@ void cutlass_fp4_bf16_gemm_dispatch(torch::stable::Tensor& D,
                                     torch::stable::Tensor const& B_sf,
                                     torch::stable::Tensor const& alpha, int m,
                                     int n, int k, cudaStream_t stream) {
-  uint32_t const mp2 = std::max(static_cast<uint32_t>(16), next_pow_2(m));
+  uint32_t const mp2 = next_pow_2(m);
   if (mp2 <= 16) {
     // Stream-K for small-M decode: better SM utilization at M=1-4
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::bfloat16_t>::Gemm>(
@@ -267,7 +267,7 @@ void cutlass_fp4_f16_gemm_dispatch(torch::stable::Tensor& D,
                                    torch::stable::Tensor const& B_sf,
                                    torch::stable::Tensor const& alpha, int m,
                                    int n, int k, cudaStream_t stream) {
-  uint32_t const mp2 = std::max(static_cast<uint32_t>(16), next_pow_2(m));
+  uint32_t const mp2 = next_pow_2(m);
   if (mp2 <= 16) {
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::half_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);

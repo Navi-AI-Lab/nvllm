@@ -2,7 +2,7 @@
 # nvllm -- Run Gemma 4 31B IT (NVFP4) on DGX Spark (GB10)
 #
 # Dense vision-language model with ngram speculative decoding.
-# Model must be quantized locally first — no auto-pull available.
+# Supports both local checkpoints and HF model IDs (e.g., RedHatAI/gemma-4-31B-it-NVFP4).
 #
 # Usage:
 #   ./scripts/run_gemma4.sh          # Standard launch
@@ -12,7 +12,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/common.sh"
 
-MODEL="${GEMMA4_MODEL_PATH:-$HOME/.cache/huggingface/hub/gemma-4-31B-it-NVFP4}"
+MODEL="${GEMMA4_MODEL_PATH:-RedHatAI/gemma-4-31B-it-NVFP4}"
 CONTAINER="nvllm"
 SERVED_NAME="default"
 PORT=8000
@@ -31,16 +31,18 @@ nvllm_check_image
 nvllm_cleanup_container "$CONTAINER"
 nvllm_check_port "$PORT"
 
-# Gemma4 must be quantized locally — no HF pull
-if [ ! -d "$MODEL" ]; then
-  echo "ERROR: NVFP4 checkpoint not found at: $MODEL" >&2
-  echo "" >&2
-  echo "Quantize it first:" >&2
-  echo "  ./scripts/quantize_gemma4.sh" >&2
-  echo "" >&2
-  echo "Or point to an existing checkpoint:" >&2
-  echo "  GEMMA4_MODEL_PATH=/path/to/gemma-4-31B-it-NVFP4 $0" >&2
+# If MODEL is a local path, check it exists. If it looks like an HF ID, let vLLM pull it.
+if [[ "$MODEL" != */* ]] && [ ! -d "$MODEL" ]; then
+  echo "ERROR: Local model path not found: $MODEL" >&2
+  echo "  Set GEMMA4_MODEL_PATH to a local path or HF model ID" >&2
   exit 1
+elif [[ "$MODEL" == */* ]] && [ -d "$MODEL" ]; then
+  # Local path with a slash — mount it
+  MOUNT_ARGS="-v $MODEL:/model"
+  MODEL="/model"
+elif [[ "$MODEL" == */* ]]; then
+  # HF model ID — vLLM pulls directly, no mount needed
+  MOUNT_ARGS=""
 fi
 
 # Serving config — TurboQuant KV cache for max context
@@ -78,16 +80,17 @@ docker run -d \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
   -v "$HOME/.cache/vllm_compile:/root/.cache/vllm/torch_compile_cache" \
-  -v "$MODEL:/model" \
+  $MOUNT_ARGS \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -e NVLLM_SPEC_CONFIG="$SPEC_CONFIG" \
+  -e NVLLM_MODEL="$MODEL" \
   -e NVLLM_COMPILE_ARG="$COMPILE_ARG" \
   --entrypoint bash \
   "$NVLLM_IMAGE" \
   -c "pip install --no-deps 'numba>=0.65' 2>&1 | tail -1 && \
   exec python3 -m vllm.entrypoints.cli.main serve \
-  --model /model \
+  --model \$NVLLM_MODEL \
   --served-model-name $SERVED_NAME \
   --host 0.0.0.0 --port $PORT \
   --kv-cache-dtype $KV_CACHE \
