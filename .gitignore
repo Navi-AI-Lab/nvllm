@@ -253,6 +253,7 @@ benchmarks/nvllm/results/*.sqlite
 benchmarks/nvllm/results/evals/
 
 # nvllm: excluded from fork
+CLAUDE.md
 .claude/
 docs/superpowers/
 __pycache__/
