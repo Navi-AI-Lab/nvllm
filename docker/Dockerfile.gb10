@@ -62,9 +62,9 @@ RUN echo "torch==2.12.0.dev20260402+cu132" > /tmp/constraints.txt \
     && echo "torchaudio==2.11.0.dev20260402+cu132" >> /tmp/constraints.txt
 ENV PIP_CONSTRAINT=/tmp/constraints.txt
 
-# Install requirements (torch is pinned by constraint, won't be replaced)
-RUN pip install --no-cache-dir -r requirements/build.txt \
-    && pip install --no-cache-dir -r requirements/common.txt \
+# Install requirements (filter torch pins — we already installed nightly above)
+RUN grep -v '^torch==' requirements/build.txt | pip install --no-cache-dir -r /dev/stdin \
+    && grep -v '^torch==' requirements/common.txt | pip install --no-cache-dir -r /dev/stdin \
        --index-url https://download.pytorch.org/whl/nightly/cu132 \
        --extra-index-url https://pypi.org/simple/ \
     && pip install --no-cache-dir \
