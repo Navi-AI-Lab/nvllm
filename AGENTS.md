@@ -1,6 +1,17 @@
-# Agent Instructions for vLLM
+# Agent Instructions for nvllm
 
-> These instructions apply to **all** AI-assisted contributions to `vllm-project/vllm`.
+## nvllm Fork Context
+
+This is a fork of vLLM optimized for local inference on NVIDIA GB10 (DGX Spark).
+
+- **Target:** single-user or small-group local serving, not datacenter deployment
+- **Architecture:** SM120/SM121, 128 GB unified memory
+- **All development and testing happens on-device** — no CI cluster
+- **Custom patches live alongside upstream;** check upstream issues before debugging serving bugs
+
+---
+
+> The upstream contribution policy below still applies if pushing patches back to `vllm-project/vllm`.
 > Breaching these guidelines can result in automatic banning.
 
 ## 1. Contribution Policy (Mandatory)
