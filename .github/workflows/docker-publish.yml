@@ -7,7 +7,7 @@ on:
 
 env:
   GHCR_IMAGE: ghcr.io/navi-ai-lab/nvllm
-  DOCKERHUB_IMAGE: docker.io/naviailab/nvllm
+  DOCKERHUB_IMAGE: docker.io/natfii/nvllm
 
 jobs:
   build-and-push:
