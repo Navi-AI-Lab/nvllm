@@ -402,6 +402,11 @@ def _has_module(module_name: str) -> bool:
     return importlib.util.find_spec(module_name) is not None
 
 
+def has_fbgemm_gpu() -> bool:
+    """Whether the optional `fbgemm_gpu` package is available."""
+    return _has_module("fbgemm_gpu")
+
+
 def has_deep_ep() -> bool:
     """Whether the optional `deep_ep` package is available."""
     return _has_module("deep_ep")
