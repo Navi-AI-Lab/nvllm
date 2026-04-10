@@ -37,12 +37,14 @@ if [[ "$MODEL" != */* ]] && [ ! -d "$MODEL" ]; then
   echo "  Set GEMMA4_MODEL_PATH to a local path or HF model ID" >&2
   exit 1
 elif [[ "$MODEL" == */* ]] && [ -d "$MODEL" ]; then
-  # Local path with a slash — mount it
+  # Local path with a slash — mount it (assume modelopt quant)
   MOUNT_ARGS="-v $MODEL:/model"
+  QUANT_ARG="--quantization modelopt_fp4"
   MODEL="/model"
 elif [[ "$MODEL" == */* ]]; then
-  # HF model ID — vLLM pulls directly, no mount needed
+  # HF model ID — vLLM pulls directly, auto-detect quant format
   MOUNT_ARGS=""
+  QUANT_ARG=""
 fi
 
 # Serving config — TurboQuant KV cache for max context
@@ -85,10 +87,11 @@ docker run -d \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -e NVLLM_SPEC_CONFIG="$SPEC_CONFIG" \
   -e NVLLM_MODEL="$MODEL" \
+  -e NVLLM_QUANT_ARG="$QUANT_ARG" \
   -e NVLLM_COMPILE_ARG="$COMPILE_ARG" \
   --entrypoint bash \
   "$NVLLM_IMAGE" \
-  -c "pip install --no-deps 'numba>=0.65' 2>&1 | tail -1 && \
+  -c "pip install 'numba>=0.65' 'llvmlite>=0.47' 2>&1 | tail -1 && \
   exec python3 -m vllm.entrypoints.cli.main serve \
   --model \$NVLLM_MODEL \
   --served-model-name $SERVED_NAME \
@@ -97,7 +100,7 @@ docker run -d \
   --attention-backend $ATTN_BACKEND \
   --max-model-len 32768 \
   --max-num-seqs 4 \
-  --quantization modelopt_fp4 \
+  \$NVLLM_QUANT_ARG \
   --language-model-only \
   --enable-prefix-caching \
   --trust-remote-code \

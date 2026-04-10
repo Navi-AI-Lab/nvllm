@@ -19,7 +19,7 @@ export VLLM_NVFP4_GEMM_BACKEND=cutlass
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Gemma4 requires a newer numba than what ships in the image
-pip install --no-deps 'numba>=0.65' 2>&1 | tail -1
+pip install 'numba>=0.65' 'llvmlite>=0.47' 2>&1 | tail -1
 
 exec vllm serve \
   --model "${GEMMA4_MODEL:-/model}" \
@@ -29,7 +29,7 @@ exec vllm serve \
   --attention-backend TRITON_ATTN \
   --max-model-len 32768 \
   --max-num-seqs 4 \
-  --quantization modelopt_fp4 \
+  ${GEMMA4_QUANT:+--quantization $GEMMA4_QUANT} \
   --language-model-only \
   --enable-prefix-caching \
   --trust-remote-code \
