@@ -1115,7 +1115,7 @@ def summarize_decode_chunk_pages_lut(
 
 | b12x source | nvllm target | Changes needed |
 |---|---|---|
-| [`traits.py` L40-L65](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/traits.py#L40-L65) | `cute_paged/traits.py` | Query SM120 SMEM budget (228KB/SM); our model: head_dim=256, GQA=6 (not 8), FP8 KV. Adjust `gqa_group_size` checks in planner for 24Q/4KV. |
+| [`traits.py` L40-L65](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/traits.py#L40-L65) | `cute_paged/traits.py` | Query SM120 SMEM budget (228KB/SM); our model: head_dim=128, GQA=4 (32Q/8KV), FP8 KV. Adjust `gqa_group_size` checks in planner for group_size=4. |
 | [`traits.py` L128-L165](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/traits.py#L128-L165) | `cute_paged/traits.py` | `num_ctas_per_sm` calculation uses runtime SMEM query -- SM120 has 228KB vs SM100's 232KB. Verify 2-CTA occupancy still fits. |
 
 ### 7b. Decode Kernel
@@ -1131,8 +1131,8 @@ def summarize_decode_chunk_pages_lut(
 
 | b12x source | nvllm target | Changes needed |
 |---|---|---|
-| [`planner.py` L140-L165](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/planner.py#L140-L165) | `cute_paged/planner.py` | Directly reusable. Our GQA ratio=6 means `packed_qo_len = q_len * 6` -- for decode this is 6, well under the 16-row tile, so `cta_tile_q=16` always. |
-| [`planner.py` L23-L46](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/planner.py#L23-L46) | `cute_paged/planner.py` | Chunk tables are tuned for `gqa_group_size=8`. Needs re-tuning for `gqa_group_size=6` via `sweep_decode_graph_policy.py`. |
+| [`planner.py` L140-L165](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/planner.py#L140-L165) | `cute_paged/planner.py` | Directly reusable. Our GQA ratio=4 means `packed_qo_len = q_len * 4` -- for decode this is 4, well under the 16-row tile, so `cta_tile_q=16` always. |
+| [`planner.py` L23-L46](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/planner.py#L23-L46) | `cute_paged/planner.py` | Chunk tables are tuned for `gqa_group_size=8`. Needs re-tuning for `gqa_group_size=4` via `sweep_decode_graph_policy.py`. |
 | [`planner.py` L252-L312](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/planner.py#L252-L312) | `cute_paged/planner.py` | `PagedPlan` / `PagedPlanKey` dataclasses can be used verbatim. |
 
 ### 7d. Merge Kernel
@@ -1151,7 +1151,7 @@ def summarize_decode_chunk_pages_lut(
 
 ### 7f. Key Differences: Qwen3.5-27B vs b12x Tuning Target
 
-- **GQA ratio**: b12x tunes for 8 (Qwen3.5-397B). We need 6 (24Q/4KV for Qwen3.5-27B). Chunk tables and `packed_qo_len` calculations change.
+- **GQA ratio**: b12x tunes for 8 (Qwen3.5-397B). We need 4 (32Q/8KV for Qwen3.5-27B). Chunk tables and `packed_qo_len` calculations change.
 - **SM count**: b12x targets SM120 B200 (132 SMs). DGX Spark GB10 has fewer SMs. Persistent CTA grid sizing in merge kernel needs SM count query.
 - **FP8 validity rule**: `_paged_is_invalid` has `kv_is_fp8 and (num_mma_kv * 2) % num_warps_q != 0`. With our config (num_mma_kv=1, num_warps_q=1), this is `2 % 1 == 0` which is fine.
 
