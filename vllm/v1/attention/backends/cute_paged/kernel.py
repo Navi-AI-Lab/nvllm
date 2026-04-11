@@ -60,8 +60,210 @@ PREFILL_CONFIG = KernelConfig(
 )
 
 
-# --- Inline PTX utilities (Task 8) -----------------------------------------
-# Filled in by Task 8. When _CUTE_AVAILABLE is False, these are never called.
+# --- Inline PTX utilities ---------------------------------------------------
+# Adapted from lukealonso/b12x@c469c66 forward_paged.py.
+# All functions are @cute.jit and only exist when CUTLASS is installed.
+
+if _CUTE_AVAILABLE:
+
+    @cute.jit
+    def _permuted_offset_128b(row: Int32, col: Int32, stride: Int32) -> Int32:
+        """Bank-conflict-free SMEM offset for 128-byte rows.
+
+        XOR-based swizzle avoids bank conflicts when multiple warps
+        access adjacent rows in SMEM via ldmatrix.
+        Ref: b12x@c469c66 forward_paged.py _permuted_offset_128b
+        """
+        return row * stride + (col ^ ((row % Int32(8)) // Int32(1)))
+
+    @cute.jit
+    def _smem_addr_from_b128_offset(
+        base_addr: Int32, offset: Int32,
+    ) -> Int32:
+        """Convert 128-bit element offset to byte address for ldmatrix."""
+        return base_addr + offset * Int32(16)
+
+    @cute.jit
+    def shared_ptr_to_u32(ptr) -> Uint32:
+        """Convert shared memory pointer to u32 address for PTX."""
+        result = Uint32(0)
+        cutlass.arch.ptx(
+            "cvta.to.shared.u32 %0, %1;",
+            result, ptr, outputs=[result],
+        )
+        return result
+
+    @cute.jit
+    def ldmatrix_m8n8x4_b16(smem_addr: Int32):
+        """Load 4 x m8n8 matrix fragments from SMEM.
+
+        PTX: ldmatrix.sync.aligned.m8n8.x4.shared.b16
+        Returns 4 Uint32 registers containing BF16 pairs.
+        Ref: b12x@c469c66 forward_paged.py ldmatrix patterns
+        """
+        r0 = Uint32(0)
+        r1 = Uint32(0)
+        r2 = Uint32(0)
+        r3 = Uint32(0)
+        cutlass.arch.ptx(
+            "ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
+            "{%0, %1, %2, %3}, [%4];",
+            r0, r1, r2, r3, smem_addr,
+            outputs=[r0, r1, r2, r3],
+        )
+        return r0, r1, r2, r3
+
+    @cute.jit
+    def frag_layout_swizzle_16b_to_8b(val: Uint32) -> Uint32:
+        """Swizzle register layout from 16-bit to 8-bit element order.
+
+        Required after ldmatrix when SMEM holds FP8 data but ldmatrix
+        loads 16-bit granules.
+        Ref: b12x@c469c66 forward_paged.py frag_layout_swizzle_16b_to_8b
+        """
+        result = Uint32(0)
+        cutlass.arch.ptx(
+            "prmt.b32 %0, %1, %1, 0x6420;",
+            result, val,
+            outputs=[result],
+        )
+        return result
+
+    @cute.jit
+    def fp8x4_e4m3_to_bfloat2x2(val: Uint32):
+        """Convert 4 packed FP8 E4M3 values to 2 pairs of BF16 values.
+
+        Input: Uint32 with 4x FP8 E4M3 (8 bits each).
+        Output: Two Uint32 registers, each with 2x BF16.
+        Uses prmt to extract bytes + shl to align with BF16 format.
+        Ref: b12x@c469c66 forward_paged.py fp8x4_e4m3_to_bfloat2x2
+        """
+        lo = Uint32(0)
+        hi = Uint32(0)
+        cutlass.arch.ptx(
+            "{.reg .b32 tmp0, tmp1;\n"
+            " prmt.b32 tmp0, %2, 0, 0x5140;\n"
+            " prmt.b32 tmp1, %2, 0, 0x7362;\n"
+            " shl.b32 %0, tmp0, 8;\n"
+            " shl.b32 %1, tmp1, 8;\n"
+            "}",
+            lo, hi, val,
+            outputs=[lo, hi],
+        )
+        return lo, hi
+
+    @cute.jit
+    def bf16_mma_m16n16k16_f32(
+        d0, d1, d2, d3, d4, d5, d6, d7,
+        a0, a1, a2, a3,
+        b0, b1, b2, b3,
+    ):
+        """BF16 m16n16k16 MMA accumulating into FP32 registers.
+
+        Issues two m16n8k16 PTX instructions for a 16x16 output tile.
+        Ref: b12x@c469c66 forward_paged.py bf16_mma_m16n16k16_f32
+
+        Args:
+            d0-d7: FP32 accumulator (8 regs for m16n16 output)
+            a0-a3: A operand fragments (BF16 pairs from Q or P)
+            b0-b3: B operand fragments (BF16 pairs from K or V)
+        Returns: Updated d0-d7
+        """
+        # First m16n8k16: columns 0..7
+        cutlass.arch.ptx(
+            "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+            "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
+            "{%0, %1, %2, %3};",
+            d0, d1, d2, d3,
+            a0, a1, a2, a3,
+            b0, b1,
+            outputs=[d0, d1, d2, d3],
+        )
+        # Second m16n8k16: columns 8..15
+        cutlass.arch.ptx(
+            "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+            "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
+            "{%0, %1, %2, %3};",
+            d4, d5, d6, d7,
+            a0, a1, a2, a3,
+            b2, b3,
+            outputs=[d4, d5, d6, d7],
+        )
+        return d0, d1, d2, d3, d4, d5, d6, d7
+
+    @cute.jit
+    def exp2_approx_ftz_f32(x: Float32) -> Float32:
+        """Fast exp2 with flush-to-zero for online softmax.
+
+        Ref: b12x@c469c66 _exp2_approx_ftz_f32
+        """
+        result = Float32(0.0)
+        cutlass.arch.ptx(
+            "ex2.approx.ftz.f32 %0, %1;",
+            result, x,
+            outputs=[result],
+        )
+        return result
+
+    @cute.jit
+    def shfl_xor_sync(val: Float32, lane_mask: Int32) -> Float32:
+        """Warp shuffle XOR for row-max/row-sum reduction.
+
+        Full-warp mask (0xFFFFFFFF). Used in online softmax to find
+        row max and accumulate row sum across warp lanes.
+        """
+        result = Float32(0.0)
+        cutlass.arch.ptx(
+            "shfl.sync.bfly.b32 %0, %1, %2, 31, 0xFFFFFFFF;",
+            result, val, lane_mask,
+            outputs=[result],
+        )
+        return result
+
+    @cute.jit
+    def cp_async_load_128b(smem_addr: Uint32, gmem_ptr) -> None:
+        """Async copy 128 bits (16 bytes) from global to shared memory.
+
+        Uses cp.async.cg.shared.global for non-blocking transfer.
+        """
+        cutlass.arch.ptx(
+            "cp.async.cg.shared.global [%0], [%1], 16;",
+            smem_addr, gmem_ptr,
+        )
+
+    @cute.jit
+    def cp_async_commit_group() -> None:
+        """Commit the current group of async copies."""
+        cutlass.arch.ptx("cp.async.commit_group;")
+
+    @cute.jit
+    def cp_async_wait_group(n: Int32) -> None:
+        """Wait until at most n async copy groups are pending.
+
+        For num_stages=1, call with n=0 to wait for all copies.
+        """
+        if n == Int32(0):
+            cutlass.arch.ptx("cp.async.wait_group 0;")
+        else:
+            cutlass.arch.ptx("cp.async.wait_group 1;")
+
+    @cute.jit
+    def _lane_id() -> Int32:
+        """Get lane ID within the current warp (0..31)."""
+        result = Int32(0)
+        cutlass.arch.ptx(
+            "mov.u32 %0, %laneid;",
+            result,
+            outputs=[result],
+        )
+        return result
+
+    @cute.jit
+    def _warp_id() -> Int32:
+        """Get warp ID within the current CTA."""
+        tid = Int32(0)
+        cutlass.arch.ptx("mov.u32 %0, %tid.x;", tid, outputs=[tid])
+        return tid // Int32(32)
 
 # --- DecodeKernel class (Task 9) -------------------------------------------
 # Filled in by Task 9.
