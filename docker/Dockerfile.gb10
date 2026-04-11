@@ -1,12 +1,12 @@
-# nvllm -- vLLM for DGX Spark (GB10, SM120)
+# nvllm -- vLLM for DGX Spark (GB10, SM121)
 # Build: docker build -f docker/Dockerfile.gb10 -t nvllm:gb10 .
 #
 # This image builds vLLM from the nvllm fork (already patched -- no cherry-picks
-# or patch scripts needed). Target hardware: NVIDIA DGX Spark / GB10 (SM120).
+# or patch scripts needed). Target hardware: NVIDIA DGX Spark / GB10 (SM121).
 #
 # PyTorch: nightly cu132 pinned 2026-04-02
 # CUDA:    13.2 (devel base)
-# Arch:    SM120 only (keeps build fast)
+# Arch:    SM121a (GB10 arch-specific, enables native FP4 cvt.e2m1x2)
 
 FROM nvidia/cuda:13.2.0-devel-ubuntu24.04 AS builder
 
@@ -48,8 +48,11 @@ RUN pip install --no-cache-dir \
 COPY . /app/nvllm
 
 # -- Build vLLM C++/CUDA extensions --
-# Target SM120 (GB10 Blackwell) only -- keeps build time sane
-ENV TORCH_CUDA_ARCH_LIST="12.0"
+# Target SM121a (GB10 Blackwell) -- arch-specific suffix enables native
+# FP4 instructions (cvt.e2m1x2, mma.sync e2m1) globally.
+# PyTorch doesn't support 'f' suffix, so we use 'a' for SM121 specifically.
+# vLLM's cmake promotes to 12.0f internally for FP4/MLA/MOE kernel sets.
+ENV TORCH_CUDA_ARCH_LIST="12.1a"
 ENV VLLM_TARGET_DEVICE=cuda
 ENV MAX_JOBS=4
 ENV CCACHE_DIR=/tmp/ccache
@@ -83,8 +86,8 @@ RUN pip install --no-cache-dir triton \
 
 # -- Runtime NVIDIA libs --
 RUN pip install --no-cache-dir \
-    nvidia-cutlass-dsl==4.4.0 \
-    nvidia-cutlass-dsl-libs-base==4.4.0 \
+    nvidia-cutlass-dsl==4.4.2 \
+    nvidia-cutlass-dsl-libs-base==4.4.2 \
     || true
 
 # -- FlashInfer --
