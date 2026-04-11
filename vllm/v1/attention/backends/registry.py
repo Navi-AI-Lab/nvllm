@@ -81,6 +81,7 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
         "vllm.v1.attention.backends.rocm_aiter_unified_attn."
         "RocmAiterUnifiedAttentionBackend"
     )
+    CUTE_PAGED = "vllm.v1.attention.backends.cute_paged.CutePagedBackend"
     CPU_ATTN = "vllm.v1.attention.backends.cpu_attn.CPUAttentionBackend"
     # Placeholder for third-party/custom backends - must be registered before use
     # set to None to avoid alias with other backend, whose value is an empty string

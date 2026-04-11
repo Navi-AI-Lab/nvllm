@@ -132,6 +132,15 @@ def _get_backend_priorities(
                 AttentionBackendEnum.TRITON_ATTN,
                 AttentionBackendEnum.FLEX_ATTENTION,
             ]
+        elif device_capability.major >= 12:
+            # SM12x (RTX 5090, DGX Spark GB10)
+            return [
+                AttentionBackendEnum.CUTE_PAGED,
+                AttentionBackendEnum.FLASH_ATTN,
+                AttentionBackendEnum.FLASHINFER,
+                AttentionBackendEnum.TRITON_ATTN,
+                AttentionBackendEnum.FLEX_ATTENTION,
+            ]
         else:
             return [
                 AttentionBackendEnum.FLASH_ATTN,

@@ -59,6 +59,13 @@ else
   COMPILE_ARG="--compilation-config {\"cudagraph_mode\":\"PIECEWISE\"}"
 fi
 
+echo ""
+echo "WARNING: Gemma 4 performance is severely degraded on GB10 (~8x slower than Qwen3.5-27B)."
+echo "  All attention layers fall back to TRITON_ATTN due to mixed head_dim (256+512)."
+echo "  Waiting on upstream vLLM PR #38891 (per-layer attention backend) for a fix."
+echo "  Ngram spec decode acceptance is <1% — adds overhead with no benefit."
+echo "  Use Qwen3.5-27B for production workloads until this is resolved."
+echo ""
 echo "=== Launching Gemma 4 31B IT (NVFP4) ==="
 echo "  Model:       $MODEL"
 echo "  KV cache:    $KV_CACHE"

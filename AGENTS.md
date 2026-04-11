@@ -127,6 +127,97 @@ Signed-off-by: Your Name <your.email@example.com>
 
 ---
 
+## 3. Kernel Work Attribution & Documentation
+
+When adding, adapting, or deriving kernel code from external sources (other projects,
+papers, reference implementations), follow these rules for traceability and proper credit.
+
+### Pin the source
+
+All references must link to a **specific commit hash**, not a branch or tag that can move.
+
+```
+# Good — pinned permalink
+https://github.com/user/repo/blob/abc123def.../path/to/file.py#L42-L80
+
+# Bad — moves over time
+https://github.com/user/repo/blob/main/path/to/file.py
+```
+
+### Create an insights doc
+
+For each external source, create a dedicated document in `docs/kernel-insights/`:
+
+```
+docs/kernel-insights/YYYY-MM-DD-<source-name>.md
+```
+
+Each doc must contain:
+- **Source**: repository URL, pinned commit hash, license
+- **What was borrowed**: list each piece (function, algorithm, approach, design pattern)
+- **Why**: what problem it solves, why we chose this approach over alternatives
+- **How it was adapted**: what changed for our target (SM121, vLLM integration, etc.)
+- **Per-piece links**: every borrowed piece gets a direct permalink to the source line(s)
+
+### README acknowledgment
+
+Add an entry in the README's acknowledgments section with:
+- Maintainer/author credit
+- One-line description of what their work enabled
+- Link to the insights doc for full details
+
+### Verification checklist
+
+Before committing kernel work derived from external sources:
+1. All permalink URLs resolve (test them)
+2. License compatibility confirmed
+3. Insights doc is complete (no TBD/TODO)
+4. README acknowledgment added
+5. Commit message references the insights doc
+
+## 4. Performance Evidence Standard
+
+**Every performance claim must be backed by a committed nsys trace.** No rounding, no
+cherry-picking — report what nsys reports.
+
+### Trace directory structure
+
+```
+benchmarks/nvllm/traces/<area>/YYYY-MM-DD-<description>/
+  baseline.nsys-rep        # before (or comparison backend)
+  changed.nsys-rep         # after (or new backend)
+  summary.md               # human-readable comparison
+```
+
+### summary.md requirements
+
+Each summary must include:
+- **Commit hash** of the code that produced the trace
+- **Model and config** used (model name, kv-cache-dtype, max-model-len, etc.)
+- **Kernel duration table** with exact μs values from nsys (no rounding)
+- **How to reproduce** — exact commands to regenerate the trace
+
+### Citing traces in docs and changelogs
+
+```markdown
+Decode attention improved 31% (142.3 μs → 98.1 μs).
+([trace](benchmarks/nvllm/traces/cute_paged_attn/2026-05-15-initial/summary.md), commit abc123)
+```
+
+### Failure evidence
+
+When baseline validation fails or a regression is found, also commit the trace under
+`benchmarks/nvllm/traces/baseline_failures/YYYY-MM-DD/` with `docker_logs.txt`, the raw
+API response, and a summary of what went wrong.
+
+### nsys requirements
+
+- Container must run with `--privileged` for CUPTI injection
+- Use `--trace=cuda,nvtx` at minimum
+- `.nsys-rep` files are binary but typically 5-20 MB — commit them alongside the summary
+
+---
+
 ## Domain-Specific Guides
 
 Do not modify code in these areas without first reading and following the

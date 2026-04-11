@@ -125,6 +125,12 @@ RUN pip install --no-cache-dir \
     ijson llvmlite \
     || true
 
+# -- Pre-compile CuTe attention kernels (non-fatal placeholder) --
+RUN B12X_CUTE_COMPILE_DISK_CACHE=1 \
+    B12X_CUTE_COMPILE_CACHE_DIR=/opt/vllm/kernel_cache \
+    python -m vllm.v1.attention.backends.cute_paged.warmup \
+    --arch sm_121 || true
+
 # -- Templates --
 COPY templates/nemotron_no_think.jinja /templates/nemotron_no_think.jinja
 

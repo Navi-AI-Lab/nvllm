@@ -190,6 +190,7 @@ cython_debug/
 
 # Claude
 .claude/
+docs/superpowers/
 
 # Codex
 .codex/
