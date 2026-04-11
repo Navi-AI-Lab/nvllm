@@ -19,6 +19,7 @@ import logging
 import os
 import pickle
 import sys
+import threading
 from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _PATCHED = False
+_PATCH_LOCK = threading.Lock()
 _CUTE_PAGED_ROOT = Path(__file__).resolve().parent
 
 
@@ -396,55 +398,59 @@ def apply_disk_cache_patch(cache_dir: str, enabled: bool = True) -> None:
     if not enabled:
         return
     if _PATCHED:
-        logger.debug("CuTe DSL disk cache patch already applied, skipping.")
         return
-    try:
-        from cutlass.base_dsl.compiler import CompileCallable
-        from cutlass.base_dsl.dsl import BaseDSL
-    except (AttributeError, ImportError) as e:
-        logger.warning(
-            "CuTe DSL disk cache patch failed (CUTLASS not available): %s. "
-            "Falling back to in-memory cache (first request will be slow).", e,
-        )
-        return
+    with _PATCH_LOCK:
+        if _PATCHED:
+            logger.debug("CuTe DSL disk cache patch already applied, skipping.")
+            return
+        try:
+            from cutlass.base_dsl.compiler import CompileCallable
+            from cutlass.base_dsl.dsl import BaseDSL
+        except (AttributeError, ImportError) as e:
+            logger.warning(
+                "CuTe DSL disk cache patch failed (CUTLASS not available): %s. "
+                "Falling back to in-memory cache (first request will be slow).",
+                e,
+            )
+            return
 
-    original_compile = CompileCallable._compile
-    original_print_warning = BaseDSL.print_warning
-    original_print_warning_once = BaseDSL.print_warning_once
+        original_compile = CompileCallable._compile
+        original_print_warning = BaseDSL.print_warning
+        original_print_warning_once = BaseDSL.print_warning_once
 
-    @wraps(original_compile)
-    def _cached_compile(self, func, *args, **kwargs):
-        key = _build_full_cache_key(self, func, args, kwargs)
-        # Try native CUTLASS format first, then pickle fallback
-        cached = _load_native(cache_dir, key)
-        if cached is not None:
-            return cached
-        cached = load_from_disk(cache_dir, key)
-        if cached is not None:
-            return cached
-        result = original_compile(self, func, *args, **kwargs)
-        # Try native store, fall back to pickle
-        if not _store_native(cache_dir, key, result):
-            try:
-                store_to_disk(cache_dir, key, result)
-            except Exception:
-                pass
-        return result
+        @wraps(original_compile)
+        def _cached_compile(self, func, *args, **kwargs):
+            key = _build_full_cache_key(self, func, args, kwargs)
+            # Try native CUTLASS format first, then pickle fallback
+            cached = _load_native(cache_dir, key)
+            if cached is not None:
+                return cached
+            cached = load_from_disk(cache_dir, key)
+            if cached is not None:
+                return cached
+            result = original_compile(self, func, *args, **kwargs)
+            # Try native store, fall back to pickle
+            if not _store_native(cache_dir, key, result):
+                try:
+                    store_to_disk(cache_dir, key, result)
+                except Exception:
+                    pass
+            return result
 
-    @wraps(original_print_warning)
-    def _patched_print_warning(self, message):
-        if message == _COMPILE_ONLY_CACHE_WARNING:
-            return None
-        return original_print_warning(self, message)
+        @wraps(original_print_warning)
+        def _patched_print_warning(self, message):
+            if message == _COMPILE_ONLY_CACHE_WARNING:
+                return None
+            return original_print_warning(self, message)
 
-    @wraps(original_print_warning_once)
-    def _patched_print_warning_once(self, message):
-        if message == _COMPILE_ONLY_CACHE_WARNING:
-            return None
-        return original_print_warning_once(self, message)
+        @wraps(original_print_warning_once)
+        def _patched_print_warning_once(self, message):
+            if message == _COMPILE_ONLY_CACHE_WARNING:
+                return None
+            return original_print_warning_once(self, message)
 
-    CompileCallable._compile = _cached_compile
-    BaseDSL.print_warning = _patched_print_warning
-    BaseDSL.print_warning_once = _patched_print_warning_once
-    _PATCHED = True
-    logger.info("CuTe DSL disk cache enabled: %s", cache_dir)
+        CompileCallable._compile = _cached_compile
+        BaseDSL.print_warning = _patched_print_warning
+        BaseDSL.print_warning_once = _patched_print_warning_once
+        _PATCHED = True
+        logger.info("CuTe DSL disk cache enabled: %s", cache_dir)
