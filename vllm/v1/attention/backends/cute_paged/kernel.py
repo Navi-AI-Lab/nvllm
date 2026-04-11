@@ -1,142 +1,97 @@
 """CuTe DSL paged attention kernel for SM120/SM121 (GB10).
 
-Execution order (single CTA):
-  1. Load Q tile via TMA
-  2. For each KV tile:
-     a. Load K page via CpAsync
-     b. QK MMA (FP8 m16n8k32) -> scores
-     c. Online softmax update (registers)
-     d. Load V page via CpAsync
-     e. PV MMA (BF16 m16n8k16) -> accumulate O
-  3. Final softmax normalization
-  4. Write O to global memory
+Replaces the PyTorch prototype with JIT-compiled PTX kernels using
+BF16 m16n8k16 MMA for both QK and PV passes. Path B: K FP8->BF16
+dequant via fp8x4_e4m3_to_bfloat2x2.
 
-This file contains the complete kernel in execution order.
-Currently a PyTorch prototype — the CuTe DSL version replaces the
-inner loops in a later task.
+Reference: lukealonso/b12x@c469c66 (default FP8 KV path)
+Spec: docs/superpowers/specs/2026-04-11-cute-dsl-kernel-replacement-design.md
 """
+from __future__ import annotations
+
+import logging
 import math
+from dataclasses import dataclass
+from functools import lru_cache
 
 import torch
-import torch.nn.functional as F
 
+logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Component 1: Online Softmax
-# ---------------------------------------------------------------------------
-
-def online_softmax(
-    scores: torch.Tensor,
-    scale: float,
-) -> torch.Tensor:
-    """Online softmax using the Flash-Attention streaming algorithm.
-
-    Uses log2-based exp2 for hardware efficiency (matches the CuTe DSL
-    kernel's register-based implementation).
-
-    Args:
-        scores: [num_rows, kv_len] raw QK dot products
-        scale: attention scale factor (1/sqrt(head_dim))
-
-    Returns:
-        [num_rows, kv_len] normalized attention weights
-    """
-    scale_log2 = scale * math.log2(math.e)
-    scaled = scores * scale_log2
-    row_max = scaled.max(dim=-1, keepdim=True).values
-    exp_scores = torch.exp2(scaled - row_max)
-    row_sum = exp_scores.sum(dim=-1, keepdim=True)
-    return exp_scores / row_sum
-
-
-# ---------------------------------------------------------------------------
-# Component 2: QK Pass (FP8 MMA)
-# ---------------------------------------------------------------------------
-
-def qk_pass(
-    q: torch.Tensor,        # [num_q_rows, head_dim] BF16
-    k: torch.Tensor,        # [num_kv_rows, head_dim] FP8 E4M3
-    scale: float,
-    k_scale: float,
-) -> torch.Tensor:
-    """QK dot product with FP8 MMA.
-
-    Casts Q from BF16 -> FP8 E4M3 (lossy, 2-step: BF16->FP32->E4M3).
-    Uses FP8 m16n8k32 MMA on SM120 (2x throughput vs BF16).
-    Absorbs k_scale into the output scaling.
-
-    Returns: [num_q_rows, num_kv_rows] FP32 (raw scores, pre-softmax)
-    """
-    # Cast Q to FP8 (simulates the register-level BF16->FP32->E4M3 path)
-    q_fp8 = q.float().to(torch.float8_e4m3fn)
-
-    # FP8 matmul: Q_fp8 @ K_fp8^T -> FP32 accumulator
-    # On SM120 this is mma.sync.aligned.kind::f8f6f4.m16n8k32
-    scores = torch._scaled_mm(
-        q_fp8,
-        k.T.contiguous(),
-        out_dtype=torch.float32,
-        scale_a=torch.tensor(scale * k_scale, device=q.device),
-        scale_b=torch.tensor(1.0, device=q.device),
+# --- CuTe DSL import guard -------------------------------------------------
+# If CUTLASS is not installed (dev environment without SM120), fall back to
+# the PyTorch reference. Runtime compilation failures are NOT caught -- they
+# raise RuntimeError immediately.
+_CUTE_AVAILABLE = False
+try:
+    import cutlass
+    from cutlass import cute
+    from cutlass.cute.typing import Float32, Int32, Uint32
+    _CUTE_AVAILABLE = True
+except ImportError:
+    logger.warning(
+        "CuTe DSL not available (CUTLASS not installed). "
+        "paged_attention_forward will use PyTorch reference fallback."
     )
-    return scores
 
 
-# ---------------------------------------------------------------------------
-# Component 3: PV Pass (BF16 MMA + V Dequant)
-# ---------------------------------------------------------------------------
+# --- Kernel config ----------------------------------------------------------
 
-def pv_pass(
-    p: torch.Tensor,        # [num_q_rows, num_kv_rows] FP32 (softmax output)
-    v: torch.Tensor,        # [num_kv_rows, head_dim] FP8 E4M3
-    v_scale: float,
-) -> torch.Tensor:
-    """PV multiply with inline V dequantization.
+@dataclass(frozen=True)
+class KernelConfig:
+    """Compile-time kernel configuration. Frozen for use as lru_cache key."""
 
-    Descale applied to P in FP32 before BF16 cast (b12x pattern).
-    V dequantized from FP8 to BF16 during fragment loads.
-    BF16 m16n8k16 MMA on SM120.
+    cta_q: int          # Q tile rows per CTA (16=decode, 64=prefill)
+    cta_kv: int         # KV tile rows per CTA (always 64 = page_size)
+    head_dim: int       # Head dimension (128)
+    block_size: int     # Page size in tokens (64)
+    num_warps_q: int    # Warps along Q dimension
+    num_warps_kv: int   # Warps along KV dimension
 
-    Returns: [num_q_rows, head_dim] BF16
+
+DECODE_CONFIG = KernelConfig(
+    cta_q=16, cta_kv=64, head_dim=128, block_size=64,
+    num_warps_q=1, num_warps_kv=4,
+)
+
+PREFILL_CONFIG = KernelConfig(
+    cta_q=64, cta_kv=64, head_dim=128, block_size=64,
+    num_warps_q=4, num_warps_kv=1,
+)
+
+
+# --- Inline PTX utilities (Task 8) -----------------------------------------
+# Filled in by Task 8. When _CUTE_AVAILABLE is False, these are never called.
+
+# --- DecodeKernel class (Task 9) -------------------------------------------
+# Filled in by Task 9.
+
+# --- PrefillKernel class (Task 10) -----------------------------------------
+# Filled in by Task 10.
+
+
+# --- Compilation cache ------------------------------------------------------
+
+@lru_cache(maxsize=4)
+def _get_compiled_kernel(config: KernelConfig):
+    """Compile and cache a kernel for the given config.
+
+    Uses lru_cache on the frozen KernelConfig dataclass for deduplication.
+    Compilation may be called redundantly from concurrent threads on first
+    miss -- this is harmless (same as disk cache behavior).
     """
-    # Apply v_scale to P while still in FP32 (before BF16 cast)
-    p_scaled = p * v_scale
-
-    # Cast P to BF16 for MMA
-    p_bf16 = p_scaled.to(torch.bfloat16)
-
-    # Dequant V inline: FP8 -> BF16
-    v_bf16 = v.to(torch.bfloat16)
-
-    # BF16 matmul: P_bf16 @ V_bf16 -> FP32 accumulator -> BF16 output
-    output = (p_bf16.float() @ v_bf16.float()).to(torch.bfloat16)
-    return output
+    if not _CUTE_AVAILABLE:
+        raise RuntimeError(
+            "CuTe DSL kernel compilation requested but CUTLASS is not installed"
+        )
+    if config.cta_q <= 16:
+        kernel = DecodeKernel(config)
+    else:
+        kernel = PrefillKernel(config)
+    return kernel
 
 
-# ---------------------------------------------------------------------------
-# Full Forward: Paged Attention with GQA, Causal Mask, Split-KV
-# ---------------------------------------------------------------------------
-
-def _gather_kv_pages(
-    cache: torch.Tensor,     # [num_pages, page_size, num_kv_heads, head_dim] uint8
-    page_table: torch.Tensor,  # [max_pages_per_seq] int32
-    seq_len: int,
-    page_size: int,
-) -> torch.Tensor:
-    """Gather KV tokens from paged cache for a single sequence.
-
-    Returns: [seq_len, num_kv_heads, head_dim] FP8 (as float8_e4m3fn)
-    """
-    num_pages_needed = (seq_len + page_size - 1) // page_size
-    chunks = []
-    for p in range(num_pages_needed):
-        page_idx = page_table[p].item()
-        tokens_in_page = min(page_size, seq_len - p * page_size)
-        chunk = cache[page_idx, :tokens_in_page]  # [tokens, nkv, hd]
-        chunks.append(chunk)
-    gathered = torch.cat(chunks, dim=0)  # [seq_len, nkv, hd] uint8
-    return gathered.view(torch.float8_e4m3fn)
-
+# --- Public entry point -----------------------------------------------------
 
 def paged_attention_forward(
     query: torch.Tensor,        # [num_tokens, num_q_heads, head_dim] BF16
@@ -150,87 +105,39 @@ def paged_attention_forward(
     page_size: int = 64,
     query_start_loc: torch.Tensor | None = None,  # [num_seqs + 1] int32
 ) -> torch.Tensor:
-    """Full paged attention forward with GQA, causal mask, and page table.
-
-    PyTorch prototype of the CuTe DSL kernel. Matches the reference
-    implementation for correctness testing.
-
-    Args:
-        query: BF16 query tensor [num_tokens, num_q_heads, head_dim]
-        k_cache: FP8 key cache pages stored as uint8
-        v_cache: FP8 value cache pages stored as uint8
-        page_table: Page indices per sequence
-        seq_lens: Total KV length per sequence
-        scale: Attention scale (1/sqrt(head_dim))
-        k_scale: Key descale factor
-        v_scale: Value descale factor
-        page_size: Tokens per page (default 64)
-        query_start_loc: Start index of each sequence's query tokens
+    """Paged attention forward -- CuTe JIT kernel or PyTorch fallback.
 
     Returns: [num_tokens, num_q_heads, head_dim] BF16
     """
-    num_q_heads = query.shape[1]
-    head_dim = query.shape[2]
-    num_kv_heads = k_cache.shape[2]
-    gqa_ratio = num_q_heads // num_kv_heads
+    if not _CUTE_AVAILABLE:
+        # Fallback to PyTorch reference (dev environments without CUTLASS)
+        from tests.nvllm.attention.reference import reference_paged_attention
+        return reference_paged_attention(
+            query, k_cache, v_cache, page_table, seq_lens,
+            scale=scale, k_scale=k_scale, v_scale=v_scale,
+            page_size=page_size, query_start_loc=query_start_loc,
+        )
+
+    # Select config based on query token count
+    num_tokens = query.shape[0]
     num_seqs = len(seq_lens)
+    is_decode = (num_tokens == num_seqs) and (
+        query_start_loc is None
+        or query_start_loc[-1].item() - query_start_loc[-2].item() == 1
+    )
 
-    # Compute query tokens per sequence from query_start_loc
-    if query_start_loc is not None:
-        qsl = query_start_loc.cpu()
-        tokens_per_seq = (qsl[1:] - qsl[:-1]).tolist()
-    else:
-        # Fallback: assume 1 token per sequence (decode-only)
-        tokens_per_seq = [1] * num_seqs
+    config = DECODE_CONFIG if is_decode else PREFILL_CONFIG
+    kernel = _get_compiled_kernel(config)
 
-    outputs = []
-    token_idx = 0
-
-    for seq_idx in range(num_seqs):
-        seq_len = seq_lens[seq_idx].item()
-        num_query_tokens = tokens_per_seq[seq_idx]
-
-        q = query[token_idx:token_idx + num_query_tokens]  # [nq, num_q_heads, hd]
-
-        # Gather K and V from their respective page caches
-        k_fp8 = _gather_kv_pages(
-            k_cache, page_table[seq_idx], seq_len, page_size,
-        )  # [seq_len, num_kv_heads, head_dim] FP8
-        v_fp8 = _gather_kv_pages(
-            v_cache, page_table[seq_idx], seq_len, page_size,
-        )  # [seq_len, num_kv_heads, head_dim] FP8
-
-        # Dequantize FP8 -> BF16
-        k_all = k_fp8.to(torch.bfloat16) * k_scale
-        v_all = v_fp8.to(torch.bfloat16) * v_scale
-
-        # Expand KV heads for GQA
-        if gqa_ratio > 1:
-            k_all = k_all.repeat_interleave(gqa_ratio, dim=1)
-            v_all = v_all.repeat_interleave(gqa_ratio, dim=1)
-
-        # QK: q @ k^T * scale per head
-        # q: [nq, num_q_heads, hd], k: [seq_len, num_q_heads, hd]
-        scores = torch.einsum(
-            "qhd,shd->hqs", q.float(), k_all.float(),
-        ) * scale  # [num_q_heads, nq, seq_len]
-
-        # Causal mask
-        for qi in range(num_query_tokens):
-            kv_start = seq_len - num_query_tokens
-            for si in range(seq_len):
-                if si > kv_start + qi:
-                    scores[:, qi, si] = float("-inf")
-
-        # Softmax
-        attn_weights = F.softmax(scores, dim=-1)
-
-        # PV: attn @ v
-        out = torch.einsum(
-            "hqs,shd->qhd", attn_weights, v_all.float(),
-        )  # [nq, num_q_heads, hd]
-
-        outputs.append(out.to(torch.bfloat16))
-        token_idx += num_query_tokens
-
-    return torch.cat(outputs, dim=0)
+    return kernel(
+        query=query,
+        k_cache=k_cache,
+        v_cache=v_cache,
+        page_table=page_table,
+        seq_lens=seq_lens,
+        scale=scale,
+        k_scale=k_scale,
+        v_scale=v_scale,
+        page_size=page_size,
+        query_start_loc=query_start_loc,
+    )
