@@ -17,20 +17,25 @@ def attention_config():
     }
 
 
+def _make_fp8_cache(data: torch.Tensor) -> torch.Tensor:
+    """Convert BF16 data to FP8 uint8 cache format."""
+    return data.to(torch.float8_e4m3fn).view(torch.uint8)
+
+
 class TestReferenceCorrectness:
     def test_single_token_decode(self, attention_config):
         """Single decode token against short KV cache."""
         torch.manual_seed(42)
         q = torch.randn(1, 32, 128, dtype=torch.bfloat16, device="cuda")
-        # Create FP8 KV cache: 1 page, 64 tokens, 8 KV heads, 128 dim
         kv_data = torch.randn(1, 64, 8, 128, dtype=torch.bfloat16, device="cuda")
-        kv_cache = kv_data.to(torch.float8_e4m3fn).view(torch.uint8)
+        k_cache = _make_fp8_cache(kv_data)
+        v_cache = _make_fp8_cache(kv_data)
 
         page_table = torch.tensor([[0]], dtype=torch.int32, device="cuda")
         seq_lens = torch.tensor([32], dtype=torch.int32, device="cuda")
 
         out = reference_paged_attention(
-            q, kv_cache, page_table, seq_lens,
+            q, k_cache, v_cache, page_table, seq_lens,
             scale=attention_config["scale"],
         )
         assert out.shape == (1, 32, 128)
@@ -42,30 +47,49 @@ class TestReferenceCorrectness:
         torch.manual_seed(42)
         q = torch.randn(1, 32, 128, dtype=torch.bfloat16, device="cuda")
         kv_data = torch.randn(1, 64, 8, 128, dtype=torch.bfloat16, device="cuda")
-        kv_cache = kv_data.to(torch.float8_e4m3fn).view(torch.uint8)
+        k_cache = _make_fp8_cache(kv_data)
+        v_cache = _make_fp8_cache(kv_data)
         page_table = torch.tensor([[0]], dtype=torch.int32, device="cuda")
         seq_lens = torch.tensor([16], dtype=torch.int32, device="cuda")
 
         out = reference_paged_attention(
-            q, kv_cache, page_table, seq_lens,
+            q, k_cache, v_cache, page_table, seq_lens,
             scale=attention_config["scale"],
         )
-        # Output should have 32 heads (Q heads), not 8
         assert out.shape[1] == 32
 
     def test_causal_mask(self, attention_config):
         """Future tokens should not be attended to."""
         torch.manual_seed(42)
-        # 4 query tokens (prefill-like)
         q = torch.randn(4, 32, 128, dtype=torch.bfloat16, device="cuda")
         kv_data = torch.randn(1, 64, 8, 128, dtype=torch.bfloat16, device="cuda")
-        kv_cache = kv_data.to(torch.float8_e4m3fn).view(torch.uint8)
+        k_cache = _make_fp8_cache(kv_data)
+        v_cache = _make_fp8_cache(kv_data)
         page_table = torch.tensor([[0]], dtype=torch.int32, device="cuda")
         seq_lens = torch.tensor([4], dtype=torch.int32, device="cuda")
+        query_start_loc = torch.tensor([0, 4], dtype=torch.int32, device="cuda")
 
         out = reference_paged_attention(
-            q, kv_cache, page_table, seq_lens,
+            q, k_cache, v_cache, page_table, seq_lens,
             scale=attention_config["scale"],
+            query_start_loc=query_start_loc,
         )
         assert out.shape == (4, 32, 128)
+        assert not torch.isnan(out).any()
+
+    def test_multi_page(self, attention_config):
+        """KV cache spanning multiple pages."""
+        torch.manual_seed(42)
+        q = torch.randn(1, 32, 128, dtype=torch.bfloat16, device="cuda")
+        kv_data = torch.randn(4, 64, 8, 128, dtype=torch.bfloat16, device="cuda")
+        k_cache = _make_fp8_cache(kv_data)
+        v_cache = _make_fp8_cache(kv_data)
+        page_table = torch.tensor([[0, 1, 2, 3]], dtype=torch.int32, device="cuda")
+        seq_lens = torch.tensor([200], dtype=torch.int32, device="cuda")
+
+        out = reference_paged_attention(
+            q, k_cache, v_cache, page_table, seq_lens,
+            scale=attention_config["scale"],
+        )
+        assert out.shape == (1, 32, 128)
         assert not torch.isnan(out).any()

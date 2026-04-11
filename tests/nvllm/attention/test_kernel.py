@@ -185,7 +185,7 @@ class TestPagedAttentionForward:
             scale=scale, k_scale=1.0, v_scale=1.0,
         )
         expected = reference_paged_attention(
-            q, k_cache, page_table, seq_lens, scale=scale,
+            q, k_cache, v_cache, page_table, seq_lens, scale=scale,
         )
 
         torch.testing.assert_close(result, expected, atol=1e-2, rtol=1e-2)
