@@ -1,5 +1,11 @@
 """Pre-compile CuTe DSL attention kernels for Dockerfile build.
 
+Compiles exactly 2 kernel variants (decode + prefill) with dummy tensors
+to trigger NVRTC compilation. Results are captured by the disk cache for
+zero cold-start serving.
+
+If compilation fails, the script exits with code 1 -- Docker build fails.
+
 Usage:
     python -m vllm.v1.attention.backends.cute_paged.warmup --arch sm_121
     python -m vllm.v1.attention.backends.cute_paged.warmup --verify-only --cache-dir /opt/vllm/kernel_cache
@@ -9,40 +15,88 @@ import logging
 import os
 import sys
 
-logger = logging.getLogger(__name__)
+import torch
 
-# (cta_q, cta_kv, head_dim, block_size, stages, mma_type)
-WARMUP_CONFIGS = [
-    # head_dim=128 (Qwen2.5, Llama, etc.)
-    (64, 64, 128, 64, 4, "fp8_qk"),
-    (64, 64, 128, 64, 4, "bf16_pv"),
-    (16, 64, 128, 64, 2, "fp8_qk"),
-    (16, 64, 128, 64, 2, "bf16_pv"),
-    # head_dim=256 (Qwen3.5)
-    (64, 64, 256, 64, 4, "fp8_qk"),
-    (64, 64, 256, 64, 4, "bf16_pv"),
-    (16, 64, 256, 64, 2, "fp8_qk"),
-    (16, 64, 256, 64, 2, "bf16_pv"),
-]
+logger = logging.getLogger(__name__)
 
 
 def warmup(arch: str) -> int:
-    """Compile all kernel configs. Returns number compiled."""
+    """Compile all kernel configs. Returns number compiled.
+
+    Raises RuntimeError if any compilation fails.
+    """
     from vllm.v1.attention.backends.cute_paged.disk_cache import (
         apply_disk_cache_patch,
     )
+    from vllm.v1.attention.backends.cute_paged.kernel import (
+        DECODE_CONFIG,
+        PREFILL_CONFIG,
+        _get_compiled_kernel,
+    )
+
     cache_dir = os.environ.get(
         "B12X_CUTE_COMPILE_CACHE_DIR", "/opt/vllm/kernel_cache",
     )
     apply_disk_cache_patch(cache_dir=cache_dir)
 
+    configs = [
+        ("decode", DECODE_CONFIG),
+        ("prefill", PREFILL_CONFIG),
+    ]
+
     compiled = 0
-    for config in WARMUP_CONFIGS:
-        logger.info("Compiling config: %s", config)
-        # TODO: Trigger actual CuTe DSL compilation with dummy tensors
-        # matching each config's tile sizes. Currently a placeholder
-        # until the CuTe DSL kernel replaces the PyTorch prototype.
-        compiled += 1
+    for name, config in configs:
+        logger.info("Compiling %s kernel: %s", name, config)
+        try:
+            kernel = _get_compiled_kernel(config)
+            # Trigger compilation with dummy tensors.
+            # Shapes must be valid but values don't matter.
+            num_q_heads = 32
+            num_kv_heads = 8
+            head_dim = config.head_dim
+            page_size = config.block_size
+            num_pages = 2
+
+            q_tokens = config.cta_q  # decode=16, prefill=64
+            q = torch.zeros(
+                q_tokens, num_q_heads, head_dim,
+                dtype=torch.bfloat16, device="cuda",
+            )
+            k_cache = torch.zeros(
+                num_pages, page_size, num_kv_heads, head_dim,
+                dtype=torch.uint8, device="cuda",
+            )
+            v_cache = torch.zeros_like(k_cache)
+            page_table = torch.zeros(
+                1, num_pages, dtype=torch.int32, device="cuda",
+            )
+            seq_lens = torch.tensor(
+                [q_tokens], dtype=torch.int32, device="cuda",
+            )
+            query_start_loc = torch.tensor(
+                [0, q_tokens], dtype=torch.int32, device="cuda",
+            )
+
+            kernel(
+                query=q,
+                k_cache=k_cache,
+                v_cache=v_cache,
+                page_table=page_table,
+                seq_lens=seq_lens,
+                scale=1.0 / (head_dim ** 0.5),
+                k_scale=1.0,
+                v_scale=1.0,
+                page_size=page_size,
+                query_start_loc=query_start_loc,
+            )
+            compiled += 1
+            logger.info("Successfully compiled %s kernel", name)
+        except Exception as e:
+            logger.error("FAILED to compile %s kernel: %s", name, e)
+            raise RuntimeError(
+                f"CuTe kernel compilation failed for {name}: {e}"
+            ) from e
+
     return compiled
 
 
@@ -52,7 +106,7 @@ def verify(cache_dir: str) -> bool:
         logger.error("Cache directory not found: %s", cache_dir)
         return False
     count = sum(1 for _ in _iter_cache_files(cache_dir))
-    expected = len(WARMUP_CONFIGS)
+    expected = 2  # decode + prefill
     if count < expected:
         logger.error("Expected %d cached kernels, found %d", expected, count)
         return False
@@ -64,7 +118,9 @@ def _iter_cache_files(cache_dir: str):
     for subdir in os.listdir(cache_dir):
         subpath = os.path.join(cache_dir, subdir)
         if os.path.isdir(subpath):
-            yield from (os.path.join(subpath, f) for f in os.listdir(subpath))
+            yield from (
+                os.path.join(subpath, f) for f in os.listdir(subpath)
+            )
 
 
 def main():
