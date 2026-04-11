@@ -118,11 +118,11 @@ All launch scripts use a standard baseline for consistent benchmarking:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `max-num-seqs` | 4 | Fixed across all scripts — baseline for multi-user serving comparisons |
+| `max-num-seqs` | 4 or 2 | Small models (≤31B) get 4, larger models get 2. Fits a single GB10. |
 | `kv-cache-dtype` | auto (FP8) | FP8 KV cache — best throughput. Use `--tq` for TurboQuant (more context, ~25% slower) |
 | `gpu-memory-utilization` | varies | Tuned per model to only what's needed for the target context length |
 
-Benchmarks are always run with `max-num-seqs=4` and FP8 KV so results are comparable across models and optimizations.
+Benchmarks are always run with `max-num-seqs=4` or `max-num-seqs=2` and FP8 KV so results are comparable across models and optimizations.
 
 ### Flags
 

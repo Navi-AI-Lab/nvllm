@@ -36,7 +36,7 @@ nvllm_check_port "$PORT"
 KV_CACHE="turboquant35"
 ATTN_BACKEND="TRITON_ATTN"
 MAX_MODEL_LEN=65536
-MAX_NUM_SEQS=4
+MAX_NUM_SEQS=2
 
 # Build extra args as array to preserve JSON quoting
 EXTRA_ARGS=()
