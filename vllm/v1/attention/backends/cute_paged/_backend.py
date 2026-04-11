@@ -93,7 +93,7 @@ class CutePagedBackend(AttentionBackend):
 
     @classmethod
     def supports_head_size(cls, head_size: int) -> bool:
-        return head_size in (128, 256)
+        return head_size == 128
 
     @classmethod
     def supports_compute_capability(
@@ -123,9 +123,9 @@ class CutePagedBackend(AttentionBackend):
             raise ValueError(
                 f"CutePagedAttention requires block_size=64, got {block_size}"
             )
-        if head_size not in (128, 256):
+        if head_size != 128:
             raise ValueError(
-                f"CutePagedAttention requires head_size 128 or 256, got {head_size}"
+                f"CutePagedAttention requires head_size=128, got {head_size}"
             )
         # Dim 1 = 2 for K/V split (matches FlashInfer convention)
         return (num_blocks, 2, 64, num_kv_heads, head_size)
