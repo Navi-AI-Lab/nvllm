@@ -222,12 +222,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
 
         # kv_cache shape: [num_pages, 2, 64, num_kv_heads, head_dim] uint8
         # Dim 1: 0=K, 1=V (FlashInfer convention)
-        num_tokens = query.shape[0]
+        num_actual_tokens = attn_metadata.num_actual_tokens
         k_cache = kv_cache[:, 0]  # [num_pages, 64, num_kv_heads, head_dim]
         v_cache = kv_cache[:, 1]  # [num_pages, 64, num_kv_heads, head_dim]
 
         result = paged_attention_forward(
-            query=query,
+            query=query[:num_actual_tokens],
             k_cache=k_cache,
             v_cache=v_cache,
             page_table=attn_metadata.block_table,
@@ -239,8 +239,9 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             query_start_loc=attn_metadata.query_start_loc,
         )
 
-        # Output shape: [num_tokens, num_heads * head_dim]
-        output[:num_tokens].copy_(result.view(num_tokens, -1))
+        # Kernel returns 3D [num_actual_tokens, num_heads, head_dim],
+        # matching the output buffer shape from vLLM's attention layer.
+        output[:num_actual_tokens].copy_(result)
         return output
 
     def do_kv_cache_update(

@@ -149,3 +149,21 @@ Benchmarked on Qwen3.5-27B-NVFP4 (rate=8, max-num-seqs=4):
 | TPOT p99 | 91.7 ms | 82.7 ms | **-9.8%** |
 
 > **Warning:** Large models (>75 GB) that leave minimal memory headroom on the GB10's 128 GB unified memory may crash during CUDA graph capture with the stream-K kernel. Use `--debug` (eager mode) to test first, or use a smaller model.
+
+### CuTe Paged Attention Backend (Prototype)
+
+Custom paged attention backend using CuTe Python DSL, targeting SM120/SM121 FP8 MMA instructions. Registered as `CUTE_PAGED` in vLLM's attention backend registry.
+
+**Status:** Backend interface validated end-to-end. PyTorch prototype serves live inference. CuTe DSL kernel replacement in progress.
+
+Launch with: `bash scripts/run_qwen35_27b_cute_paged.sh --debug`
+
+## Acknowledgments
+
+- **[b12x](https://github.com/lukealonso/b12x)** by Luke Alonso — CuTe DSL paged attention with FP8 KV inline dequant, TMA plane loading, and split-KV merge. Reference implementation for the CuTe paged attention backend. Pinned at [`c469c66`](https://github.com/lukealonso/b12x/tree/c469c6637f6251adefc282956f5392e559ea915d).
+  - [`docs/kernel-insights/2026-04-10-b12x-cute-attention.md`](docs/kernel-insights/2026-04-10-b12x-cute-attention.md) — CuTe attention & disk cache patterns
+  - [`docs/kernel-insights/2026-04-11-b12x-paged-attention.md`](docs/kernel-insights/2026-04-11-b12x-paged-attention.md) — Full paged attention kernel architecture (1165 lines, 59 pinned permalinks)
+- **[CUTLASS PR #3030](https://github.com/NVIDIA/cutlass/pull/3030)** by blake-snc (Second Nature Computing) — SM120 Flash Attention v2 reference for fused multi-head attention on Blackwell.
+  - [`docs/kernel-insights/2026-04-10-cutlass-pr3030-sm120-fmha.md`](docs/kernel-insights/2026-04-10-cutlass-pr3030-sm120-fmha.md) — SM120 FMHA patterns and tile configs
+- **[CUTLASS](https://github.com/NVIDIA/cutlass)** by NVIDIA — CuTe Python DSL for SM120 kernel development. The FP4 decode GEMM kernel with stream-K scheduling is adapted from CUTLASS test kernels.
+- **[vLLM](https://github.com/vllm-project/vllm)** — The upstream project this fork is based on.
