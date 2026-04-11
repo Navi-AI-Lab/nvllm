@@ -10,7 +10,6 @@ Spec: docs/superpowers/specs/2026-04-11-cute-dsl-kernel-replacement-design.md
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -458,10 +457,7 @@ def _get_compiled_kernel(config: KernelConfig):
         raise RuntimeError(
             "CuTe DSL kernel compilation requested but CUTLASS is not installed"
         )
-    if config.cta_q <= 16:
-        kernel = DecodeKernel(config)
-    else:
-        kernel = PrefillKernel(config)
+    kernel = DecodeKernel(config) if config.cta_q <= 16 else PrefillKernel(config)
     return kernel
 
 

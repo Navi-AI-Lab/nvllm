@@ -8,7 +8,8 @@ If compilation fails, the script exits with code 1 -- Docker build fails.
 
 Usage:
     python -m vllm.v1.attention.backends.cute_paged.warmup --arch sm_121
-    python -m vllm.v1.attention.backends.cute_paged.warmup --verify-only --cache-dir /opt/vllm/kernel_cache
+    python -m vllm.v1.attention.backends.cute_paged.warmup \\
+        --verify-only --cache-dir /opt/vllm/kernel_cache
 """
 import argparse
 import logging

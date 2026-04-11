@@ -1,6 +1,6 @@
 """Tests for the PyTorch reference attention implementation."""
-import torch
 import pytest
+import torch
 
 from tests.nvllm.attention.reference import reference_paged_attention
 

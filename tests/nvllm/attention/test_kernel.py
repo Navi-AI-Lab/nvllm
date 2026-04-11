@@ -5,7 +5,6 @@ reference. Tolerance is >=2% per element (FP8 KV quantization + BF16
 truncation in the MMA path).
 """
 import torch
-import pytest
 
 from tests.nvllm.attention.reference import reference_paged_attention
 
