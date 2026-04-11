@@ -29,5 +29,6 @@ def __getattr__(name: str):
             "CutePagedMetadataBuilder": CutePagedMetadataBuilder,
             "CutePagedMetadata": CutePagedMetadata,
         }
+        globals().update(_exports)
         return _exports[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
