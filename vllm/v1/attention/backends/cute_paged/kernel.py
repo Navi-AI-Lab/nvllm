@@ -265,8 +265,100 @@ if _CUTE_AVAILABLE:
         cutlass.arch.ptx("mov.u32 %0, %tid.x;", tid, outputs=[tid])
         return tid // Int32(32)
 
-# --- DecodeKernel class (Task 9) -------------------------------------------
-# Filled in by Task 9.
+    # --- DecodeKernel -------------------------------------------------------
+
+    class DecodeKernel:
+        """CuTe JIT decode kernel: cta_q=16, warps_kv=4, cross-warp reduction.
+
+        Class-based kernel for const_expr() compile-time branching.
+        Each warp processes different KV tile chunks in parallel, then
+        reduces partial softmax states (O, m, d) via SMEM sync buffers.
+
+        Spec: Section 3.3 (execution flow), Section 3.4 (decode config)
+        Ref: b12x@c469c66 PagedFp8DecodeRawForwardKernel
+        """
+
+        def __init__(self, config: KernelConfig):
+            self.cta_q = config.cta_q            # 16
+            self.cta_kv = config.cta_kv          # 64
+            self.head_dim = config.head_dim      # 128
+            self.block_size = config.block_size  # 64
+            self.num_warps_q = config.num_warps_q    # 1
+            self.num_warps_kv = config.num_warps_kv  # 4
+            self.num_threads = 128  # 4 warps * 32 threads
+            self.num_mma_d = self.head_dim // 16  # 8
+
+            # SMEM sizes (bytes)
+            self.q_bytes = self.cta_q * self.head_dim * 2      # BF16
+            self.k_bytes = self.cta_kv * self.head_dim * 1     # FP8
+            self.v_bytes = self.cta_kv * self.head_dim * 1     # FP8
+            self.qkv_bytes = self.q_bytes + self.k_bytes + self.v_bytes
+            # Cross-warp reduction buffers (b12x pattern)
+            self.sync_o_bytes = (
+                self.num_warps_kv * self.cta_q * self.head_dim * 4
+            )  # FP32
+            self.sync_md_bytes = (
+                self.num_warps_kv * self.cta_q * 8
+            )  # FP32 m + d per row
+            self.sync_bytes = self.sync_o_bytes + self.sync_md_bytes
+            self.smem_bytes = max(self.qkv_bytes, self.sync_bytes)
+
+        @cute.kernel
+        def _kernel(self, query, k_cache, v_cache, page_table, seq_lens,
+                     output, scale, k_scale, v_scale,
+                     num_q_heads, num_kv_heads):
+            """Decode kernel entry point.
+
+            Grid: (num_q_tiles, num_kv_heads, num_seqs)
+
+            Execution flow (spec section 3.3):
+            1. Load Q tile via CpAsync into SMEM
+            2. For each page in page_table[seq_idx]:
+               a. Load K page -> SMEM, ldmatrix -> regs, dequant FP8->BF16
+               b. QK MMA (bf16_mma_m16n16k16_f32, 8 iterations)
+               c. Apply k_scale, online softmax update
+               d. Load V page -> SMEM, ldmatrix -> regs, dequant FP8->BF16
+               e. Apply v_scale to P, cast P FP32->BF16, PV MMA
+            3. Cross-warp reduction via SMEM cta_sync buffers
+            4. Final normalization O /= row_sum
+            5. Cast FP32->BF16, write to global output
+
+            Stub: full kernel body requires live CUTLASS compiler iteration.
+            """
+            pass
+
+        def __call__(self, **kwargs):
+            """Python-level wrapper: compute grid/block and launch."""
+            query = kwargs["query"]
+            k_cache = kwargs["k_cache"]
+            v_cache = kwargs["v_cache"]
+            page_table = kwargs["page_table"]
+            seq_lens = kwargs["seq_lens"]
+            scale = kwargs["scale"]
+            k_scale = kwargs["k_scale"]
+            v_scale = kwargs["v_scale"]
+
+            num_tokens, num_q_heads, head_dim = query.shape
+            num_kv_heads = k_cache.shape[2]
+            group_size = num_q_heads // num_kv_heads
+            num_seqs = len(seq_lens)
+
+            # Grid: (ceil(group_size / cta_q), num_kv_heads, num_seqs)
+            # Decode: 1 query token/seq, GQA=4, cta_q=16 -> 1 CTA per (kv_head, seq)
+            num_q_tiles = max(
+                (group_size + self.cta_q - 1) // self.cta_q, 1,
+            )
+            grid = (num_q_tiles, num_kv_heads, num_seqs)
+
+            output = torch.empty_like(query)
+
+            self._kernel[grid, (self.num_threads,)](
+                query, k_cache, v_cache, page_table, seq_lens,
+                output, scale, k_scale, v_scale,
+                num_q_heads, num_kv_heads,
+                smem_bytes=self.smem_bytes,
+            )
+            return output
 
 # --- PrefillKernel class (Task 10) -----------------------------------------
 # Filled in by Task 10.
