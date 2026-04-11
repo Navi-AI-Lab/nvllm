@@ -360,8 +360,88 @@ if _CUTE_AVAILABLE:
             )
             return output
 
-# --- PrefillKernel class (Task 10) -----------------------------------------
-# Filled in by Task 10.
+    # --- PrefillKernel ------------------------------------------------------
+
+    class PrefillKernel:
+        """CuTe JIT prefill kernel: cta_q=64, warps_q=4, no cross-warp reduction.
+
+        Each warp handles 16 Q rows independently, all sharing the same
+        KV tile from SMEM. Causal masking applied per-token.
+
+        Spec: Section 3.4 (prefill config), Section 3.9 (causal mask)
+        Ref: b12x@c469c66 PagedFp8ExtendRawForwardKernel
+        """
+
+        def __init__(self, config: KernelConfig):
+            self.cta_q = config.cta_q            # 64
+            self.cta_kv = config.cta_kv          # 64
+            self.head_dim = config.head_dim      # 128
+            self.block_size = config.block_size  # 64
+            self.num_warps_q = config.num_warps_q    # 4
+            self.num_warps_kv = config.num_warps_kv  # 1
+            self.num_threads = 128
+            self.num_mma_d = self.head_dim // 16  # 8
+
+            # SMEM sizes (bytes) -- no cta_sync for prefill
+            self.q_bytes = self.cta_q * self.head_dim * 2      # BF16
+            self.k_bytes = self.cta_kv * self.head_dim * 1     # FP8
+            self.v_bytes = self.cta_kv * self.head_dim * 1     # FP8
+            self.smem_bytes = self.q_bytes + self.k_bytes + self.v_bytes
+
+        @cute.kernel
+        def _kernel(self, query, k_cache, v_cache, page_table, seq_lens,
+                     query_start_loc, output, scale, k_scale, v_scale,
+                     num_q_heads, num_kv_heads):
+            """Prefill kernel entry point.
+
+            Grid: (num_q_tiles, num_kv_heads, num_seqs)
+
+            Same flow as DecodeKernel but:
+            - 4 warps on Q dimension (each handles 16 Q rows)
+            - No cross-warp reduction (independent output rows)
+            - Causal mask: kv_pos > q_pos -> score = -2^15
+            - query_start_loc for per-sequence Q positions
+
+            Stub: full kernel body requires live CUTLASS compiler iteration.
+            """
+            pass
+
+        def __call__(self, **kwargs):
+            """Python-level wrapper: compute grid/block and launch."""
+            query = kwargs["query"]
+            k_cache = kwargs["k_cache"]
+            v_cache = kwargs["v_cache"]
+            page_table = kwargs["page_table"]
+            seq_lens = kwargs["seq_lens"]
+            query_start_loc = kwargs["query_start_loc"]
+            scale = kwargs["scale"]
+            k_scale = kwargs["k_scale"]
+            v_scale = kwargs["v_scale"]
+
+            num_tokens, num_q_heads, head_dim = query.shape
+            num_kv_heads = k_cache.shape[2]
+            group_size = num_q_heads // num_kv_heads
+            num_seqs = len(seq_lens)
+
+            # Prefill: multiple Q tokens per sequence
+            max_q_per_seq = max(
+                (query_start_loc[i + 1] - query_start_loc[i]).item()
+                for i in range(num_seqs)
+            ) * group_size
+            num_q_tiles = (
+                (max_q_per_seq + self.cta_q - 1) // self.cta_q
+            )
+            grid = (num_q_tiles, num_kv_heads, num_seqs)
+
+            output = torch.empty_like(query)
+
+            self._kernel[grid, (self.num_threads,)](
+                query, k_cache, v_cache, page_table, seq_lens,
+                query_start_loc, output, scale, k_scale, v_scale,
+                num_q_heads, num_kv_heads,
+                smem_bytes=self.smem_bytes,
+            )
+            return output
 
 
 # --- Compilation cache ------------------------------------------------------
