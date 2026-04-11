@@ -58,7 +58,16 @@ def warmup(arch: str) -> int:
             page_size = config.block_size
             num_pages = 2
 
-            q_tokens = config.cta_q  # decode=16, prefill=64
+            # Decode: 1 query token per sequence (valid decode shape).
+            # Prefill: cta_q tokens for 1 sequence.
+            is_decode = config.cta_q <= 16
+            if is_decode:
+                q_tokens = 1
+                num_seqs = 1
+            else:
+                q_tokens = config.cta_q
+                num_seqs = 1
+
             q = torch.zeros(
                 q_tokens, num_q_heads, head_dim,
                 dtype=torch.bfloat16, device="cuda",
@@ -69,10 +78,10 @@ def warmup(arch: str) -> int:
             )
             v_cache = torch.zeros_like(k_cache)
             page_table = torch.zeros(
-                1, num_pages, dtype=torch.int32, device="cuda",
+                num_seqs, num_pages, dtype=torch.int32, device="cuda",
             )
             seq_lens = torch.tensor(
-                [q_tokens], dtype=torch.int32, device="cuda",
+                [q_tokens] * num_seqs, dtype=torch.int32, device="cuda",
             )
             query_start_loc = torch.tensor(
                 [0, q_tokens], dtype=torch.int32, device="cuda",

@@ -488,13 +488,15 @@ def paged_attention_forward(
             page_size=page_size, query_start_loc=query_start_loc,
         )
 
-    # Select config based on query token count
+    if page_size != 64:
+        raise ValueError(
+            f"CuTe paged attention requires page_size=64, got {page_size}"
+        )
+
+    # Select config: decode = one query token per sequence
     num_tokens = query.shape[0]
     num_seqs = len(seq_lens)
-    is_decode = (num_tokens == num_seqs) and (
-        query_start_loc is None
-        or query_start_loc[-1].item() - query_start_loc[-2].item() == 1
-    )
+    is_decode = num_tokens == num_seqs
 
     config = DECODE_CONFIG if is_decode else PREFILL_CONFIG
     kernel = _get_compiled_kernel(config)

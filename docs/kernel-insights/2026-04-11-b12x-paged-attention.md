@@ -1139,7 +1139,7 @@ def summarize_decode_chunk_pages_lut(
 
 | b12x source | nvllm target | Changes needed |
 |---|---|---|
-| [`merge.py` L220-L275](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/merge.py#L220-L275) | `cute_paged/merge.py` | Directly portable. `head_dim=256`, `vec_size=8`, `bdx=32` all match. `griddepcontrol` is SM90+ and works on SM120. |
+| [`merge.py` L220-L275](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/merge.py#L220-L275) | `cute_paged/merge.py` | Needs adaptation. b12x uses `head_dim=256`, `vec_size=8`; nvllm uses `head_dim=128`, `vec_size=4`. `bdx=32` unchanged. `griddepcontrol` is SM90+ and works on SM120. |
 | [`merge.py` L109-L143](https://github.com/lukealonso/b12x/blob/c469c6637f6251adefc282956f5392e559ea915d/b12x/attention/paged/merge.py#L109-L143) | `cute_paged/merge.py` | Base-2 LSE state merge arithmetic is architecture-independent. |
 
 ### 7e. Workspace / Graph Replay
