@@ -37,13 +37,15 @@ compiled `.o` file to disk.
 - Added simple public API (`build_cache_key`, `store_to_disk`, `load_from_disk`) for testing
 - Environment variable names kept compatible (`B12X_CUTE_COMPILE_CACHE_DIR`)
 
-### 2. FP8 Dequantization Pattern (Pending)
+### 2. FP8 Dequantization Pattern (Deferred)
 
-**Source file:** `b12x/attention/paged/forward_paged.py` (to be cited when CuTe DSL kernel replaces PyTorch prototype)
+**Source file:** `b12x/attention/paged/forward_paged.py`
 
 The `fp8x4_e4m3_to_bfloat2x2` dequantization and descale-on-P pattern
-(applying `v_scale` to P in FP32 before BF16 cast) will be ported in a
-later task when the CuTe DSL kernel replaces the PyTorch prototype.
+(applying `v_scale` to P in FP32 before BF16 cast) is handled by the
+`.contiguous()` copy path in the current implementation. Direct FP8 dequant
+in the CuTe DSL kernel is deferred — it will be revisited if/when the
+`.contiguous()` copy overhead is eliminated via strided addressing.
 
 ---
 
@@ -52,4 +54,4 @@ later task when the CuTe DSL kernel replaces the PyTorch prototype.
 - [x] All permalink URLs resolve (tested 2026-04-10)
 - [x] License compatibility confirmed (Apache-2.0 to Apache-2.0)
 - [x] Per-piece links provided for all borrowed code
-- [ ] README acknowledgment added (Task 12)
+- [x] README acknowledgment added

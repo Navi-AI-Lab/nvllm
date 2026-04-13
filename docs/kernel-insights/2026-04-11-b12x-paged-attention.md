@@ -1162,4 +1162,4 @@ def summarize_decode_chunk_pages_lut(
 - [x] All permalink URLs pinned to commit `c469c6637f6251adefc282956f5392e559ea915d`
 - [x] License compatibility confirmed (Apache-2.0 to Apache-2.0)
 - [x] Per-piece links provided for all quoted code
-- [ ] README acknowledgment added (pending integration work)
+- [x] README acknowledgment added
