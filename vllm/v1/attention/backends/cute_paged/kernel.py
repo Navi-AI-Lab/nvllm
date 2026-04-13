@@ -25,13 +25,19 @@ _CUTE_AVAILABLE = False
 try:
     import cutlass
     from cutlass import cute
-    from cutlass.cute.typing import Float32, Int32, Uint32
+    from cutlass._mlir import ir as _mlir_ir
+    from cutlass._mlir.dialects import llvm as _llvm_dialect
+    from cutlass.cute.typing import BFloat16, Float32, Int32, Int64, Uint32
+    from cutlass.cutlass_dsl import T, dsl_user_op
     _CUTE_AVAILABLE = True
 except ImportError:
     logger.warning(
         "CuTe DSL not available (CUTLASS not installed). "
         "paged_attention_forward will use PyTorch reference fallback."
     )
+
+# Set False to disable CuTe kernels and use PyTorch reference fallback.
+_KERNELS_IMPLEMENTED = True
 
 
 # --- Kernel config ----------------------------------------------------------
@@ -42,26 +48,28 @@ class KernelConfig:
 
     cta_q: int          # Q tile rows per CTA (16=decode, 64=prefill)
     cta_kv: int         # KV tile rows per CTA (always 64 = page_size)
-    head_dim: int       # Head dimension (128)
+    head_dim: int       # Head dimension (256 for Qwen3.5-27B)
     block_size: int     # Page size in tokens (64)
     num_warps_q: int    # Warps along Q dimension
     num_warps_kv: int   # Warps along KV dimension
 
 
 DECODE_CONFIG = KernelConfig(
-    cta_q=16, cta_kv=64, head_dim=128, block_size=64,
+    cta_q=16, cta_kv=64, head_dim=256, block_size=64,
     num_warps_q=1, num_warps_kv=4,
 )
 
 PREFILL_CONFIG = KernelConfig(
-    cta_q=64, cta_kv=64, head_dim=128, block_size=64,
+    cta_q=64, cta_kv=64, head_dim=256, block_size=64,
     num_warps_q=4, num_warps_kv=1,
 )
 
 
 # --- Inline PTX utilities ---------------------------------------------------
 # Adapted from lukealonso/b12x@c469c66 forward_paged.py.
-# All functions are @cute.jit and only exist when CUTLASS is installed.
+# PTX helpers use @dsl_user_op + llvm.inline_asm (CUTLASS 4.4.2 API).
+# Pure-arithmetic helpers remain @cute.jit. All only exist when CUTLASS is
+# installed.
 
 if _CUTE_AVAILABLE:
 
@@ -77,79 +85,192 @@ if _CUTE_AVAILABLE:
 
     @cute.jit
     def _smem_addr_from_b128_offset(
-        base_addr: Int32, offset: Int32,
-    ) -> Int32:
+        base_addr: Int64, offset: Int32,
+    ) -> Int64:
         """Convert 128-bit element offset to byte address for ldmatrix."""
-        return base_addr + offset * Int32(16)
+        return base_addr + offset * Int64(16)
 
-    @cute.jit
-    def shared_ptr_to_u32(ptr) -> Uint32:
-        """Convert shared memory pointer to u32 address for PTX."""
-        result = Uint32(0)
-        cutlass.arch.ptx(
-            "cvta.to.shared.u32 %0, %1;",
-            result, ptr, outputs=[result],
+    @dsl_user_op
+    def shared_ptr_to_i64(ptr, *, loc=None, ip=None) -> Int64:
+        """Convert shared memory pointer to i64 address for PTX (64-bit)."""
+        ptr_ir = ptr.toint(loc=loc, ip=ip).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i64(),
+            [ptr_ir],
+            "cvta.to.shared.u64 $0, $1;",
+            "=l,l",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
         )
-        return result
+        return Int64(result_ir)
 
-    @cute.jit
-    def ldmatrix_m8n8x4_b16(smem_addr: Int32):
+    @dsl_user_op
+    def ldmatrix_m8n8x4_b16(smem_addr: Int64, *, loc=None, ip=None):
         """Load 4 x m8n8 matrix fragments from SMEM.
 
         PTX: ldmatrix.sync.aligned.m8n8.x4.shared.b16
         Returns 4 Uint32 registers containing BF16 pairs.
         Ref: b12x@c469c66 forward_paged.py ldmatrix patterns
         """
-        r0 = Uint32(0)
-        r1 = Uint32(0)
-        r2 = Uint32(0)
-        r3 = Uint32(0)
-        cutlass.arch.ptx(
+        addr_ir = Int64(smem_addr).ir_value(loc=loc, ip=ip)
+        result_struct = _llvm_dialect.inline_asm(
+            _mlir_ir.Type.parse("!llvm.struct<(i32, i32, i32, i32)>"),
+            [addr_ir],
             "ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
-            "{%0, %1, %2, %3}, [%4];",
-            r0, r1, r2, r3, smem_addr,
-            outputs=[r0, r1, r2, r3],
+            "{$0, $1, $2, $3}, [$4];",
+            "=r,=r,=r,=r,l",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
         )
+        r0 = Uint32(_llvm_dialect.extractvalue(
+            T.i32(), result_struct, [0], loc=loc, ip=ip))
+        r1 = Uint32(_llvm_dialect.extractvalue(
+            T.i32(), result_struct, [1], loc=loc, ip=ip))
+        r2 = Uint32(_llvm_dialect.extractvalue(
+            T.i32(), result_struct, [2], loc=loc, ip=ip))
+        r3 = Uint32(_llvm_dialect.extractvalue(
+            T.i32(), result_struct, [3], loc=loc, ip=ip))
         return r0, r1, r2, r3
 
-    @cute.jit
-    def frag_layout_swizzle_16b_to_8b(val: Uint32) -> Uint32:
+    @dsl_user_op
+    def frag_layout_swizzle_16b_to_8b(val: Uint32, *, loc=None, ip=None
+                                       ) -> Uint32:
         """Swizzle register layout from 16-bit to 8-bit element order.
 
         Required after ldmatrix when SMEM holds FP8 data but ldmatrix
         loads 16-bit granules.
         Ref: b12x@c469c66 forward_paged.py frag_layout_swizzle_16b_to_8b
         """
-        result = Uint32(0)
-        cutlass.arch.ptx(
-            "prmt.b32 %0, %1, %1, 0x6420;",
-            result, val,
-            outputs=[result],
+        val_ir = Uint32(val).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [val_ir],
+            "prmt.b32 $0, $1, $1, 0x6420;",
+            "=r,r",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
         )
-        return result
+        return Uint32(result_ir)
 
-    @cute.jit
-    def fp8x4_e4m3_to_bfloat2x2(val: Uint32):
+    @dsl_user_op
+    def fp8x4_e4m3_to_bfloat2x2(val: Uint32, *, loc=None, ip=None):
         """Convert 4 packed FP8 E4M3 values to 2 pairs of BF16 values.
 
-        Input: Uint32 with 4x FP8 E4M3 (8 bits each).
-        Output: Two Uint32 registers, each with 2x BF16.
-        Uses prmt to extract bytes + shl to align with BF16 format.
-        Ref: b12x@c469c66 forward_paged.py fp8x4_e4m3_to_bfloat2x2
+        Input: Uint32 with 4x FP8 E4M3 (8 bits each), bytes [e0,e1,e2,e3].
+        Output: (lo, hi) — two Uint32 registers, each with 2x BF16.
+          lo = [bf16(e0), bf16(e1)], hi = [bf16(e2), bf16(e3)]
+
+        Uses hardware conversion chain (SM89+):
+          1. Split u32 into two u16 halves (each with 2 packed E4M3)
+          2. cvt.rn.f16x2.e4m3x2: convert 2 packed E4M3 → 2 packed FP16
+          3. Extract individual FP16 values
+          4. cvt.f32.f16: convert each FP16 → FP32
+          5. cvt.rn.bf16x2.f32: pack 2 FP32 → BF16x2
+
+        Ref: replaces broken prmt+shl approach (only correct for E5M2).
         """
-        lo = Uint32(0)
-        hi = Uint32(0)
-        cutlass.arch.ptx(
-            "{.reg .b32 tmp0, tmp1;\n"
-            " prmt.b32 tmp0, %2, 0, 0x5140;\n"
-            " prmt.b32 tmp1, %2, 0, 0x7362;\n"
-            " shl.b32 %0, tmp0, 8;\n"
-            " shl.b32 %1, tmp1, 8;\n"
+        val_ir = Uint32(val).ir_value(loc=loc, ip=ip)
+        result_struct = _llvm_dialect.inline_asm(
+            _mlir_ir.Type.parse("!llvm.struct<(i32, i32)>"),
+            [val_ir],
+            "{\n"
+            "  .reg .b16 lo16, hi16;\n"
+            "  .reg .b32 f16_lo, f16_hi;\n"
+            "  .reg .f16 h0, h1, h2, h3;\n"
+            "  .reg .f32 f0, f1, f2, f3;\n"
+            "  // Split into two 16-bit halves: lo16=[e0,e1], hi16=[e2,e3]\n"
+            "  mov.b32 {lo16, hi16}, $2;\n"
+            "  // E4M3x2 -> F16x2 (hardware conversion, SM89+)\n"
+            "  cvt.rn.f16x2.e4m3x2 f16_lo, lo16;\n"
+            "  cvt.rn.f16x2.e4m3x2 f16_hi, hi16;\n"
+            "  // Extract individual FP16 values\n"
+            "  mov.b32 {h0, h1}, f16_lo;\n"
+            "  mov.b32 {h2, h3}, f16_hi;\n"
+            "  // FP16 -> FP32\n"
+            "  cvt.f32.f16 f0, h0;\n"
+            "  cvt.f32.f16 f1, h1;\n"
+            "  cvt.f32.f16 f2, h2;\n"
+            "  cvt.f32.f16 f3, h3;\n"
+            "  // Pack FP32 pairs -> BF16x2\n"
+            "  cvt.rn.bf16x2.f32 $0, f1, f0;\n"
+            "  cvt.rn.bf16x2.f32 $1, f3, f2;\n"
             "}",
-            lo, hi, val,
-            outputs=[lo, hi],
+            "=r,=r,r",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
         )
+        lo = Uint32(_llvm_dialect.extractvalue(
+            T.i32(), result_struct, [0], loc=loc, ip=ip))
+        hi = Uint32(_llvm_dialect.extractvalue(
+            T.i32(), result_struct, [1], loc=loc, ip=ip))
         return lo, hi
+
+    @dsl_user_op
+    def _mma_m16n8k16_f32(
+        d0: Float32, d1: Float32, d2: Float32, d3: Float32,
+        a0: Uint32, a1: Uint32, a2: Uint32, a3: Uint32,
+        b0: Uint32, b1: Uint32,
+        *, loc=None, ip=None,
+    ):
+        """Single m16n8k16 MMA: accumulate BF16 A*B into FP32 D.
+
+        PTX fragment layout for A (m16×k16, row-major, bf16):
+          a0 = {A[group,   sub*2..+1]}       rows 0-7,  K cols 0-7
+          a1 = {A[group+8, sub*2..+1]}       rows 8-15, K cols 0-7
+          a2 = {A[group,   sub*2+8..+9]}     rows 0-7,  K cols 8-15
+          a3 = {A[group+8, sub*2+8..+9]}     rows 8-15, K cols 8-15
+
+        Callers use the logical convention (row-major then k-major):
+          a0 = rows 0-7  k_lo,  a1 = rows 0-7  k_hi,
+          a2 = rows 8-15 k_lo,  a3 = rows 8-15 k_hi.
+
+        This function swaps a1↔a2 to match the PTX hardware order
+        (row-interleaved: a1=rows 8-15 k_lo, a2=rows 0-7 k_hi).
+        """
+        # NOTE: a2 and a1 are SWAPPED for $5/$6 to match PTX spec.
+        # PTX expects {a0, a_row_hi_k_lo, a_row_lo_k_hi, a3} but
+        # callers pass {a0, a_row_lo_k_hi, a_row_hi_k_lo, a3}.
+        operands_ir = [
+            Uint32(a0).ir_value(loc=loc, ip=ip),
+            Uint32(a2).ir_value(loc=loc, ip=ip),  # $5 = row_hi k_lo
+            Uint32(a1).ir_value(loc=loc, ip=ip),  # $6 = row_lo k_hi
+            Uint32(a3).ir_value(loc=loc, ip=ip),
+            Uint32(b0).ir_value(loc=loc, ip=ip),
+            Uint32(b1).ir_value(loc=loc, ip=ip),
+            Float32(d0).ir_value(loc=loc, ip=ip),
+            Float32(d1).ir_value(loc=loc, ip=ip),
+            Float32(d2).ir_value(loc=loc, ip=ip),
+            Float32(d3).ir_value(loc=loc, ip=ip),
+        ]
+        result_struct = _llvm_dialect.inline_asm(
+            _mlir_ir.Type.parse("!llvm.struct<(f32, f32, f32, f32)>"),
+            operands_ir,
+            "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+            "{$0, $1, $2, $3}, {$4, $5, $6, $7}, {$8, $9}, "
+            "{$10, $11, $12, $13};",
+            "=f,=f,=f,=f,r,r,r,r,r,r,f,f,f,f",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        r0 = Float32(_llvm_dialect.extractvalue(
+            T.f32(), result_struct, [0], loc=loc, ip=ip))
+        r1 = Float32(_llvm_dialect.extractvalue(
+            T.f32(), result_struct, [1], loc=loc, ip=ip))
+        r2 = Float32(_llvm_dialect.extractvalue(
+            T.f32(), result_struct, [2], loc=loc, ip=ip))
+        r3 = Float32(_llvm_dialect.extractvalue(
+            T.f32(), result_struct, [3], loc=loc, ip=ip))
+        return r0, r1, r2, r3
 
     @cute.jit
     def bf16_mma_m16n16k16_f32(
@@ -169,100 +290,411 @@ if _CUTE_AVAILABLE:
         Returns: Updated d0-d7
         """
         # First m16n8k16: columns 0..7
-        cutlass.arch.ptx(
-            "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
-            "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
-            "{%0, %1, %2, %3};",
-            d0, d1, d2, d3,
-            a0, a1, a2, a3,
-            b0, b1,
-            outputs=[d0, d1, d2, d3],
-        )
+        d0, d1, d2, d3 = _mma_m16n8k16_f32(
+            d0, d1, d2, d3, a0, a1, a2, a3, b0, b1)
         # Second m16n8k16: columns 8..15
-        cutlass.arch.ptx(
-            "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
-            "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
-            "{%0, %1, %2, %3};",
-            d4, d5, d6, d7,
-            a0, a1, a2, a3,
-            b2, b3,
-            outputs=[d4, d5, d6, d7],
-        )
+        d4, d5, d6, d7 = _mma_m16n8k16_f32(
+            d4, d5, d6, d7, a0, a1, a2, a3, b2, b3)
         return d0, d1, d2, d3, d4, d5, d6, d7
 
     @cute.jit
     def exp2_approx_ftz_f32(x: Float32) -> Float32:
         """Fast exp2 with flush-to-zero for online softmax.
 
+        Uses cute.arch.exp2 built-in (approx ftz semantics).
         Ref: b12x@c469c66 _exp2_approx_ftz_f32
         """
-        result = Float32(0.0)
-        cutlass.arch.ptx(
-            "ex2.approx.ftz.f32 %0, %1;",
-            result, x,
-            outputs=[result],
-        )
-        return result
+        return cute.arch.exp2(x)
 
     @cute.jit
     def shfl_xor_sync(val: Float32, lane_mask: Int32) -> Float32:
         """Warp shuffle XOR for row-max/row-sum reduction.
 
-        Full-warp mask (0xFFFFFFFF). Used in online softmax to find
-        row max and accumulate row sum across warp lanes.
+        Uses cute.arch.shuffle_sync_bfly built-in (full-warp mask).
+        Used in online softmax to find row max and accumulate row sum
+        across warp lanes.
         """
-        result = Float32(0.0)
-        cutlass.arch.ptx(
-            "shfl.sync.bfly.b32 %0, %1, %2, 31, 0xFFFFFFFF;",
-            result, val, lane_mask,
-            outputs=[result],
-        )
-        return result
+        return cute.arch.shuffle_sync_bfly(val, lane_mask)
 
-    @cute.jit
-    def cp_async_load_128b(smem_addr: Uint32, gmem_ptr) -> None:
+    @dsl_user_op
+    def cp_async_load_128b(smem_addr: Int64, gmem_ptr, *,
+                           loc=None, ip=None) -> None:
         """Async copy 128 bits (16 bytes) from global to shared memory.
 
         Uses cp.async.cg.shared.global for non-blocking transfer.
         """
-        cutlass.arch.ptx(
-            "cp.async.cg.shared.global [%0], [%1], 16;",
-            smem_addr, gmem_ptr,
+        addr_ir = Int64(smem_addr).ir_value(loc=loc, ip=ip)
+        ptr_ir = gmem_ptr.toint(loc=loc, ip=ip).ir_value(loc=loc, ip=ip)
+        _llvm_dialect.inline_asm(
+            None,
+            [addr_ir, ptr_ir],
+            "cp.async.cg.shared.global [$0], [$1], 16;",
+            "l,l",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
         )
 
     @cute.jit
     def cp_async_commit_group() -> None:
-        """Commit the current group of async copies."""
-        cutlass.arch.ptx("cp.async.commit_group;")
+        """Commit the current group of async copies.
+
+        Uses cute.arch.cp_async_commit_group built-in.
+        """
+        cute.arch.cp_async_commit_group()
 
     @cute.jit
     def cp_async_wait_group(n: Int32) -> None:
         """Wait until at most n async copy groups are pending.
 
+        Uses cute.arch.cp_async_wait_group built-in.
         For num_stages=1, call with n=0 to wait for all copies.
         """
-        if n == Int32(0):
-            cutlass.arch.ptx("cp.async.wait_group 0;")
-        else:
-            cutlass.arch.ptx("cp.async.wait_group 1;")
+        cute.arch.cp_async_wait_group(n)
 
     @cute.jit
     def _lane_id() -> Int32:
-        """Get lane ID within the current warp (0..31)."""
-        result = Int32(0)
-        cutlass.arch.ptx(
-            "mov.u32 %0, %laneid;",
-            result,
-            outputs=[result],
-        )
-        return result
+        """Get lane ID within the current warp (0..31).
+
+        Thin wrapper around cute.arch.lane_idx() for backward compat.
+        """
+        return cute.arch.lane_idx()
 
     @cute.jit
     def _warp_id() -> Int32:
-        """Get warp ID within the current CTA."""
-        tid = Int32(0)
-        cutlass.arch.ptx("mov.u32 %0, %tid.x;", tid, outputs=[tid])
-        return tid // Int32(32)
+        """Get warp ID within the current CTA.
+
+        Thin wrapper around cute.arch.warp_idx() for backward compat.
+        """
+        return cute.arch.warp_idx()
+
+    # --- Additional PTX utilities for decode kernel -------------------------
+
+    @dsl_user_op
+    def _ld_shared_b32(addr: Int64, *, loc=None, ip=None) -> Uint32:
+        """Load 32 bits from shared memory (requires 4-byte alignment)."""
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [addr_ir],
+            "ld.shared.b32 $0, [$1];",
+            "=r,l",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
+    @dsl_user_op
+    def _ld_shared_b16(addr: Int64, *, loc=None, ip=None) -> Uint32:
+        """Load 16 bits from shared memory, zero-extended to Uint32.
+
+        Only requires 2-byte alignment — use for FP8 KV loads where
+        sub-column offsets may not be 4-byte aligned.
+        """
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [addr_ir],
+            "{.reg .b16 t; ld.shared.b16 t, [$1]; cvt.u32.u16 $0, t;}",
+            "=r,l",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
+    @dsl_user_op
+    def _st_shared_b16_from_u32(addr: Int64, val: Uint32, *,
+                                loc=None, ip=None) -> None:
+        """Store low 16 bits of Uint32 to shared memory.
+
+        Uses explicit .b16 intermediate register to guarantee exactly
+        16 bits are written — SM121 relaxed type checking with .b32
+        source may write 32 bits, corrupting adjacent SMEM values.
+        """
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        val_ir = Uint32(val).ir_value(loc=loc, ip=ip)
+        _llvm_dialect.inline_asm(
+            None,
+            [addr_ir, val_ir],
+            "{.reg .b16 t; cvt.u16.u32 t, $1; st.shared.b16 [$0], t;}",
+            "l,r",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+
+    @dsl_user_op
+    def _st_shared_b32(addr: Int64, val: Uint32, *,
+                       loc=None, ip=None) -> None:
+        """Store 32 bits to shared memory."""
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        val_ir = Uint32(val).ir_value(loc=loc, ip=ip)
+        _llvm_dialect.inline_asm(
+            None,
+            [addr_ir, val_ir],
+            "st.shared.b32 [$0], $1;",
+            "l,r",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+
+    @dsl_user_op
+    def _st_shared_f32(addr: Int64, val: Float32, *,
+                       loc=None, ip=None) -> None:
+        """Store FP32 to shared memory."""
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        val_ir = Float32(val).ir_value(loc=loc, ip=ip)
+        _llvm_dialect.inline_asm(
+            None,
+            [addr_ir, val_ir],
+            "st.shared.f32 [$0], $1;",
+            "l,f",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+
+    @dsl_user_op
+    def _ld_shared_f32(addr: Int64, *, loc=None, ip=None) -> Float32:
+        """Load FP32 from shared memory."""
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.f32(),
+            [addr_ir],
+            "ld.shared.f32 $0, [$1];",
+            "=f,l",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Float32(result_ir)
+
+    @dsl_user_op
+    def _pack_lo16(a: Uint32, b: Uint32, *, loc=None, ip=None) -> Uint32:
+        """Pack low 16 bits of a and b: result = [a0, a1, b0, b1] bytes.
+
+        Used to combine two 2-byte FP8 loads into a single Uint32 for
+        fp8x4_e4m3_to_bfloat2x2.
+        """
+        a_ir = Uint32(a).ir_value(loc=loc, ip=ip)
+        b_ir = Uint32(b).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [a_ir, b_ir],
+            "prmt.b32 $0, $1, $2, 0x5410;",
+            "=r,r,r",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
+    @dsl_user_op
+    def _cvt_2f32_to_bf16x2(lo: Float32, hi: Float32, *,
+                             loc=None, ip=None) -> Uint32:
+        """Pack two FP32 values into a BF16x2 Uint32.
+
+        lo -> bits [0:15], hi -> bits [16:31].
+        """
+        lo_ir = Float32(lo).ir_value(loc=loc, ip=ip)
+        hi_ir = Float32(hi).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [lo_ir, hi_ir],
+            "cvt.rn.bf16x2.f32 $0, $2, $1;",
+            "=r,f,f",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
+    @dsl_user_op
+    def _ld_global_b32(addr: Int64, *, loc=None, ip=None) -> Uint32:
+        """Load 32 bits (4 bytes) from global memory at byte address.
+
+        Uses ld.global.nc (non-coherent / read-only L2 cache path).
+        Requires 4-byte alignment. Used to bypass CuTe DSL's broken
+        uint8 tensor indexing for FP8 KV cache loads.
+        """
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [addr_ir],
+            "ld.global.nc.b32 $0, [$1];",
+            "=r,l",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
+    @dsl_user_op
+    def _scatter_4bytes_transposed(
+        v_base: Int64, val: Uint32,
+        col_byte: Int32, row: Int32, stride: Int32,
+        *, loc=None, ip=None,
+    ) -> None:
+        """Scatter 4 bytes from val to transposed SMEM positions.
+
+        Stores byte j of val at v_base + (col_byte + j) * stride + row,
+        for j in 0..3. Used for V cache transposition during GMEM→SMEM
+        copy. SM80+ relaxed type checking truncates .b32 source to .b8
+        for st.shared.b8.
+        """
+        base_ir = Int64(v_base).ir_value(loc=loc, ip=ip)
+        val_ir = Uint32(val).ir_value(loc=loc, ip=ip)
+        col_ir = Int32(col_byte).ir_value(loc=loc, ip=ip)
+        row_ir = Int32(row).ir_value(loc=loc, ip=ip)
+        stride_ir = Int32(stride).ir_value(loc=loc, ip=ip)
+        _llvm_dialect.inline_asm(
+            None,
+            [base_ir, val_ir, col_ir, row_ir, stride_ir],
+            "{\n"
+            "  .reg .b32 b0, b1, b2, b3, c1, c2, c3, off;\n"
+            "  .reg .b64 addr;\n"
+            "  // Extract individual bytes from packed u32\n"
+            "  and.b32 b0, $1, 0xFF;\n"
+            "  bfe.u32 b1, $1, 8, 8;\n"
+            "  bfe.u32 b2, $1, 16, 8;\n"
+            "  shr.b32 b3, $1, 24;\n"
+            "  // Byte 0: addr = base + col*stride + row\n"
+            "  mad.lo.s32 off, $2, $4, $3;\n"
+            "  cvt.s64.s32 addr, off;\n"
+            "  add.s64 addr, $0, addr;\n"
+            "  st.shared.b8 [addr], b0;\n"
+            "  // Byte 1: addr = base + (col+1)*stride + row\n"
+            "  add.s32 c1, $2, 1;\n"
+            "  mad.lo.s32 off, c1, $4, $3;\n"
+            "  cvt.s64.s32 addr, off;\n"
+            "  add.s64 addr, $0, addr;\n"
+            "  st.shared.b8 [addr], b1;\n"
+            "  // Byte 2: addr = base + (col+2)*stride + row\n"
+            "  add.s32 c2, $2, 2;\n"
+            "  mad.lo.s32 off, c2, $4, $3;\n"
+            "  cvt.s64.s32 addr, off;\n"
+            "  add.s64 addr, $0, addr;\n"
+            "  st.shared.b8 [addr], b2;\n"
+            "  // Byte 3: addr = base + (col+3)*stride + row\n"
+            "  add.s32 c3, $2, 3;\n"
+            "  mad.lo.s32 off, c3, $4, $3;\n"
+            "  cvt.s64.s32 addr, off;\n"
+            "  add.s64 addr, $0, addr;\n"
+            "  st.shared.b8 [addr], b3;\n"
+            "}",
+            "l,r,r,r,r",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+
+    @dsl_user_op
+    def _ld_shared_u8(addr: Int64, *, loc=None, ip=None) -> Uint32:
+        """Load 1 byte from shared memory, zero-extended to Uint32.
+
+        Explicit AND mask ensures upper 24 bits are zero even if
+        SM121 ld.shared.b8 relaxed type checking doesn't zero-extend.
+        """
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [addr_ir],
+            "{\n"
+            "  .reg .b32 tmp;\n"
+            "  ld.shared.b8 tmp, [$1];\n"
+            "  and.b32 $0, tmp, 0xFF;\n"
+            "}",
+            "=r,l",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
+    @dsl_user_op
+    def _pack_4bytes(
+        b0: Uint32, b1: Uint32, b2: Uint32, b3: Uint32,
+        *, loc=None, ip=None,
+    ) -> Uint32:
+        """Pack 4 byte values (low byte of each Uint32) into one Uint32.
+
+        result = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+        Each input must have the value in its low 8 bits.
+        """
+        b0_ir = Uint32(b0).ir_value(loc=loc, ip=ip)
+        b1_ir = Uint32(b1).ir_value(loc=loc, ip=ip)
+        b2_ir = Uint32(b2).ir_value(loc=loc, ip=ip)
+        b3_ir = Uint32(b3).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [b0_ir, b1_ir, b2_ir, b3_ir],
+            "{\n"
+            "  .reg .b32 t1, t2, t3;\n"
+            "  shl.b32 t1, $2, 8;\n"
+            "  shl.b32 t2, $3, 16;\n"
+            "  shl.b32 t3, $4, 24;\n"
+            "  or.b32 $0, $1, t1;\n"
+            "  or.b32 $0, $0, t2;\n"
+            "  or.b32 $0, $0, t3;\n"
+            "}",
+            "=r,r,r,r,r",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
+    @dsl_user_op
+    def _extract_byte_from_b32(
+        word: Uint32, byte_pos: Int32, *, loc=None, ip=None,
+    ) -> Uint32:
+        """Extract byte at byte_pos (0-3) from a 32-bit word.
+
+        result = (word >> (byte_pos * 8)) & 0xFF
+        Used as a replacement for _ld_shared_u8 byte loads.
+        """
+        word_ir = Uint32(word).ir_value(loc=loc, ip=ip)
+        pos_ir = Int32(byte_pos).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [word_ir, pos_ir],
+            "{\n"
+            "  .reg .b32 shift, tmp;\n"
+            "  shl.b32 shift, $2, 3;\n"
+            "  shr.b32 tmp, $1, shift;\n"
+            "  and.b32 $0, tmp, 0xFF;\n"
+            "}",
+            "=r,r,r",
+            has_side_effects=True,
+            asm_dialect=0,
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
+    @cute.jit
+    def _fmax(a: Float32, b: Float32) -> Float32:
+        """Max of two FP32 values (NaN-safe).
+
+        Uses cute.arch.fmax built-in.
+        """
+        return cute.arch.fmax(a, b)
 
     # --- DecodeKernel -------------------------------------------------------
 
@@ -280,51 +712,522 @@ if _CUTE_AVAILABLE:
         def __init__(self, config: KernelConfig):
             self.cta_q = config.cta_q            # 16
             self.cta_kv = config.cta_kv          # 64
-            self.head_dim = config.head_dim      # 128
+            self.head_dim = config.head_dim      # 256
             self.block_size = config.block_size  # 64
             self.num_warps_q = config.num_warps_q    # 1
             self.num_warps_kv = config.num_warps_kv  # 4
             self.num_threads = 128  # 4 warps * 32 threads
-            self.num_mma_d = self.head_dim // 16  # 8
+            self.num_mma_d = self.head_dim // 16  # 16 for head_dim=256
 
-            # SMEM sizes (bytes)
+            # SMEM sizes (bytes) — non-overlapping layout
+            # QKV stays resident; sync buffers placed AFTER QKV so
+            # writing sync_o never corrupts K/V data during page loop.
             self.q_bytes = self.cta_q * self.head_dim * 2      # BF16
             self.k_bytes = self.cta_kv * self.head_dim * 1     # FP8
             self.v_bytes = self.cta_kv * self.head_dim * 1     # FP8
             self.qkv_bytes = self.q_bytes + self.k_bytes + self.v_bytes
-            # Cross-warp reduction buffers (b12x pattern)
-            self.sync_o_bytes = (
-                self.num_warps_kv * self.cta_q * self.head_dim * 4
-            )  # FP32
-            self.sync_md_bytes = (
+
+            # Per-_md sync buffers (16 cols, not full 256)
+            # sync_o_small: 4 warps × 16 rows × 16 cols × 4 bytes
+            self.sync_o_small_bytes = (
+                self.num_warps_kv * self.cta_q * 16 * 4
+            )
+            # sync_md_small: 4 warps × 16 rows × 8 bytes (m + d)
+            self.sync_md_small_bytes = (
                 self.num_warps_kv * self.cta_q * 8
-            )  # FP32 m + d per row
-            self.sync_bytes = self.sync_o_bytes + self.sync_md_bytes
-            self.smem_bytes = max(self.qkv_bytes, self.sync_bytes)
+            )
+            self.sync_o_small_offset = self.qkv_bytes
+            self.sync_md_small_offset = (
+                self.qkv_bytes + self.sync_o_small_bytes
+            )
+            self.smem_bytes = (
+                self.qkv_bytes
+                + self.sync_o_small_bytes
+                + self.sync_md_small_bytes
+            )  # 40960 + 4096 + 512 = 45568, fits in 101 KB
+            self._compiled = None
+
+        @cute.jit
+        def _jit_launch(self, query, k_ptr: Int64, v_ptr: Int64,
+                        page_table, seq_lens, output,
+                        scale, k_scale, v_scale,
+                        num_q_heads, num_kv_heads,
+                        grid_x: Int32, grid_y: Int32, grid_z: Int32):
+            """JIT host wrapper: compiles kernel launch into MLIR."""
+            self._kernel(
+                query, k_ptr, v_ptr, page_table, seq_lens,
+                output, scale, k_scale, v_scale,
+                num_q_heads, num_kv_heads,
+            ).launch(
+                grid=[grid_x, grid_y, grid_z],
+                block=[self.num_threads, 1, 1],
+                smem=self.smem_bytes,
+            )
 
         @cute.kernel
-        def _kernel(self, query, k_cache, v_cache, page_table, seq_lens,
+        def _kernel(self, query, k_ptr: Int64, v_ptr: Int64,
+                     page_table, seq_lens,
                      output, scale, k_scale, v_scale,
                      num_q_heads, num_kv_heads):
-            """Decode kernel entry point.
+            """CuTe DSL decode kernel for FP8 paged attention on SM121.
+
+            Structure: outer _md loop over head_dim blocks, inner page loop.
+            Each _md iteration processes a 16-column slice of head_dim using
+            FP8 MMA for QK, softmax, then BF16 MMA for PV accumulation.
+            Cross-warp reduction merges partial results across KV warps.
 
             Grid: (num_q_tiles, num_kv_heads, num_seqs)
-
-            Execution flow (spec section 3.3):
-            1. Load Q tile via CpAsync into SMEM
-            2. For each page in page_table[seq_idx]:
-               a. Load K page -> SMEM, ldmatrix -> regs, dequant FP8->BF16
-               b. QK MMA (bf16_mma_m16n16k16_f32, 8 iterations)
-               c. Apply k_scale, online softmax update
-               d. Load V page -> SMEM, ldmatrix -> regs, dequant FP8->BF16
-               e. Apply v_scale to P, cast P FP32->BF16, PV MMA
-            3. Cross-warp reduction via SMEM cta_sync buffers
-            4. Final normalization O /= row_sum
-            5. Cast FP32->BF16, write to global output
-
-            Stub: full kernel body requires live CUTLASS compiler iteration.
             """
-            pass
+            # === Phase 0: Thread / block identification ===
+            bx, by, bz = cute.arch.block_idx()
+            lane = cute.arch.lane_idx()
+            warp = cute.arch.warp_idx()
+            tid = warp * Int32(32) + lane
+            group = lane >> Int32(2)   # lane // 4 = MMA row group 0-7
+            sub = lane & Int32(3)      # lane % 4 = MMA col sub 0-3
+
+            kv_head_idx = by
+            seq_idx = bz
+            group_size = num_q_heads // num_kv_heads
+            q_head_start = kv_head_idx * group_size + bx * Int32(self.cta_q)
+
+            seq_len = seq_lens[seq_idx]
+            num_pages = (seq_len + Int32(self.block_size - 1)) \
+                // Int32(self.block_size)
+
+            # Combined scale: attention_scale * k_scale * log2(e)
+            LOG2E = Float32(1.4426950408889634)
+            sm_scale_log2 = Float32(scale) * Float32(k_scale) * LOG2E
+            v_scale_f32 = Float32(v_scale)
+
+            # === Phase 1: SMEM pointers (non-overlapping layout) ===
+            smem = cute.arch.get_dyn_smem(cutlass.Uint8, alignment=128)
+            q_smem = shared_ptr_to_i64(smem)
+            k_smem = shared_ptr_to_i64(
+                smem + Int32(self.q_bytes))
+            v_smem = shared_ptr_to_i64(
+                smem + Int32(self.q_bytes + self.k_bytes))
+            sync_o = shared_ptr_to_i64(
+                smem + Int32(self.sync_o_small_offset))
+            sync_md = shared_ptr_to_i64(
+                smem + Int32(self.sync_md_small_offset))
+
+            hd = Int32(self.head_dim)  # 256
+            warp_kv_start = warp * Int32(16)
+
+            # Strides for KV cache global memory
+            kv_tok_stride = num_kv_heads * hd
+            kv_page_stride = Int32(self.block_size) * kv_tok_stride
+
+            # === Phase 2: Load Q into SMEM (once, persists) ===
+            q_stride_tok = num_q_heads * hd
+            elems_per_thr_q = Int32(self.cta_q * self.head_dim
+                                    // self.num_threads)
+            for _i in cutlass.range_constexpr(
+                self.cta_q * self.head_dim // self.num_threads
+            ):
+                flat = tid * elems_per_thr_q + Int32(_i)
+                row = flat // hd
+                col = flat % hd
+                gmem_idx = (seq_idx * q_stride_tok
+                            + (q_head_start + row) * hd + col)
+                smem_byte = (row * hd + col) * Int32(2)
+                val = query[gmem_idx]
+                val_u32 = _cvt_2f32_to_bf16x2(
+                    Float32(val), Float32(0.0))
+                _st_shared_b16_from_u32(
+                    q_smem + Int64(smem_byte), val_u32)
+
+            cute.arch.sync_threads()
+
+            # === Phase 3: Serialized _md loop ===
+            # Process one 16-column output block at a time.
+            # 8 scalar accumulators per iteration — NO rmem_tensor.
+            # QK recomputed each _md (16x total) to avoid 128-reg accum.
+            for _md_c in cutlass.range_constexpr(self.num_mma_d):
+                _md_idx = Int32(_md_c)
+                # Per-_md accumulators (8 scalars = 8 regs)
+                o0 = Float32(0.0)
+                o1 = Float32(0.0)
+                o2 = Float32(0.0)
+                o3 = Float32(0.0)
+                o4 = Float32(0.0)
+                o5 = Float32(0.0)
+                o6 = Float32(0.0)
+                o7 = Float32(0.0)
+                m_r0 = Float32(-1e30)
+                m_r1 = Float32(-1e30)
+                d_r0 = Float32(0.0)
+                d_r1 = Float32(0.0)
+
+                # --- Inner page loop ---
+                page_idx = Int32(0)
+                while page_idx < num_pages:
+                    phys_page = page_table[seq_idx, page_idx]
+
+                    # -- Load K page (row-major, 4B/iter) --
+                    elems_per_thr_kv4 = Int32(
+                        self.cta_kv * self.head_dim
+                        // 4 // self.num_threads)
+                    for _i in cutlass.range_constexpr(
+                        self.cta_kv * self.head_dim
+                        // 4 // self.num_threads
+                    ):
+                        flat = tid * elems_per_thr_kv4 + Int32(_i)
+                        row = flat >> Int32(6)
+                        col4 = flat & Int32(63)
+                        k_byte_off = (phys_page * kv_page_stride
+                                      + row * kv_tok_stride
+                                      + kv_head_idx * hd
+                                      + col4 * Int32(4))
+                        k_raw = _ld_global_b32(
+                            k_ptr + Int64(k_byte_off))
+                        smem_byte = row * hd + col4 * Int32(4)
+                        _st_shared_b32(
+                            k_smem + Int64(smem_byte), k_raw)
+
+                    # -- Load V page (row-major, 4B/iter) --
+                    for _i in cutlass.range_constexpr(
+                        self.cta_kv * self.head_dim
+                        // 4 // self.num_threads
+                    ):
+                        flat = tid * elems_per_thr_kv4 + Int32(_i)
+                        row = flat >> Int32(6)
+                        col4 = flat & Int32(63)
+                        v_byte_off = (phys_page * kv_page_stride
+                                      + row * kv_tok_stride
+                                      + kv_head_idx * hd
+                                      + col4 * Int32(4))
+                        v_raw = _ld_global_b32(
+                            v_ptr + Int64(v_byte_off))
+                        v_smem_byte = row * hd + col4 * Int32(4)
+                        _st_shared_b32(
+                            v_smem + Int64(v_smem_byte), v_raw)
+
+                    cute.arch.sync_threads()
+
+                    # -- QK MMA (all 16 K-dim iterations) --
+                    s0 = Float32(0.0)
+                    s1 = Float32(0.0)
+                    s2 = Float32(0.0)
+                    s3 = Float32(0.0)
+                    s4 = Float32(0.0)
+                    s5 = Float32(0.0)
+                    s6 = Float32(0.0)
+                    s7 = Float32(0.0)
+
+                    for _kd in cutlass.range_constexpr(
+                        self.num_mma_d
+                    ):
+                        k_start = Int32(_kd * 16)
+                        q_byte_a0 = (group * hd + k_start
+                                     + sub * Int32(2)) * Int32(2)
+                        a0 = _ld_shared_b32(
+                            q_smem + Int64(q_byte_a0))
+                        a1 = _ld_shared_b32(
+                            q_smem + Int64(q_byte_a0 + Int32(16)))
+                        q_byte_a2 = ((group + Int32(8)) * hd
+                                     + k_start
+                                     + sub * Int32(2)) * Int32(2)
+                        a2 = _ld_shared_b32(
+                            q_smem + Int64(q_byte_a2))
+                        a3 = _ld_shared_b32(
+                            q_smem + Int64(q_byte_a2 + Int32(16)))
+
+                        n_t = group
+                        kv_row_0 = warp_kv_start + n_t
+                        k_off_0a = (kv_row_0 * hd + k_start
+                                    + sub * Int32(2))
+                        k_raw_0a = _ld_shared_b16(
+                            k_smem + Int64(k_off_0a))
+                        k_raw_0b = _ld_shared_b16(
+                            k_smem + Int64(k_off_0a + Int32(8)))
+                        k_packed_0 = _pack_lo16(k_raw_0a, k_raw_0b)
+                        b0, b1 = fp8x4_e4m3_to_bfloat2x2(k_packed_0)
+
+                        kv_row_1 = warp_kv_start + n_t + Int32(8)
+                        k_off_1a = (kv_row_1 * hd + k_start
+                                    + sub * Int32(2))
+                        k_raw_1a = _ld_shared_b16(
+                            k_smem + Int64(k_off_1a))
+                        k_raw_1b = _ld_shared_b16(
+                            k_smem + Int64(k_off_1a + Int32(8)))
+                        k_packed_1 = _pack_lo16(k_raw_1a, k_raw_1b)
+                        b2, b3 = fp8x4_e4m3_to_bfloat2x2(k_packed_1)
+
+                        (s0, s1, s2, s3,
+                         s4, s5, s6, s7) = bf16_mma_m16n16k16_f32(
+                            s0, s1, s2, s3, s4, s5, s6, s7,
+                            a0, a1, a2, a3,
+                            b0, b1, b2, b3)
+
+                    # -- Online softmax --
+                    s0 = s0 * sm_scale_log2
+                    s1 = s1 * sm_scale_log2
+                    s2 = s2 * sm_scale_log2
+                    s3 = s3 * sm_scale_log2
+                    s4 = s4 * sm_scale_log2
+                    s5 = s5 * sm_scale_log2
+                    s6 = s6 * sm_scale_log2
+                    s7 = s7 * sm_scale_log2
+
+                    tok_base = page_idx * Int32(self.block_size) \
+                        + warp_kv_start
+                    NEG = Float32(-1e20)
+                    tok0 = tok_base + sub * Int32(2)
+                    tok1 = tok0 + Int32(1)
+                    tok8 = tok0 + Int32(8)
+                    tok9 = tok8 + Int32(1)
+                    if tok0 >= seq_len:
+                        s0 = NEG
+                        s2 = NEG
+                    if tok1 >= seq_len:
+                        s1 = NEG
+                        s3 = NEG
+                    if tok8 >= seq_len:
+                        s4 = NEG
+                        s6 = NEG
+                    if tok9 >= seq_len:
+                        s5 = NEG
+                        s7 = NEG
+
+                    lm0 = _fmax(_fmax(s0, s1), _fmax(s4, s5))
+                    lm1 = _fmax(_fmax(s2, s3), _fmax(s6, s7))
+                    lm0 = _fmax(lm0, shfl_xor_sync(lm0, Int32(1)))
+                    lm0 = _fmax(lm0, shfl_xor_sync(lm0, Int32(2)))
+                    lm1 = _fmax(lm1, shfl_xor_sync(lm1, Int32(1)))
+                    lm1 = _fmax(lm1, shfl_xor_sync(lm1, Int32(2)))
+
+                    m0_new = _fmax(m_r0, lm0)
+                    m1_new = _fmax(m_r1, lm1)
+                    sc0 = exp2_approx_ftz_f32(m_r0 - m0_new)
+                    sc1 = exp2_approx_ftz_f32(m_r1 - m1_new)
+                    d_r0 = d_r0 * sc0
+                    d_r1 = d_r1 * sc1
+
+                    # Rescale 8 scalar accumulators (not 128!)
+                    o0 = o0 * sc0
+                    o1 = o1 * sc0
+                    o2 = o2 * sc1
+                    o3 = o3 * sc1
+                    o4 = o4 * sc0
+                    o5 = o5 * sc0
+                    o6 = o6 * sc1
+                    o7 = o7 * sc1
+
+                    m_r0 = m0_new
+                    m_r1 = m1_new
+
+                    p0 = exp2_approx_ftz_f32(s0 - m_r0)
+                    p1 = exp2_approx_ftz_f32(s1 - m_r0)
+                    p2 = exp2_approx_ftz_f32(s2 - m_r1)
+                    p3 = exp2_approx_ftz_f32(s3 - m_r1)
+                    p4 = exp2_approx_ftz_f32(s4 - m_r0)
+                    p5 = exp2_approx_ftz_f32(s5 - m_r0)
+                    p6 = exp2_approx_ftz_f32(s6 - m_r1)
+                    p7 = exp2_approx_ftz_f32(s7 - m_r1)
+
+                    ls0 = (p0 + p1) + (p4 + p5)
+                    ls1 = (p2 + p3) + (p6 + p7)
+                    ls0 = ls0 + shfl_xor_sync(ls0, Int32(1))
+                    ls0 = ls0 + shfl_xor_sync(ls0, Int32(2))
+                    ls1 = ls1 + shfl_xor_sync(ls1, Int32(1))
+                    ls1 = ls1 + shfl_xor_sync(ls1, Int32(2))
+                    d_r0 = d_r0 + ls0
+                    d_r1 = d_r1 + ls1
+
+                    # -- PV MMA for current _md_idx only --
+                    pa0 = _cvt_2f32_to_bf16x2(
+                        p0 * v_scale_f32, p1 * v_scale_f32)
+                    pa1 = _cvt_2f32_to_bf16x2(
+                        p4 * v_scale_f32, p5 * v_scale_f32)
+                    pa2 = _cvt_2f32_to_bf16x2(
+                        p2 * v_scale_f32, p3 * v_scale_f32)
+                    pa3 = _cvt_2f32_to_bf16x2(
+                        p6 * v_scale_f32, p7 * v_scale_f32)
+
+                    # V fragment for current _md_idx: load from SMEM
+                    v_k_start = _md_idx * Int32(16)
+                    v_tok0 = warp_kv_start + sub * Int32(2)
+
+                    # First m16n8: V cols [v_k_start+group]
+                    v_hd0 = v_k_start + group
+                    v_off_0a = v_tok0 * hd + v_hd0
+                    v_off_0b = (v_tok0 + Int32(1)) * hd + v_hd0
+                    v_off_8a = (v_tok0 + Int32(8)) * hd + v_hd0
+                    v_off_8b = (v_tok0 + Int32(9)) * hd + v_hd0
+                    # 4-byte aligned loads + byte extract
+                    vw0 = _ld_shared_b32(
+                        v_smem + Int64(v_off_0a & Int32(0xFFFFFFFC)))
+                    vw1 = _ld_shared_b32(
+                        v_smem + Int64(v_off_0b & Int32(0xFFFFFFFC)))
+                    vw8 = _ld_shared_b32(
+                        v_smem + Int64(v_off_8a & Int32(0xFFFFFFFC)))
+                    vw9 = _ld_shared_b32(
+                        v_smem + Int64(v_off_8b & Int32(0xFFFFFFFC)))
+                    v_byte_pos = v_hd0 & Int32(3)
+                    vb0_0 = _extract_byte_from_b32(vw0, v_byte_pos)
+                    vb0_1 = _extract_byte_from_b32(vw1, v_byte_pos)
+                    vb0_8 = _extract_byte_from_b32(vw8, v_byte_pos)
+                    vb0_9 = _extract_byte_from_b32(vw9, v_byte_pos)
+                    v_packed_0 = _pack_4bytes(
+                        vb0_0, vb0_1, vb0_8, vb0_9)
+                    vb0, vb1 = fp8x4_e4m3_to_bfloat2x2(v_packed_0)
+
+                    # Second m16n8: V cols [v_k_start+group+8]
+                    v_hd1 = v_k_start + group + Int32(8)
+                    v_off_0c = v_tok0 * hd + v_hd1
+                    v_off_0d = (v_tok0 + Int32(1)) * hd + v_hd1
+                    v_off_8c = (v_tok0 + Int32(8)) * hd + v_hd1
+                    v_off_8d = (v_tok0 + Int32(9)) * hd + v_hd1
+                    vw0b = _ld_shared_b32(
+                        v_smem + Int64(v_off_0c & Int32(0xFFFFFFFC)))
+                    vw1b = _ld_shared_b32(
+                        v_smem + Int64(v_off_0d & Int32(0xFFFFFFFC)))
+                    vw8b = _ld_shared_b32(
+                        v_smem + Int64(v_off_8c & Int32(0xFFFFFFFC)))
+                    vw9b = _ld_shared_b32(
+                        v_smem + Int64(v_off_8d & Int32(0xFFFFFFFC)))
+                    v_byte_pos1 = v_hd1 & Int32(3)
+                    vb1_0 = _extract_byte_from_b32(vw0b, v_byte_pos1)
+                    vb1_1 = _extract_byte_from_b32(vw1b, v_byte_pos1)
+                    vb1_8 = _extract_byte_from_b32(vw8b, v_byte_pos1)
+                    vb1_9 = _extract_byte_from_b32(vw9b, v_byte_pos1)
+                    v_packed_1 = _pack_4bytes(
+                        vb1_0, vb1_1, vb1_8, vb1_9)
+                    vb2, vb3 = fp8x4_e4m3_to_bfloat2x2(v_packed_1)
+
+                    # PV MMA — accumulate into scalar o0..o7
+                    (t0, t1, t2, t3,
+                     t4, t5, t6, t7) = bf16_mma_m16n16k16_f32(
+                        Float32(0.0), Float32(0.0),
+                        Float32(0.0), Float32(0.0),
+                        Float32(0.0), Float32(0.0),
+                        Float32(0.0), Float32(0.0),
+                        pa0, pa1, pa2, pa3,
+                        vb0, vb1, vb2, vb3)
+                    o0 = o0 + t0
+                    o1 = o1 + t1
+                    o2 = o2 + t2
+                    o3 = o3 + t3
+                    o4 = o4 + t4
+                    o5 = o5 + t5
+                    o6 = o6 + t6
+                    o7 = o7 + t7
+
+                    cute.arch.sync_threads()
+                    page_idx = page_idx + Int32(1)
+                # end page loop for this _md
+
+                # === Write 8 accum values + m,d to sync buffers ===
+                # sync_o_small layout: [warp][row][col16], FP32
+                # col16 = local column within this _md block (0..15)
+                # MMA fragment → col mapping:
+                #   o0: row=group,    col=sub*2
+                #   o1: row=group,    col=sub*2+1
+                #   o2: row=group+8,  col=sub*2
+                #   o3: row=group+8,  col=sub*2+1
+                #   o4: row=group,    col=sub*2+8
+                #   o5: row=group,    col=sub*2+9
+                #   o6: row=group+8,  col=sub*2+8
+                #   o7: row=group+8,  col=sub*2+9
+                W16 = Int32(16)  # cols per _md block
+                so_warp_off = warp * Int32(self.cta_q) * W16 * Int32(4)
+                so_r0 = so_warp_off + group * W16 * Int32(4)
+                so_r1 = so_warp_off + (group + Int32(8)) * W16 * Int32(4)
+                lc0 = sub * Int32(2)
+                lc8 = sub * Int32(2) + Int32(8)
+
+                _st_shared_f32(sync_o + Int64(
+                    so_r0 + lc0 * Int32(4)), o0)
+                _st_shared_f32(sync_o + Int64(
+                    so_r0 + (lc0 + Int32(1)) * Int32(4)), o1)
+                _st_shared_f32(sync_o + Int64(
+                    so_r1 + lc0 * Int32(4)), o2)
+                _st_shared_f32(sync_o + Int64(
+                    so_r1 + (lc0 + Int32(1)) * Int32(4)), o3)
+                _st_shared_f32(sync_o + Int64(
+                    so_r0 + lc8 * Int32(4)), o4)
+                _st_shared_f32(sync_o + Int64(
+                    so_r0 + (lc8 + Int32(1)) * Int32(4)), o5)
+                _st_shared_f32(sync_o + Int64(
+                    so_r1 + lc8 * Int32(4)), o6)
+                _st_shared_f32(sync_o + Int64(
+                    so_r1 + (lc8 + Int32(1)) * Int32(4)), o7)
+
+                # Write m, d (sub 0 only — all subs have same values)
+                if sub == Int32(0):
+                    md_w_off = warp * Int32(self.cta_q) * Int32(8)
+                    _st_shared_f32(sync_md + Int64(
+                        md_w_off + group * Int32(8)), m_r0)
+                    _st_shared_f32(sync_md + Int64(
+                        md_w_off + group * Int32(8)
+                        + Int32(4)), d_r0)
+                    _st_shared_f32(sync_md + Int64(
+                        md_w_off + (group + Int32(8)) * Int32(8)),
+                        m_r1)
+                    _st_shared_f32(sync_md + Int64(
+                        md_w_off + (group + Int32(8)) * Int32(8)
+                        + Int32(4)), d_r1)
+
+                cute.arch.sync_threads()
+
+                # === Cross-warp reduction ===
+                if True:
+                    if warp == Int32(0):
+                        red_row = lane >> Int32(1)
+                        col_base = (lane & Int32(1)) * Int32(8)
+
+                        for _e in cutlass.range_constexpr(8):
+                            col16 = col_base + Int32(_e)
+
+                            m_final = Float32(-1e30)
+                            for _w in cutlass.range_constexpr(
+                                self.num_warps_kv
+                            ):
+                                m_w = _ld_shared_f32(
+                                    sync_md + Int64(
+                                        Int32(_w * self.cta_q)
+                                        * Int32(8)
+                                        + red_row * Int32(8)))
+                                m_final = _fmax(m_final, m_w)
+
+                            o_final = Float32(0.0)
+                            d_final = Float32(0.0)
+                            for _w in cutlass.range_constexpr(
+                                self.num_warps_kv
+                            ):
+                                w_base = Int32(
+                                    _w * self.cta_q * 16)
+                                o_w = _ld_shared_f32(
+                                    sync_o + Int64(
+                                        (w_base + red_row * W16
+                                         + col16) * Int32(4)))
+                                m_w = _ld_shared_f32(
+                                    sync_md + Int64(
+                                        Int32(_w * self.cta_q)
+                                        * Int32(8)
+                                        + red_row * Int32(8)))
+                                d_w = _ld_shared_f32(
+                                    sync_md + Int64(
+                                        Int32(_w * self.cta_q)
+                                        * Int32(8) + red_row * Int32(8)
+                                        + Int32(4)))
+                                rescale = exp2_approx_ftz_f32(
+                                    m_w - m_final)
+                                o_final = o_final + o_w * rescale
+                                d_final = d_final + d_w * rescale
+
+                            o_final = o_final / d_final
+                            out_head = q_head_start + red_row
+                            g_col = _md_idx * Int32(16) + col16
+                            if red_row < group_size:
+                                out_idx = (seq_idx * num_q_heads * hd
+                                           + out_head * hd + g_col)
+                                output[out_idx] = BFloat16(o_final)
+
+                cute.arch.sync_threads()
+            # end _md loop
 
         def __call__(self, **kwargs):
             """Python-level wrapper: compute grid/block and launch."""
@@ -337,25 +1240,49 @@ if _CUTE_AVAILABLE:
             k_scale = kwargs["k_scale"]
             v_scale = kwargs["v_scale"]
 
-            num_tokens, num_q_heads, head_dim = query.shape
+            num_q_heads = query.shape[1]
             num_kv_heads = k_cache.shape[2]
             group_size = num_q_heads // num_kv_heads
             num_seqs = len(seq_lens)
 
+            # Raw data pointers — bypass CuTe DSL's broken uint8
+            # tensor indexing (reads always return 0 for uint8).
+            k_ptr = Int64(k_cache.data_ptr())
+            v_ptr = Int64(v_cache.data_ptr())
+
+            # Flatten query to 1D — CuTe DSL does NOT support flat
+            # element indexing on multi-dimensional tensors.  The
+            # kernel computes gmem_idx as a manual flat offset, so
+            # the tensor must be 1D for query[gmem_idx] to work.
+            q_flat = query.contiguous().view(-1)
+
             # Grid: (ceil(group_size / cta_q), num_kv_heads, num_seqs)
-            # Decode: 1 query token/seq, GQA=4, cta_q=16 -> 1 CTA per (kv_head, seq)
             num_q_tiles = max(
                 (group_size + self.cta_q - 1) // self.cta_q, 1,
             )
             grid = (num_q_tiles, num_kv_heads, num_seqs)
 
             output = torch.empty_like(query)
+            # Output also needs 1D for the same reason
+            out_flat = output.view(-1)
 
-            self._kernel[grid, (self.num_threads,)](
-                query, k_cache, v_cache, page_table, seq_lens,
-                output, scale, k_scale, v_scale,
-                num_q_heads, num_kv_heads,
-                smem_bytes=self.smem_bytes,
+            if self._compiled is None:
+                logger.info("Compiling CuTe decode kernel (first call)...")
+                self._compiled = cute.compile(
+                    self._jit_launch,
+                    q_flat, k_ptr, v_ptr, page_table, seq_lens,
+                    out_flat,
+                    float(scale), float(k_scale), float(v_scale),
+                    Int32(num_q_heads), Int32(num_kv_heads),
+                    Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
+                )
+
+            self._compiled(
+                q_flat, k_ptr, v_ptr, page_table, seq_lens,
+                out_flat,
+                float(scale), float(k_scale), float(v_scale),
+                Int32(num_q_heads), Int32(num_kv_heads),
+                Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
             )
             return output
 
@@ -374,18 +1301,36 @@ if _CUTE_AVAILABLE:
         def __init__(self, config: KernelConfig):
             self.cta_q = config.cta_q            # 64
             self.cta_kv = config.cta_kv          # 64
-            self.head_dim = config.head_dim      # 128
+            self.head_dim = config.head_dim      # 256
             self.block_size = config.block_size  # 64
             self.num_warps_q = config.num_warps_q    # 4
             self.num_warps_kv = config.num_warps_kv  # 1
             self.num_threads = 128
-            self.num_mma_d = self.head_dim // 16  # 8
+            self.num_mma_d = self.head_dim // 16  # 16 for head_dim=256
 
             # SMEM sizes (bytes) -- no cta_sync for prefill
             self.q_bytes = self.cta_q * self.head_dim * 2      # BF16
             self.k_bytes = self.cta_kv * self.head_dim * 1     # FP8
             self.v_bytes = self.cta_kv * self.head_dim * 1     # FP8
             self.smem_bytes = self.q_bytes + self.k_bytes + self.v_bytes
+            self._compiled = None
+
+        @cute.jit
+        def _jit_launch(self, query, k_cache, v_cache, page_table,
+                        seq_lens, query_start_loc, output,
+                        scale, k_scale, v_scale,
+                        num_q_heads, num_kv_heads,
+                        grid_x: Int32, grid_y: Int32, grid_z: Int32):
+            """JIT host wrapper: compiles kernel launch into MLIR."""
+            self._kernel(
+                query, k_cache, v_cache, page_table, seq_lens,
+                query_start_loc, output, scale, k_scale, v_scale,
+                num_q_heads, num_kv_heads,
+            ).launch(
+                grid=[grid_x, grid_y, grid_z],
+                block=[self.num_threads, 1, 1],
+                smem=self.smem_bytes,
+            )
 
         @cute.kernel
         def _kernel(self, query, k_cache, v_cache, page_table, seq_lens,
@@ -434,11 +1379,23 @@ if _CUTE_AVAILABLE:
 
             output = torch.empty_like(query)
 
-            self._kernel[grid, (self.num_threads,)](
+            if self._compiled is None:
+                logger.info("Compiling CuTe prefill kernel (first call)...")
+                self._compiled = cute.compile(
+                    self._jit_launch,
+                    query, k_cache, v_cache, page_table, seq_lens,
+                    query_start_loc, output,
+                    float(scale), float(k_scale), float(v_scale),
+                    Int32(num_q_heads), Int32(num_kv_heads),
+                    Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
+                )
+
+            self._compiled(
                 query, k_cache, v_cache, page_table, seq_lens,
-                query_start_loc, output, scale, k_scale, v_scale,
-                num_q_heads, num_kv_heads,
-                smem_bytes=self.smem_bytes,
+                query_start_loc, output,
+                float(scale), float(k_scale), float(v_scale),
+                Int32(num_q_heads), Int32(num_kv_heads),
+                Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
             )
             return output
 
@@ -479,8 +1436,8 @@ def paged_attention_forward(
 
     Returns: [num_tokens, num_q_heads, head_dim] BF16
     """
-    if not _CUTE_AVAILABLE:
-        # Fallback to PyTorch reference (dev environments without CUTLASS)
+    if not _CUTE_AVAILABLE or not _KERNELS_IMPLEMENTED:
+        # Fallback to PyTorch reference until CuTe kernel bodies are written
         from tests.nvllm.attention.reference import reference_paged_attention
         return reference_paged_attention(
             query, k_cache, v_cache, page_table, seq_lens,
@@ -498,10 +1455,24 @@ def paged_attention_forward(
     num_seqs = len(seq_lens)
     is_decode = num_tokens == num_seqs
 
-    config = DECODE_CONFIG if is_decode else PREFILL_CONFIG
+    if not is_decode:
+        # Prefill: use PyTorch reference until CuTe prefill body is written
+        from tests.nvllm.attention.reference import reference_paged_attention
+        # k_cache/v_cache may be unified kv_cache — split for reference
+        if k_cache.dim() == 5:  # [pages, 2, 64, heads, hd]
+            kc, vc = k_cache[:, 0], k_cache[:, 1]
+        else:
+            kc, vc = k_cache, v_cache
+        return reference_paged_attention(
+            query, kc, vc, page_table, seq_lens,
+            scale=scale, k_scale=k_scale, v_scale=v_scale,
+            page_size=page_size, query_start_loc=query_start_loc,
+        )
+
+    config = DECODE_CONFIG
     kernel = _get_compiled_kernel(config)
 
-    return kernel(
+    cute_out = kernel(
         query=query,
         k_cache=k_cache,
         v_cache=v_cache,
@@ -513,3 +1484,5 @@ def paged_attention_forward(
         page_size=page_size,
         query_start_loc=query_start_loc,
     )
+
+    return cute_out

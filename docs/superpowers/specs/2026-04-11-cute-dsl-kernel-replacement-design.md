@@ -11,7 +11,7 @@
 **Status:** Design — awaiting implementation plan
 **Parent spec:** `docs/superpowers/specs/2026-04-10-cute-paged-attention-design.md`
 **Target hardware:** NVIDIA DGX Spark (GB10, SM120/SM121), 128 GB unified memory
-**Model:** `natfii/Qwen3.5-27B-NVFP4-Opus-GB10` (GQA=4: 32 Q heads / 8 KV heads, head_dim=128)
+**Model:** `natfii/Qwen3.5-27B-NVFP4-Opus-GB10` (GQA=6: 24 Q heads / 4 KV heads, head_dim=256)
 
 ---
 
@@ -51,7 +51,7 @@ and CUTLASS PR #3030 SM120 findings.
 - Changes to `disk_cache.py` (ported and working)
 - New backend registration or platform changes
 - Split-KV reduction kernel (deferred — single CTA handles full sequence for now)
-- head_dim=256 support (no model to test — remove from warmup configs)
+- head_dim≠256 support (model uses head_dim=256; other dims not tested)
 - Path A FP8 QK MMA (deferred optimization — start with Path B BF16 QK)
 
 ## 3. Kernel Architecture
@@ -97,7 +97,7 @@ dequanted from FP8→BF16 using the same `fp8x4_e4m3_to_bfloat2x2` primitive.
    c. Dequant K: FP8 → BF16 via fp8x4_e4m3_to_bfloat2x2
    d. QK MMA: BF16 m16n8k16 (Q BF16 native, K dequanted BF16)
       - Two m16n8k16 instructions per m16n16k16 output tile (b12x pattern)
-      - num_mma_d_qk = head_dim / 16 = 8 iterations along K dimension
+      - num_mma_d_qk = head_dim / 16 = 16 iterations along K dimension
       - Output: FP32 scores, k_scale applied post-MMA in FP32
    e. Online softmax update (registers only):
       - Row max via warp shuffle (__shfl_xor_sync)
@@ -109,7 +109,7 @@ dequanted from FP8→BF16 using the same `fp8x4_e4m3_to_bfloat2x2` primitive.
    i. PV MMA: BF16 m16n8k16
       - v_scale applied to P in FP32 before BF16 cast (b12x pattern)
       - P cast FP32 → BF16 for MMA operand
-      - num_mma_d_vo = head_dim / 16 = 8 iterations along V dimension
+      - num_mma_d_vo = head_dim / 16 = 16 iterations along V dimension
       - Output: FP32 accumulator
 3. Cross-warp reduction (decode only):
    - warps_kv=4 each produce partial O, m, d
@@ -168,9 +168,9 @@ SM120 constraints: no tcgen05 MMA, no TMEM accumulators, registers only. Both QK
 and PV use the same BF16 MMA instruction. The `bf16_mma_m16n16k16_f32` wrapper from
 b12x issues two m16n8k16 PTX instructions to cover a 16x16 output tile per MMA group.
 
-MMA iteration counts for head_dim=128:
-- `num_mma_d_qk = 128 / 16 = 8` (K dimension iterations for QK)
-- `num_mma_d_vo = 128 / 16 = 8` (V dimension iterations for PV)
+MMA iteration counts for head_dim=256:
+- `num_mma_d_qk = 256 / 16 = 16` (K dimension iterations for QK)
+- `num_mma_d_vo = 256 / 16 = 16` (V dimension iterations for PV)
 
 ### 3.7 FP8 Dequantization
 
@@ -192,7 +192,7 @@ Parametric — not hardcoded to any specific ratio.
 - **Within CTA:** `group_size = num_q_heads // num_kv_heads`
 - Q head groups iterate within a single KV head's CTA, reusing the same K/V
   pages from SMEM
-- Qwen3.5-27B: group_size=4 (32 Q / 8 KV). Any integer ratio supported.
+- Qwen3.5-27B: group_size=6 (24 Q / 4 KV). Any integer ratio supported.
 
 ### 3.9 Causal Masking
 
@@ -281,8 +281,8 @@ Class-based kernel pattern (like b12x) for `const_expr()` compile-time branching
 
 ```python
 WARMUP_CONFIGS = [
-    DECODE_CONFIG,   # cta_q=16, cta_kv=64, head_dim=128, 1 stage
-    PREFILL_CONFIG,  # cta_q=64, cta_kv=64, head_dim=128, 1 stage
+    DECODE_CONFIG,   # cta_q=16, cta_kv=64, head_dim=256, 1 stage
+    PREFILL_CONFIG,  # cta_q=64, cta_kv=64, head_dim=256, 1 stage
 ]
 ```
 
@@ -392,7 +392,7 @@ This spec was reviewed by 7 expert audit agents (2026-04-11). Key changes from v
 | Class-based kernel pattern | CuTe DSL audit (const_expr requires it) |
 | Cross-warp reduction for decode | GPU Kernel + Big-O audits |
 | Move reference to test file, delete dead code | Linus audit |
-| Drop head_dim=256 | GPU Kernel + Linus audits |
+| Fix head_dim=256 (model uses 256, not 128) | GPU Kernel + Linus audits |
 | Frozen dataclass + in-memory lru_cache | Python audit |
 | Thread-safe monkey-patch | Python audit |
 | Test tolerance ≥2% | Linear algebra audit |

@@ -77,6 +77,7 @@ docker run -d \
   --language-model-only \
   --mamba-cache-mode align \
   --mamba-block-size 64 \
+  --enable-prefix-caching \  # required by vLLM when --mamba-block-size is set
   --trust-remote-code \
   --gpu-memory-utilization 0.80 \
   --max-num-batched-tokens 65536 \

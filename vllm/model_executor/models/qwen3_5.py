@@ -445,6 +445,7 @@ class Qwen3_5Model(Qwen3NextModel):
 class Qwen3_5ForCausalLMBase(
     nn.Module,
     HasInnerState,
+    IsHybrid,
     SupportsEagle3,
     SupportsLoRA,
     SupportsPP,
