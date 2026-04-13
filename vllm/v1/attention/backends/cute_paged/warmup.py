@@ -74,11 +74,10 @@ def warmup(arch: str) -> int:
                 q_tokens, num_q_heads, head_dim,
                 dtype=torch.bfloat16, device="cuda",
             )
-            k_cache = torch.zeros(
-                num_pages, page_size, num_kv_heads, head_dim,
+            kv_cache = torch.zeros(
+                num_pages, 2, page_size, num_kv_heads, head_dim,
                 dtype=torch.uint8, device="cuda",
             )
-            v_cache = torch.zeros_like(k_cache)
             page_table = torch.zeros(
                 num_seqs, num_pages, dtype=torch.int32, device="cuda",
             )
@@ -91,8 +90,7 @@ def warmup(arch: str) -> int:
 
             kernel(
                 query=q,
-                k_cache=k_cache,
-                v_cache=v_cache,
+                kv_cache=kv_cache,
                 page_table=page_table,
                 seq_lens=seq_lens,
                 scale=1.0 / (head_dim ** 0.5),

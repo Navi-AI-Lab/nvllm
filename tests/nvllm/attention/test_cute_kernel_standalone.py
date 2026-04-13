@@ -89,22 +89,28 @@ def test_cute_kernel():
 
     # KV cache: 2 pages (only 1 used)
     num_pages = 2
-    kv_shape = (num_pages, page_size, num_kv_heads, head_dim)
-    # Create FP8 E4M3 data
+    kv_shape_4d = (num_pages, page_size, num_kv_heads, head_dim)
+    # Unified 5D KV cache: [num_pages, 2, page_size, num_kv_heads, head_dim]
+    kv_cache = torch.zeros(
+        num_pages, 2, page_size, num_kv_heads, head_dim,
+        dtype=torch.uint8, device=device,
+    )
     # PROBABILITY EXTRACTION TEST: V = one-hot → output = softmax probs
-    # V[tok_t, dim_d] = 1.0 if d==t else 0 → O[h, d] = P[h, d] for d<6
     torch.manual_seed(42)
     query = torch.randn(1, num_q_heads, head_dim, dtype=torch.bfloat16,
                          device=device)
-    k_float = torch.randn(*kv_shape, device=device).clamp(-10, 10)
-    k_cache = k_float.to(torch.float8_e4m3fn).view(torch.uint8)
+    k_float = torch.randn(*kv_shape_4d, device=device).clamp(-10, 10)
+    kv_cache[:, 0] = k_float.to(torch.float8_e4m3fn).view(torch.uint8)
     # V: one-hot encoding per token (byte 0x38 = E4M3 1.0)
-    v_cache = torch.zeros(kv_shape, dtype=torch.uint8, device=device)
     for t in range(6):
-        v_cache[0, t, :, t] = 0x38  # V[tok_t, :, dim_t] = 1.0
-    print(f"V one-hot check: V[0,0,:,0]={v_cache[0,0,0,0].item()} "
-          f"V[0,0,:,1]={v_cache[0,0,0,1].item()} "
-          f"V[0,1,:,1]={v_cache[0,1,0,1].item()}")
+        kv_cache[0, 1, t, :, t] = 0x38  # V[page0, V_slot, tok_t, :, dim_t] = 1.0
+    print(f"V one-hot check: V[0,1,0,:,0]={kv_cache[0,1,0,0,0].item()} "
+          f"V[0,1,0,:,1]={kv_cache[0,1,0,0,1].item()} "
+          f"V[0,1,1,:,1]={kv_cache[0,1,1,0,1].item()}")
+
+    # Separate views for reference (no copy)
+    k_cache = kv_cache[:, 0]
+    v_cache = kv_cache[:, 1]
 
     # Page table: seq 0 uses page 0
     page_table = torch.zeros(1, 2, dtype=torch.int32, device=device)
@@ -114,7 +120,6 @@ def test_cute_kernel():
     v_scale = 1.0
 
     k_nan_count = 0
-    v_nan_count = 0
     v_nan_count = ((v_cache == 0x7F) | (v_cache == 0xFF)).sum().item()
 
     print(f"Config: Q={num_q_heads}h KV={num_kv_heads}h hd={head_dim} "
@@ -131,12 +136,13 @@ def test_cute_kernel():
         reference_paged_attention as official_ref,
     )
     ref_out = official_ref(
-        query, k_cache, v_cache, page_table, seq_lens,
+        query, k_cache.contiguous(), v_cache.contiguous(),
+        page_table, seq_lens,
         scale=scale, k_scale=k_scale, v_scale=v_scale,
         page_size=page_size,
     )
 
-    # CuTe kernel (force decode path)
+    # CuTe kernel — pass unified 5D kv_cache (no .contiguous()!)
     from vllm.v1.attention.backends.cute_paged.kernel import (
         _get_compiled_kernel, DECODE_CONFIG,
     )
@@ -144,8 +150,7 @@ def test_cute_kernel():
     print("Compiling CuTe kernel...")
     cute_out = kernel(
         query=query,
-        k_cache=k_cache.contiguous(),
-        v_cache=v_cache.contiguous(),
+        kv_cache=kv_cache,
         page_table=page_table,
         seq_lens=seq_lens,
         scale=scale,

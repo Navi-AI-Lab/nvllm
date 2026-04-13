@@ -754,12 +754,14 @@ if _CUTE_AVAILABLE:
                         page_table, seq_lens, output,
                         scale, k_scale, v_scale,
                         num_q_heads, num_kv_heads,
+                        kv_page_stride: Int32,
                         grid_x: Int32, grid_y: Int32, grid_z: Int32):
             """JIT host wrapper: compiles kernel launch into MLIR."""
             self._kernel(
                 query, k_ptr, v_ptr, page_table, seq_lens,
                 output, scale, k_scale, v_scale,
                 num_q_heads, num_kv_heads,
+                kv_page_stride,
             ).launch(
                 grid=[grid_x, grid_y, grid_z],
                 block=[self.num_threads, 1, 1],
@@ -770,7 +772,8 @@ if _CUTE_AVAILABLE:
         def _kernel(self, query, k_ptr: Int64, v_ptr: Int64,
                      page_table, seq_lens,
                      output, scale, k_scale, v_scale,
-                     num_q_heads, num_kv_heads):
+                     num_q_heads, num_kv_heads,
+                     kv_page_stride: Int32):
             """CuTe DSL decode kernel for FP8 paged attention on SM121.
 
             Structure: outer _md loop over head_dim blocks, inner page loop.
@@ -819,7 +822,6 @@ if _CUTE_AVAILABLE:
 
             # Strides for KV cache global memory
             kv_tok_stride = num_kv_heads * hd
-            kv_page_stride = Int32(self.block_size) * kv_tok_stride
 
             # === Phase 2: Load Q into SMEM (once, persists) ===
             q_stride_tok = num_q_heads * hd
@@ -1234,8 +1236,7 @@ if _CUTE_AVAILABLE:
         def __call__(self, **kwargs):
             """Python-level wrapper: compute grid/block and launch."""
             query = kwargs["query"]
-            k_cache = kwargs["k_cache"]
-            v_cache = kwargs["v_cache"]
+            kv_cache = kwargs["kv_cache"]
             page_table = kwargs["page_table"]
             seq_lens = kwargs["seq_lens"]
             scale = kwargs["scale"]
@@ -1243,14 +1244,23 @@ if _CUTE_AVAILABLE:
             v_scale = kwargs["v_scale"]
 
             num_q_heads = query.shape[1]
-            num_kv_heads = k_cache.shape[2]
+            # kv_cache: [num_pages, 2, page_size, num_kv_heads, head_dim]
+            num_kv_heads = kv_cache.shape[3]
             group_size = num_q_heads // num_kv_heads
             num_seqs = len(seq_lens)
 
-            # Raw data pointers — bypass CuTe DSL's broken uint8
-            # tensor indexing (reads always return 0 for uint8).
-            k_ptr = Int64(k_cache.data_ptr())
-            v_ptr = Int64(v_cache.data_ptr())
+            # Unified base pointer + K/V byte offsets (atlas layer offsets)
+            kv_base = Int64(kv_cache.data_ptr())
+            kv_slot_stride = Int64(
+                kv_cache.stride(1) * kv_cache.element_size()
+            )
+            k_ptr = kv_base                    # K is slot 0
+            v_ptr = kv_base + kv_slot_stride   # V is slot 1
+
+            # 5D page stride: stride(0) in bytes
+            kv_page_stride = Int32(
+                kv_cache.stride(0) * kv_cache.element_size()
+            )
 
             # Flatten query to 1D — CuTe DSL does NOT support flat
             # element indexing on multi-dimensional tensors.  The
@@ -1276,6 +1286,7 @@ if _CUTE_AVAILABLE:
                     out_flat,
                     float(scale), float(k_scale), float(v_scale),
                     Int32(num_q_heads), Int32(num_kv_heads),
+                    kv_page_stride,
                     Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
                 )
 
@@ -1284,6 +1295,7 @@ if _CUTE_AVAILABLE:
                 out_flat,
                 float(scale), float(k_scale), float(v_scale),
                 Int32(num_q_heads), Int32(num_kv_heads),
+                kv_page_stride,
                 Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
             )
             return output
@@ -1424,8 +1436,7 @@ def _get_compiled_kernel(config: KernelConfig):
 
 def paged_attention_forward(
     query: torch.Tensor,        # [num_tokens, num_q_heads, head_dim] BF16
-    k_cache: torch.Tensor,      # [num_pages, page_size, num_kv_heads, head_dim] uint8
-    v_cache: torch.Tensor,      # [num_pages, page_size, num_kv_heads, head_dim] uint8
+    kv_cache: torch.Tensor,     # [num_pages, 2, page_size, num_kv_heads, head_dim] uint8
     page_table: torch.Tensor,   # [num_seqs, max_pages_per_seq] int32
     seq_lens: torch.Tensor,     # [num_seqs] int32
     scale: float,
@@ -1436,13 +1447,17 @@ def paged_attention_forward(
 ) -> torch.Tensor:
     """Paged attention forward -- CuTe JIT kernel or PyTorch fallback.
 
+    kv_cache is the unified 5D tensor [num_pages, 2, page_size, num_kv_heads, head_dim].
+    Dim 1: 0=K, 1=V. The kernel computes K/V base pointers from stride(1).
+
     Returns: [num_tokens, num_q_heads, head_dim] BF16
     """
     if not _CUTE_AVAILABLE or not _KERNELS_IMPLEMENTED:
         # Fallback to PyTorch reference until CuTe kernel bodies are written
         from tests.nvllm.attention.reference import reference_paged_attention
         return reference_paged_attention(
-            query, k_cache, v_cache, page_table, seq_lens,
+            query, kv_cache[:, 0].contiguous(), kv_cache[:, 1].contiguous(),
+            page_table, seq_lens,
             scale=scale, k_scale=k_scale, v_scale=v_scale,
             page_size=page_size, query_start_loc=query_start_loc,
         )
@@ -1460,13 +1475,9 @@ def paged_attention_forward(
     if not is_decode:
         # Prefill: use PyTorch reference until CuTe prefill body is written
         from tests.nvllm.attention.reference import reference_paged_attention
-        # k_cache/v_cache may be unified kv_cache — split for reference
-        if k_cache.dim() == 5:  # [pages, 2, 64, heads, hd]
-            kc, vc = k_cache[:, 0], k_cache[:, 1]
-        else:
-            kc, vc = k_cache, v_cache
         return reference_paged_attention(
-            query, kc, vc, page_table, seq_lens,
+            query, kv_cache[:, 0].contiguous(), kv_cache[:, 1].contiguous(),
+            page_table, seq_lens,
             scale=scale, k_scale=k_scale, v_scale=v_scale,
             page_size=page_size, query_start_loc=query_start_loc,
         )
@@ -1476,8 +1487,7 @@ def paged_attention_forward(
 
     cute_out = kernel(
         query=query,
-        k_cache=k_cache,
-        v_cache=v_cache,
+        kv_cache=kv_cache,
         page_table=page_table,
         seq_lens=seq_lens,
         scale=scale,

@@ -223,17 +223,13 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
 
         # kv_cache shape: [num_pages, 2, 64, num_kv_heads, head_dim] uint8
         # Dim 1: 0=K, 1=V (FlashInfer convention)
+        # Kernel uses raw _ld_global_b32 with stride-aware addressing —
+        # K/V byte offsets computed from kv_cache.stride(1). No copy needed.
         num_actual_tokens = attn_metadata.num_actual_tokens
-        # .contiguous() ensures flat byte addressing for raw ld.global
-        # in the CuTe kernel (CuTe DSL can't read uint8 tensors via
-        # tensor indexing — returns all zeros).
-        k_cache = kv_cache[:, 0].contiguous()
-        v_cache = kv_cache[:, 1].contiguous()
 
         result = paged_attention_forward(
             query=query[:num_actual_tokens],
-            k_cache=k_cache,
-            v_cache=v_cache,
+            kv_cache=kv_cache,
             page_table=attn_metadata.block_table,
             seq_lens=attn_metadata.seq_lens,
             scale=self.scale,
