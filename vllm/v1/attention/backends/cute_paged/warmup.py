@@ -1,3 +1,5 @@
+# Copyright 2026 Navi Ai Labs
+# SPDX-License-Identifier: Apache-2.0
 """Pre-compile CuTe DSL attention kernels for Dockerfile build.
 
 Compiles exactly 2 kernel variants (decode + prefill) with dummy tensors

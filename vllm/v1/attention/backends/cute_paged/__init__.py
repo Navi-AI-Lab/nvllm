@@ -1,3 +1,4 @@
+# Copyright 2026 Navi Ai Labs
 # SPDX-License-Identifier: Apache-2.0
 """CuTe DSL paged attention backend for SM120/SM121 (GB10).
 

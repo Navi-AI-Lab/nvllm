@@ -1,3 +1,5 @@
+# Copyright 2026 Navi Ai Labs
+# SPDX-License-Identifier: Apache-2.0
 """CuTe DSL compilation disk cache.
 
 Ported from lukealonso/b12x@c469c66 b12x/cute/runtime_patches.py.

@@ -77,8 +77,6 @@ docker run -d \
   --cuda-graph-trace=node \
   --sample=none \
   --cpuctxsw=none \
-  --delay=120 \
-  --duration="$DURATION" \
   --output="/tmp/$OUTPUT_NAME" \
   --force-overwrite=true \
   --stats=true \
@@ -136,13 +134,10 @@ wait
 echo "All requests completed."
 echo ""
 
-# ── Wait for nsys to finish (duration-based) ──
-echo "Waiting for nsys capture to complete..."
-while docker exec "$CONTAINER" test -f /tmp/${OUTPUT_NAME}.nsys-rep 2>/dev/null; do
-  break
-done
-# Give it extra time for the report generation
-sleep 10
+# ── Stop container gracefully → nsys generates report on SIGTERM ──
+echo "Stopping container (nsys generates report on exit)..."
+docker stop -t 30 "$CONTAINER" 2>/dev/null || true
+sleep 5
 
 # ── Copy results out ──
 echo "Copying results..."
