@@ -468,11 +468,8 @@ class Qwen3NextDecoderLayer(nn.Module):
         # Fusion only active for decode (one token per sequence).
         # Prefill has num_tokens >> max_num_seqs and the persistent
         # buffers are sized for max_num_seqs only.
-        fusion_active = (
-            self._fusion_bound
-            and self.layer_type == "full_attention"
-            and num_tokens <= self._max_num_seqs
-        )
+        # TODO: Re-enable after fusion is validated on Qwen3NextAttention.
+        fusion_active = False  # disabled for baseline validation
 
         if fusion_active:
             # Write residual to impl's persistent buffer for Phase C.
