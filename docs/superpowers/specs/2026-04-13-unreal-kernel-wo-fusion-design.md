@@ -50,7 +50,7 @@ All 128 threads (4 warps) cooperatively compute the W_O projection.
 
 - **Input:** Attention output in global memory (written by Phase A's cross-warp reduction, likely L2-resident since just written)
 - **Weights:** NVFP4 W_O matrix streamed from global memory
-- **Output:** Partial hidden state (FP32, length 3584) in registers → atomicAdd to global buffer
+- **Output:** Partial hidden state (FP32, length 5120) in registers → atomicAdd to global buffer
 
 **Note:** Phase A's cross-warp reduction writes the final BF16 result directly to the global
 output buffer (not SMEM). Phase B reads this back — likely an L2 hit since Phase A just
@@ -75,17 +75,17 @@ For Qwen 27B: `(1, 4, num_seqs)`. Each CTA handles one KV head group (6 Q heads)
 Each CTA owns `group_size=6` attention heads. W_O decomposes per KV-head-group:
 
 ```
-W_O slice: [hidden_dim=3584, group_size × head_dim=1536]
+W_O slice: [hidden_dim=5120, group_size × head_dim=1536]
 Input:     [1536, 1]  (6 head outputs concatenated)
-Output:    [3584, 1]  (partial contribution to hidden state)
+Output:    [5120, 1]  (partial contribution to hidden state)
 ```
 
 ### Thread-level tiling
 
 128 threads, each owns a contiguous slice of the output vector:
-`3584 / 128 = 28 output elements per thread`.
+`5120 / 128 = 40 output elements per thread`.
 
-Each thread accumulates 28 FP32 values across the full inner dimension (1536).
+Each thread accumulates 40 FP32 values across the full inner dimension (1536).
 
 ### Inner loop
 
@@ -97,7 +97,7 @@ Process the 1536 input elements in tiles of 16 (NVFP4 dequant granularity).
 96 inner iterations. Per iteration, each thread:
 
 1. Reads attention input value from SMEM (broadcast — same value for all 128 threads)
-2. Loads 28 NVFP4 weight values from global memory (14 bytes)
+2. Loads 40 NVFP4 weight values from global memory (20 bytes)
 3. Dequants FP4 → BF16 → FP32
 4. FMA: `acc[i] += weight[i] * attn_input` for i in 0..27
 
@@ -105,17 +105,17 @@ Process the 1536 input elements in tiles of 16 (NVFP4 dequant granularity).
 
 | Component | Registers/thread |
 |-----------|-----------------|
-| W_O FP32 accumulators | 28 |
+| W_O FP32 accumulators | 40 |
 | Reused from Phase A scratch | ~10 |
 | Dequant + FMA scratch | ~8-10 |
-| **Total** | **~38** |
+| **Total** | **~50** |
 
-SM120 allows 256 registers/thread. 38 = 15% utilization. No occupancy concern.
+SM120 allows 256 registers/thread. 50 = 20% utilization. No occupancy concern.
 
 ### Memory traffic
 
-- W_O weights per CTA: `3584 × 1536 × 0.5B = 2.75 MB` (NVFP4)
-- Scale factors: `3584 × 1536 / 16 × 1B = 344 KB` (FP8 E4M3)
+- W_O weights per CTA: `5120 × 1536 × 0.5B = 3.93 MB` (NVFP4)
+- Scale factors: `5120 × 1536 / 16 × 1B = 491 KB` (FP8 E4M3)
 - Attention output from SMEM: 8,192 bytes (already on-chip)
 
 ## NVFP4 Weight Loading and Dequant
@@ -261,5 +261,5 @@ Not a primary goal, but captured after correctness:
 | Lighting resolve | Phase B: W_O GEMV consumes SMEM, produces hidden state |
 | Tile-local LDS | SMEM — data stays on-chip between passes |
 | Additive light accumulation | atomicAdd from 4 CTAs to output buffer |
-| Uber-shader register budget | 38/256 regs — plenty of headroom for future phases |
+| Uber-shader register budget | 50/256 regs — plenty of headroom for future phases |
 | Forward+ tile boundaries | CTA grid — each tile handles one KV head group |

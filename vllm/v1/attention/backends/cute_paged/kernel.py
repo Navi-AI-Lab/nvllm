@@ -1384,9 +1384,9 @@ if _CUTE_AVAILABLE:
             # group's slice of the K dimension; partial products are
             # atomicAdd'd to a pre-zeroed FP32 output buffer.
             #
-            # Thread tiling: 128 threads, each owns 28 output rows of
-            # hidden_dim=3584 (3584/128=28).  Serialized over 4 groups
-            # of 7 rows with explicit scalar accumulators (no arrays).
+            # Thread tiling: 128 threads, each owns 40 output rows of
+            # hidden_dim=5120 (5120/128=40).  Serialized over 5 groups
+            # of 8 rows with explicit scalar accumulators (no arrays).
             if wo_fused != Int32(0):
                 cute.arch.sync_threads()
 
@@ -1398,17 +1398,17 @@ if _CUTE_AVAILABLE:
                 # Columns: [kv_head_idx * group_size * head_dim / 2 ...]
                 wo_col_byte_off = kv_head_idx * group_size * hd // Int32(2)
 
-                hd_wo = Int32(3584)  # hidden_dim (output dim)
-                n_per_thr = Int32(28)  # outputs per thread (3584/128)
+                hd_wo = Int32(5120)  # hidden_dim (output dim)
+                n_per_thr = Int32(40)  # outputs per thread (5120/128)
                 my_row_base = tid * n_per_thr
 
                 wo_gs = Float32(wo_global_scale)
 
-                # Serialize over 4 groups of 7 output rows
-                for _out_group in cutlass.range_constexpr(4):
-                    out_base = my_row_base + Int32(_out_group * 7)
+                # Serialize over 5 groups of 8 output rows
+                for _out_group in cutlass.range_constexpr(5):
+                    out_base = my_row_base + Int32(_out_group * 8)
 
-                    # 7 FP32 accumulators
+                    # 8 FP32 accumulators
                     a0 = Float32(0.0)
                     a1 = Float32(0.0)
                     a2 = Float32(0.0)
@@ -1416,6 +1416,7 @@ if _CUTE_AVAILABLE:
                     a4 = Float32(0.0)
                     a5 = Float32(0.0)
                     a6 = Float32(0.0)
+                    a7 = Float32(0.0)
 
                     # Inner loop over K dimension (group_size * head_dim)
                     # Process one element at a time for correctness
@@ -1433,8 +1434,8 @@ if _CUTE_AVAILABLE:
                         # Scale factor k_group (blockscale group = 16)
                         k_grp = abs_k >> Int32(4)  # abs_k / 16
 
-                        # Process each of 7 output rows
-                        for _oi in cutlass.range_constexpr(7):
+                        # Process each of 8 output rows
+                        for _oi in cutlass.range_constexpr(8):
                             out_row = out_base + Int32(_oi)
                             if out_row < hd_wo:
                                 # Load weight byte via aligned b32
@@ -1479,11 +1480,13 @@ if _CUTE_AVAILABLE:
                                     a5 = a5 + w_dequant * attn_val
                                 if _oi == 6:
                                     a6 = a6 + w_dequant * attn_val
+                                if _oi == 7:
+                                    a7 = a7 + w_dequant * attn_val
 
                     # atomicAdd accumulators to global FP32 output buffer
                     wo_out_base = wo_output_ptr + Int64(
                         seq_idx * hd_wo * Int32(4))
-                    for _oi in cutlass.range_constexpr(7):
+                    for _oi in cutlass.range_constexpr(8):
                         out_row = out_base + Int32(_oi)
                         if out_row < hd_wo:
                             if _oi == 0:
@@ -1514,6 +1517,10 @@ if _CUTE_AVAILABLE:
                                 _atomic_add_f32(
                                     wo_out_base + Int64(
                                         out_row * Int32(4)), a6)
+                            if _oi == 7:
+                                _atomic_add_f32(
+                                    wo_out_base + Int64(
+                                        out_row * Int32(4)), a7)
 
         def __call__(self, **kwargs):
             """Python-level wrapper: compute grid/block and launch."""

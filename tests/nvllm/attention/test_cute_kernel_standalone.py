@@ -228,7 +228,7 @@ def test_wo_fusion():
     num_q_heads = 24
     num_kv_heads = 4
     head_dim = 256
-    hidden_dim = 3584
+    hidden_dim = 5120
     page_size = 64
     scale = 1.0 / (head_dim ** 0.5)  # 0.0625
     group_size = num_q_heads // num_kv_heads  # 6
@@ -257,7 +257,7 @@ def test_wo_fusion():
 
     # --- Create NVFP4 W_O weights ---
     K = num_q_heads * head_dim  # 6144
-    N = hidden_dim              # 3584
+    N = hidden_dim              # 5120
 
     # Random FP4 nibbles (0-15, including sign in bit 3)
     torch.manual_seed(123)
