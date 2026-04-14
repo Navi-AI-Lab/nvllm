@@ -365,3 +365,18 @@ class CutePagedMetadataBuilder(
             block_table=common_attn_metadata.block_table_tensor,
             is_decode_only=(num_prefills == 0),
         )
+
+    def build_for_cudagraph_capture(
+        self, common_attn_metadata: CommonAttentionMetadata,
+    ) -> CutePagedMetadata:
+        """Override for CUDA graph capture.
+
+        Fills seq_lens with 1 so every CTA exercises the full code path
+        (one page load, one QK dot, etc.) during capture. Padding slots
+        produce ignored results.
+        """
+        attn_metadata = self.build(0, common_attn_metadata)
+        # All slots get seq_len=1: fast capture, full code path exercised
+        attn_metadata.seq_lens.fill_(1)
+        attn_metadata.is_decode_only = True
+        return attn_metadata
