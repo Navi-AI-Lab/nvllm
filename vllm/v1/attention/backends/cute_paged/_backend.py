@@ -217,6 +217,14 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         k_scale = getattr(layer, "_k_scale_float", 1.0)
         v_scale = getattr(layer, "_v_scale_float", 1.0)
 
+        # Phase B: W_O fusion — read side-channel from Attention layer
+        # These are set by the model layer (Task 5) when fusion is enabled.
+        # When absent (None), the kernel skips the W_O GEMV epilogue.
+        wo_weight = getattr(layer, '_wo_weight', None)
+        wo_scales = getattr(layer, '_wo_scales', None)
+        wo_global_scale = getattr(layer, '_wo_global_scale', None)
+        wo_output = getattr(layer, '_wo_output', None)
+
         from vllm.v1.attention.backends.cute_paged.kernel import (
             paged_attention_forward,
         )
@@ -237,6 +245,10 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             v_scale=v_scale,
             page_size=64,
             query_start_loc=attn_metadata.query_start_loc,
+            wo_weight=wo_weight,
+            wo_scales=wo_scales,
+            wo_global_scale=wo_global_scale,
+            wo_output=wo_output,
         )
 
         # Kernel returns 3D [num_actual_tokens, num_heads, head_dim],

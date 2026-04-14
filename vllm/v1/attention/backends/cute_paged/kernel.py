@@ -1525,6 +1525,12 @@ if _CUTE_AVAILABLE:
             k_scale = kwargs["k_scale"]
             v_scale = kwargs["v_scale"]
 
+            # Phase B: W_O fusion params (optional)
+            wo_weight = kwargs.get("wo_weight", None)       # [N, K/2] uint8
+            wo_scales = kwargs.get("wo_scales", None)        # [N, K_sf] fp8
+            wo_global_scale = kwargs.get("wo_global_scale", None)  # scalar
+            wo_output = kwargs.get("wo_output", None)        # [num_seqs, N]
+
             num_q_heads = query.shape[1]
             # kv_cache: [num_pages, 2, page_size, num_kv_heads, head_dim]
             num_kv_heads = kv_cache.shape[3]
@@ -1560,26 +1566,44 @@ if _CUTE_AVAILABLE:
             # Output also needs 1D for the same reason
             out_flat = output.view(-1)
 
-            if self._compiled is None:
-                logger.info("Compiling CuTe decode kernel (first call)...")
-                self._compiled = cute.compile(
-                    self._jit_launch,
-                    q_flat, k_ptr, v_ptr, page_table, seq_lens,
-                    out_flat,
-                    float(scale), float(k_scale), float(v_scale),
-                    Int32(num_q_heads), Int32(num_kv_heads),
-                    kv_page_stride,
-                    Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
-                )
+            # Phase B: build W_O pointer args — real values when fusion
+            # is enabled, zeros when not (kernel guards on wo_fused_flag)
+            if wo_weight is not None:
+                wo_weight_ptr = Int64(wo_weight.data_ptr())
+                wo_scale_ptr = Int64(wo_scales.data_ptr())
+                wo_output_ptr = Int64(wo_output.data_ptr())
+                wo_gs = float(wo_global_scale.item())
+                wo_K = num_q_heads * self.head_dim  # 6144 for Qwen 27B
+                wo_nkt = Int32((wo_K // 16 + 3) // 4)  # numKTiles swizzle
+                wo_row_stride = Int32(wo_weight.shape[1])  # K/2 bytes/row
+                wo_fused_flag = Int32(1)
+            else:
+                wo_weight_ptr = Int64(0)
+                wo_scale_ptr = Int64(0)
+                wo_output_ptr = Int64(0)
+                wo_gs = 0.0
+                wo_nkt = Int32(0)
+                wo_row_stride = Int32(0)
+                wo_fused_flag = Int32(0)
 
-            self._compiled(
+            all_args = (
                 q_flat, k_ptr, v_ptr, page_table, seq_lens,
                 out_flat,
                 float(scale), float(k_scale), float(v_scale),
                 Int32(num_q_heads), Int32(num_kv_heads),
                 kv_page_stride,
+                wo_weight_ptr, wo_scale_ptr, wo_output_ptr,
+                wo_gs, wo_nkt, wo_row_stride,
+                wo_fused_flag,
                 Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
             )
+
+            if self._compiled is None:
+                logger.info("Compiling CuTe decode kernel (first call)...")
+                self._compiled = cute.compile(
+                    self._jit_launch, *all_args)
+
+            self._compiled(*all_args)
             return output
 
     # --- PrefillKernel ------------------------------------------------------
@@ -1726,6 +1750,11 @@ def paged_attention_forward(
     v_scale: float = 1.0,
     page_size: int = 64,
     query_start_loc: torch.Tensor | None = None,  # [num_seqs + 1] int32
+    # Phase B: W_O fusion (optional)
+    wo_weight: torch.Tensor | None = None,       # [N, K/2] uint8
+    wo_scales: torch.Tensor | None = None,        # [N, K_sf] fp8_e4m3fn
+    wo_global_scale: torch.Tensor | None = None,  # scalar f32
+    wo_output: torch.Tensor | None = None,        # [num_seqs, N] f32
 ) -> torch.Tensor:
     """Paged attention forward -- CuTe JIT kernel or PyTorch fallback.
 
@@ -1777,6 +1806,10 @@ def paged_attention_forward(
         v_scale=v_scale,
         page_size=page_size,
         query_start_loc=query_start_loc,
+        wo_weight=wo_weight,
+        wo_scales=wo_scales,
+        wo_global_scale=wo_global_scale,
+        wo_output=wo_output,
     )
 
     return cute_out
