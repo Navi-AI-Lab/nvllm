@@ -885,6 +885,11 @@ if _CUTE_AVAILABLE:
                         scale, k_scale, v_scale,
                         num_q_heads, num_kv_heads,
                         kv_page_stride: Int32,
+                        wo_weight_ptr: Int64, wo_scale_ptr: Int64,
+                        wo_output_ptr: Int64, wo_global_scale,
+                        wo_num_k_tiles: Int32,
+                        wo_weight_row_stride: Int32,
+                        wo_fused: Int32,
                         grid_x: Int32, grid_y: Int32, grid_z: Int32):
             """JIT host wrapper: compiles kernel launch into MLIR."""
             self._kernel(
@@ -892,6 +897,10 @@ if _CUTE_AVAILABLE:
                 output, scale, k_scale, v_scale,
                 num_q_heads, num_kv_heads,
                 kv_page_stride,
+                wo_weight_ptr, wo_scale_ptr,
+                wo_output_ptr, wo_global_scale,
+                wo_num_k_tiles, wo_weight_row_stride,
+                wo_fused,
             ).launch(
                 grid=[grid_x, grid_y, grid_z],
                 block=[self.num_threads, 1, 1],
@@ -903,7 +912,12 @@ if _CUTE_AVAILABLE:
                      page_table, seq_lens,
                      output, scale, k_scale, v_scale,
                      num_q_heads, num_kv_heads,
-                     kv_page_stride: Int32):
+                     kv_page_stride: Int32,
+                     wo_weight_ptr: Int64, wo_scale_ptr: Int64,
+                     wo_output_ptr: Int64, wo_global_scale,
+                     wo_num_k_tiles: Int32,
+                     wo_weight_row_stride: Int32,
+                     wo_fused: Int32):
             """CuTe DSL decode kernel for FP8 paged attention on SM121.
 
             Structure: outer _md loop over head_dim blocks, inner page loop.
@@ -1362,6 +1376,144 @@ if _CUTE_AVAILABLE:
 
                 cute.arch.sync_threads()
             # end _md loop
+
+            # === Phase B: Fused W_O GEMV ===
+            # After Phase A attention writes BF16 output to global memory,
+            # Phase B reads it back (likely L2-cached) and multiplies by
+            # the NVFP4 W_O weight matrix.  Each CTA handles one KV head
+            # group's slice of the K dimension; partial products are
+            # atomicAdd'd to a pre-zeroed FP32 output buffer.
+            #
+            # Thread tiling: 128 threads, each owns 28 output rows of
+            # hidden_dim=3584 (3584/128=28).  Serialized over 4 groups
+            # of 7 rows with explicit scalar accumulators (no arrays).
+            if wo_fused != Int32(0):
+                cute.arch.sync_threads()
+
+                # Attention output: [num_seqs, num_q_heads, head_dim] BF16
+                # This CTA covers heads [q_head_start .. q_head_start+group_size-1]
+                attn_base = seq_idx * num_q_heads * hd + q_head_start * hd
+
+                # W_O column byte offset for this KV head group
+                # Columns: [kv_head_idx * group_size * head_dim / 2 ...]
+                wo_col_byte_off = kv_head_idx * group_size * hd // Int32(2)
+
+                hd_wo = Int32(3584)  # hidden_dim (output dim)
+                n_per_thr = Int32(28)  # outputs per thread (3584/128)
+                my_row_base = tid * n_per_thr
+
+                wo_gs = Float32(wo_global_scale)
+
+                # Serialize over 4 groups of 7 output rows
+                for _out_group in cutlass.range_constexpr(4):
+                    out_base = my_row_base + Int32(_out_group * 7)
+
+                    # 7 FP32 accumulators
+                    a0 = Float32(0.0)
+                    a1 = Float32(0.0)
+                    a2 = Float32(0.0)
+                    a3 = Float32(0.0)
+                    a4 = Float32(0.0)
+                    a5 = Float32(0.0)
+                    a6 = Float32(0.0)
+
+                    # Inner loop over K dimension (group_size * head_dim)
+                    # Process one element at a time for correctness
+                    for _ki in cutlass.range_constexpr(6 * 256):  # 1536
+                        k_idx = Int32(_ki)
+
+                        # Load attention output element (BF16 from global)
+                        attn_val = Float32(output[attn_base + k_idx])
+
+                        # Absolute K index in the full W_O matrix
+                        abs_k = kv_head_idx * group_size * hd + k_idx
+                        k_byte = abs_k >> Int32(1)  # which byte
+                        k_is_hi = abs_k & Int32(1)  # 0=low nibble, 1=high
+
+                        # Scale factor k_group (blockscale group = 16)
+                        k_grp = abs_k >> Int32(4)  # abs_k / 16
+
+                        # Process each of 7 output rows
+                        for _oi in cutlass.range_constexpr(7):
+                            out_row = out_base + Int32(_oi)
+                            if out_row < hd_wo:
+                                # Load weight byte via aligned b32
+                                w_addr = wo_weight_ptr + Int64(
+                                    out_row * wo_weight_row_stride
+                                    + k_byte)
+                                aligned = w_addr & Int64(
+                                    0xFFFFFFFFFFFFFFFC)
+                                raw = _ld_global_b32(aligned)
+                                bpos = Int32(w_addr & Int64(3))
+                                the_byte = _extract_byte_from_b32(
+                                    raw, bpos)
+
+                                # Extract nibble
+                                if k_is_hi == Int32(0):
+                                    nib = the_byte & Int32(0x0F)
+                                else:
+                                    nib = (the_byte >> Int32(4)) & Int32(
+                                        0x0F)
+
+                                w_f32 = _fp4_nibble_to_f32(nib)
+
+                                # Load blockscale
+                                sf = _ld_swizzled_scale(
+                                    wo_scale_ptr, out_row, k_grp,
+                                    wo_num_k_tiles)
+
+                                w_dequant = w_f32 * sf * wo_gs
+
+                                # Accumulate into correct register
+                                if _oi == 0:
+                                    a0 = a0 + w_dequant * attn_val
+                                if _oi == 1:
+                                    a1 = a1 + w_dequant * attn_val
+                                if _oi == 2:
+                                    a2 = a2 + w_dequant * attn_val
+                                if _oi == 3:
+                                    a3 = a3 + w_dequant * attn_val
+                                if _oi == 4:
+                                    a4 = a4 + w_dequant * attn_val
+                                if _oi == 5:
+                                    a5 = a5 + w_dequant * attn_val
+                                if _oi == 6:
+                                    a6 = a6 + w_dequant * attn_val
+
+                    # atomicAdd accumulators to global FP32 output buffer
+                    wo_out_base = wo_output_ptr + Int64(
+                        seq_idx * hd_wo * Int32(4))
+                    for _oi in cutlass.range_constexpr(7):
+                        out_row = out_base + Int32(_oi)
+                        if out_row < hd_wo:
+                            if _oi == 0:
+                                _atomic_add_f32(
+                                    wo_out_base + Int64(
+                                        out_row * Int32(4)), a0)
+                            if _oi == 1:
+                                _atomic_add_f32(
+                                    wo_out_base + Int64(
+                                        out_row * Int32(4)), a1)
+                            if _oi == 2:
+                                _atomic_add_f32(
+                                    wo_out_base + Int64(
+                                        out_row * Int32(4)), a2)
+                            if _oi == 3:
+                                _atomic_add_f32(
+                                    wo_out_base + Int64(
+                                        out_row * Int32(4)), a3)
+                            if _oi == 4:
+                                _atomic_add_f32(
+                                    wo_out_base + Int64(
+                                        out_row * Int32(4)), a4)
+                            if _oi == 5:
+                                _atomic_add_f32(
+                                    wo_out_base + Int64(
+                                        out_row * Int32(4)), a5)
+                            if _oi == 6:
+                                _atomic_add_f32(
+                                    wo_out_base + Int64(
+                                        out_row * Int32(4)), a6)
 
         def __call__(self, **kwargs):
             """Python-level wrapper: compute grid/block and launch."""
