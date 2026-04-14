@@ -858,6 +858,20 @@ if _CUTE_AVAILABLE:
         return Float32(result_ir)
 
     @dsl_user_op
+    def _rcp_approx_f32(x: Float32, *, loc=None, ip=None) -> Float32:
+        """Hardware reciprocal approximation — rcp.approx.ftz.f32.
+
+        Used for sigmoid: 1 / (1 + exp2(-x * LOG2E)).
+        Single-instruction, sufficient precision for gating.
+        """
+        x_ir = Float32(x).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.f32(), [x_ir],
+            "rcp.approx.ftz.f32 $0, $1;", "=f,f",
+            has_side_effects=True, loc=loc, ip=ip)
+        return Float32(result_ir)
+
+    @dsl_user_op
     def _ld_global_f32(addr: Int64, *, loc=None, ip=None) -> Float32:
         """Load FP32 from global memory at byte address."""
         addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
@@ -866,6 +880,16 @@ if _CUTE_AVAILABLE:
             "ld.global.f32 $0, [$1];", "=f,l",
             has_side_effects=True, loc=loc, ip=ip)
         return Float32(result_ir)
+
+    @dsl_user_op
+    def _st_global_f32(addr: Int64, val: Float32, *, loc=None, ip=None) -> None:
+        """Store FP32 to global memory at byte address."""
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        val_ir = Float32(val).ir_value(loc=loc, ip=ip)
+        _llvm_dialect.inline_asm(
+            None, [addr_ir, val_ir],
+            "st.global.f32 [$0], $1;", "l,f",
+            has_side_effects=True, loc=loc, ip=ip)
 
     @dsl_user_op
     def _ld_global_b16_to_f32(addr: Int64, *, loc=None, ip=None) -> Float32:
@@ -1485,6 +1509,21 @@ if _CUTE_AVAILABLE:
                             if red_row < group_size:
                                 out_idx = (seq_idx * num_q_heads * hd
                                            + out_head * hd + g_col)
+                                # Gate fusion: sigmoid(gate) * attn_output
+                                # gate_buf layout: [num_seqs, num_q_heads * head_dim] BF16
+                                if gate_fused != Int32(0):
+                                    gate_elem_idx = (seq_idx * num_q_heads * hd
+                                                     + out_head * hd + g_col)
+                                    gate_f32 = _ld_global_b16_to_f32(
+                                        gate_ptr + Int64(
+                                            gate_elem_idx * Int32(2)))
+                                    # sigmoid(x) = 1 / (1 + exp2(-x * LOG2E))
+                                    neg_x_log2e = (Float32(0.0) - gate_f32
+                                                   * Float32(1.4426950408889634))
+                                    exp_val = exp2_approx_ftz_f32(neg_x_log2e)
+                                    sigmoid_val = _rcp_approx_f32(
+                                        Float32(1.0) + exp_val)
+                                    o_final = o_final * sigmoid_val
                                 output[out_idx] = BFloat16(o_final)
 
                 cute.arch.sync_threads()
@@ -1501,6 +1540,19 @@ if _CUTE_AVAILABLE:
             # hidden_dim=5120 (5120/128=40).  Serialized over 5 groups
             # of 8 rows with explicit scalar accumulators (no arrays).
             if wo_fused != Int32(0):
+                # Self-zero: first CTA zeros its wo_output rows before atomicAdd.
+                # Eliminates external zero_() call (graph-safe).
+                if cute.arch.block_idx.x == Int32(0):
+                    wo_zero_base = wo_output_ptr + Int64(
+                        seq_idx * Int32(5120) * Int32(4))  # FP32=4B, hidden=5120
+                    my_zero_start = tid * Int32(40)  # 5120/128 threads = 40 each
+                    for _zg in cutlass.range_constexpr(5):
+                        base_z = my_zero_start + Int32(_zg * 8)
+                        for _zi in cutlass.range_constexpr(8):
+                            idx_z = base_z + Int32(_zi)
+                            _st_global_f32(
+                                wo_zero_base + Int64(idx_z * Int32(4)),
+                                Float32(0.0))
                 cute.arch.sync_threads()
 
                 # Attention output: [num_seqs, num_q_heads, head_dim] BF16
@@ -1515,7 +1567,7 @@ if _CUTE_AVAILABLE:
                 n_per_thr = Int32(40)  # outputs per thread (5120/128)
                 my_row_base = tid * n_per_thr
 
-                wo_gs = Float32(wo_gs_ptr)
+                wo_gs = _ld_global_f32(wo_gs_ptr)
 
                 # Serialize over 5 groups of 8 output rows
                 for _out_group in cutlass.range_constexpr(5):
