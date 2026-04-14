@@ -318,7 +318,7 @@ def test_wo_fusion():
 
     # Reference output
     attn_flat = attn_out.view(1, -1).float()  # [1, K=6144]
-    ref_output = attn_flat @ wo_dequant.T      # [1, N=3584]
+    ref_output = attn_flat @ wo_dequant.T      # [1, N=5120]
 
     # --- Fused: attention + W_O in one kernel ---
     wo_output = torch.zeros(num_seqs, N, dtype=torch.float32, device=device)
