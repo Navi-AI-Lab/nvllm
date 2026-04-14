@@ -220,6 +220,23 @@ execute_model(scheduler_output)
 5. **nsys trace:** Profile decode latency before/after to measure the actual speedup from
    eliminating inter-op launch overhead.
 
+## Post-Ship Cleanup
+
+Once CUDA graphs are validated end-to-end:
+
+1. **Seal qwen2.py fusion code as reference-only.** The old Phase B+C fusion wiring in
+   `qwen2.py` (`_prepare_wo_fusion()`, side-channel set/clear cycle, `_arrival_count_buf`
+   lazy growth) is dead code for our model. Rename the fusion-related sections to `.ref`
+   files so they're clearly reference material, not live code.
+
+2. **Update Claude hook.** The `qwen2.py` edit block in `.claude/settings.local.json`
+   can be relaxed once fusion code is removed from that file — the hook exists to prevent
+   wiring fusion into the wrong class, which won't be possible once the code is gone.
+
+3. **Archive old fusion traces.** The Phase B+C benchmark results that ran unfused
+   (corrected in commit `bdbb3ec6a`) can be moved to a `historical/` subdirectory
+   under traces to avoid confusion with validated results.
+
 ## Non-Goals
 
 - Phase D+E (MLP fusion) — separate project, resumes after this ships

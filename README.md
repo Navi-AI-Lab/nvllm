@@ -33,13 +33,6 @@ Pull the prebuilt image (~15-25 GB) and run a model:
 
 ```bash
 docker pull ghcr.io/navi-ai-lab/nvllm:latest
-
-docker run --gpus all --ipc=host --network host \
-  -v ~/.cache/huggingface:/root/.cache/huggingface \
-  -v ~/.cache/flashinfer:/root/.cache/flashinfer \
-  --entrypoint bash \
-  ghcr.io/navi-ai-lab/nvllm:latest \
-  scripts/serve_qwen35.sh
 ```
 
 **Required flags:** `--gpus all --ipc=host --network host` (vLLM needs shared memory and GPU access).
@@ -51,20 +44,9 @@ docker run --gpus all --ipc=host --network host \
 
 **For gated models** (e.g., Gemma 4): pass `-e HF_TOKEN=hf_...` or mount a token file.
 
-### Available Serve Scripts
+Also available on Docker Hub: `docker.io/naviailab/nvllm:latest` (may lag behind GHCR — build from source for latest kernel work).
 
-| Script | Model | Context |
-|--------|-------|---------|
-| `serve_qwen35.sh` | Qwen3.5-122B-A10B-NVFP4 (MoE) | 32K |
-| `serve_qwen35_27b.sh` | Qwen3.5-27B-NVFP4-Opus (dense) | 64K |
-| `serve_nemotron.sh` | Nemotron-3-Super-120B-A12B-NVFP4 | 128K |
-| `serve_gemma4.sh` | Gemma 4 31B IT NVFP4 (local quant) | 32K |
-| `serve_qwen35_agents.sh` | Qwen3.5-122B-A10B-NVFP4 (agents) | 64K |
-| `serve_qwen3_coder_next.sh` | Qwen3-Coder-Next-NVFP4 | 128K |
-
-Also available on Docker Hub: `docker.io/naviailab/nvllm:latest`
-
-## Quick Start
+## Build from Source
 
 ### Prerequisites
 - NVIDIA DGX Spark (GB10) or GH200
@@ -85,12 +67,12 @@ cd nvllm && git pull
 docker build -f docker/Dockerfile.gb10 -t nvllm:gb10 .
 ```
 
-### 2. Run a model
-```
-./scripts/run_qwen35.sh
+### 2. Serve a model
+```bash
+./scripts/serve.sh
 ```
 
-First run downloads the model automatically (~25 GB).
+First run downloads the model automatically (~18 GB).
 API available at `http://localhost:8000/v1`.
 
 All models are served as `default` — use `"model": "default"` in API calls:
@@ -100,36 +82,32 @@ curl http://localhost:8000/v1/chat/completions \
   -d '{"model": "default", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-### Available Models
+### Serve Scripts
 
-Benchmarks will eventually be dated and version pinned once repo is stable. For now ignore tok/s here.
-
-| Script | Model | Active Params | Speed | Context |
-|--------|-------|---------------|-------|---------|
-| `run_qwen35_27b_nvfp4-opus.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | 27B | ~45 tok/s | 64K |
-| `run_nemotron.sh` | Nemotron-3-Super-120B | 12B | TBD | 16K (128K w/ --tq) |
-| `run_qwen35.sh` | Qwen3.5-122B-A10B | 10B | TBD | 32K |
-| `run_qwen3_coder_next.sh` | Qwen3-Coder-Next | 3B | TBD | 128K |
-| `run_gemma4.sh` | Gemma 4 31B IT | 31B | TBD | 32K |
-
-### Baseline Config
-
-All launch scripts use a standard baseline for consistent benchmarking:
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `max-num-seqs` | 4 or 2 | Small models (≤31B) get 4, larger models get 2. Fits a single GB10. |
-| `kv-cache-dtype` | auto (FP8) | FP8 KV cache — best throughput. Use `--tq` for TurboQuant (more context, ~25% slower) |
-| `gpu-memory-utilization` | varies | Tuned per model to only what's needed for the target context length |
-
-Benchmarks are always run with `max-num-seqs=4` or `max-num-seqs=2` and FP8 KV so results are comparable across models and optimizations.
+| Script | Model | Status | Context |
+|--------|-------|--------|---------|
+| `serve.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | Active (default) | 64K |
+| `serve-cute.sh` | Qwen3.5-27B with CuTe Paged Attention | Active (kernel dev) | 64K |
+| `serve-nemotron.sh` | Nemotron-3-Super-120B-A12B-NVFP4 | Ready | 128K |
+| `serve-gemma4.sh` | Gemma 4 31B IT NVFP4 | Degraded (see script) | 32K |
 
 ### Flags
 
 | Flag | Effect |
 |------|--------|
-| `--tq` | TurboQuant KV cache — more context capacity, ~25% lower throughput |
+| `--tq` | TurboQuant KV cache — more context capacity, ~25% lower throughput (serve.sh only) |
 | `--debug` | Eager mode, no CUDA graphs (for debugging) |
+
+### Roadmap
+
+**Now — Qwen3.5-27B kernel work**
+- CuTe DSL paged attention uber-kernel (fused attention + W_O GEMV + RMSNorm)
+- CUDA graph support (FULL_AND_PIECEWISE mode)
+- End-to-end fusion validation through Qwen3NextAttention
+
+**Next — expand model support**
+- Gemma 4 31B IT — blocked on vLLM PR #38891 (per-layer attention backend for mixed head_dim)
+- Devstral 2 Large — NVFP4 quantization and serve script
 
 ### SM120 Stream-K Decode Optimization
 
@@ -156,7 +134,7 @@ Custom paged attention backend using CuTe Python DSL, targeting SM120/SM121 FP8 
 
 **Status:** Backend interface validated end-to-end. PyTorch prototype serves live inference. CuTe DSL kernel replacement in progress.
 
-Launch with: `bash scripts/run_qwen35_27b_cute_paged.sh --debug`
+Launch with: `./scripts/serve-cute.sh --debug`
 
 ## Acknowledgments
 

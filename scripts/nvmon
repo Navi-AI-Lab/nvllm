@@ -1,0 +1,231 @@
+#!/bin/bash
+# nvmon — unified memory GPU monitor for DGX Spark (GB10)
+#
+# Like nvtop but aware of Grace-Blackwell unified memory.
+# nvidia-smi reports [N/A] for GPU memory on GB10 because the
+# memory is physically shared with the CPU via NVLink-C2C.
+# This tool reads /proc/meminfo for the real pool and combines
+# it with per-process GPU allocations from nvidia-smi.
+#
+# Usage:  nvmon [--interval N]   (default: 1 second)
+
+set -euo pipefail
+
+INTERVAL=1
+for arg in "$@"; do
+  case "$arg" in
+    --interval) shift; INTERVAL="${1:-1}" ;;
+    --interval=*) INTERVAL="${arg#*=}" ;;
+    -h|--help)
+      echo "Usage: nvmon [--interval N]"
+      echo "  Unified memory GPU monitor for GB10"
+      exit 0
+      ;;
+  esac
+done
+
+# --- Colors (ANSI) ---
+RST='\033[0m'
+BOLD='\033[1m'
+DIM='\033[2m'
+WHITE='\033[97m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+RED='\033[31m'
+CYAN='\033[36m'
+MAGENTA='\033[35m'
+BG_BAR='\033[48;5;236m'
+BG_GREEN='\033[42m'
+BG_YELLOW='\033[43m'
+BG_RED='\033[41m'
+BG_CYAN='\033[46m'
+BG_MAGENTA='\033[45m'
+
+cleanup() {
+  tput cnorm 2>/dev/null  # restore cursor
+  tput rmcup 2>/dev/null  # restore screen
+  echo -ne "$RST"
+  exit 0
+}
+trap cleanup EXIT INT TERM
+
+tput smcup 2>/dev/null  # alt screen
+tput civis 2>/dev/null  # hide cursor
+
+# --- Helpers ---
+
+bar() {
+  # bar <used> <total> <width> <fg_color> <label>
+  local used=$1 total=$2 width=$3 color=$4 label=$5
+  local pct=0 filled=0
+
+  if (( total > 0 )); then
+    pct=$(( used * 100 / total ))
+    filled=$(( used * width / total ))
+  fi
+  (( filled > width )) && filled=$width
+
+  local empty=$(( width - filled ))
+
+  # Color based on percentage
+  local bar_color="$BG_GREEN"
+  if (( pct >= 90 )); then
+    bar_color="$BG_RED"
+  elif (( pct >= 70 )); then
+    bar_color="$BG_YELLOW"
+  fi
+
+  printf "${BOLD}${color}%-6s${RST} [" "$label"
+  printf "${bar_color}${WHITE}"
+  printf '%*s' "$filled" '' | tr ' ' ' '
+  printf "${RST}${BG_BAR}"
+  printf '%*s' "$empty" ''
+  printf "${RST}] "
+  printf "${BOLD}%3d%%${RST} " "$pct"
+}
+
+format_mib() {
+  local mib=$1
+  if (( mib >= 1024 )); then
+    awk "BEGIN { printf \"%.1f GiB\", $mib / 1024 }"
+  else
+    echo "${mib} MiB"
+  fi
+}
+
+render() {
+  local cols rows
+  cols=$(tput cols)
+  rows=$(tput lines)
+  local bar_width=$(( cols - 42 ))
+  (( bar_width < 20 )) && bar_width=20
+  (( bar_width > 80 )) && bar_width=80
+
+  # --- GPU info ---
+  local gpu_line
+  gpu_line=$(nvidia-smi --query-gpu=utilization.gpu,temperature.gpu,clocks.current.sm,power.draw,name --format=csv,noheader,nounits 2>/dev/null || echo "0, 0, 0, 0, Unknown")
+  IFS=', ' read -r gpu_util gpu_temp gpu_clock gpu_power gpu_name <<< "$gpu_line"
+  gpu_util=${gpu_util// /}
+  gpu_temp=${gpu_temp// /}
+  gpu_clock=${gpu_clock// /}
+  gpu_power=${gpu_power// /}
+  gpu_name=$(echo "$gpu_name" | sed 's/^ *//')
+
+  # --- Unified memory from /proc/meminfo ---
+  local mem_total_kb mem_avail_kb mem_free_kb buffers_kb cached_kb
+  while IFS=': ' read -r key val _; do
+    case "$key" in
+      MemTotal)      mem_total_kb=$val ;;
+      MemAvailable)  mem_avail_kb=$val ;;
+      MemFree)       mem_free_kb=$val ;;
+      Buffers)       buffers_kb=$val ;;
+      Cached)        cached_kb=$val ;;
+    esac
+  done < /proc/meminfo
+
+  local mem_total_mib=$(( mem_total_kb / 1024 ))
+  local mem_avail_mib=$(( mem_avail_kb / 1024 ))
+  local mem_used_mib=$(( mem_total_mib - mem_avail_mib ))
+
+  # --- Per-process GPU memory ---
+  local proc_lines
+  proc_lines=$(nvidia-smi --query-compute-apps=pid,used_gpu_memory,name --format=csv,noheader,nounits 2>/dev/null || echo "")
+
+  # Sum GPU-allocated memory
+  local gpu_alloc_mib=0
+  local proc_data=()
+  while IFS=', ' read -r pid mem pname; do
+    [ -z "$pid" ] && continue
+    pid=${pid// /}
+    mem=${mem// /}
+    pname=$(echo "$pname" | sed 's/^ *//')
+    gpu_alloc_mib=$(( gpu_alloc_mib + mem ))
+
+    # Shorten process name
+    local short_name
+    short_name=$(basename "$pname" 2>/dev/null || echo "$pname")
+    [ ${#short_name} -gt 30 ] && short_name="${short_name:0:27}..."
+
+    proc_data+=("$pid|$mem|$short_name")
+  done <<< "$proc_lines"
+
+  local non_gpu_mib=$(( mem_used_mib - gpu_alloc_mib ))
+  (( non_gpu_mib < 0 )) && non_gpu_mib=0
+
+  # --- Render ---
+  tput home
+  tput ed
+
+  # Header
+  printf "${BOLD}${CYAN}  nvmon${RST}${DIM} — GB10 Unified Memory Monitor${RST}"
+  printf "%*s" $(( cols - 42 )) ""
+  printf "${DIM}$(date '+%H:%M:%S')${RST}\n"
+  printf "${DIM}  %-*s${RST}\n" $(( cols - 2 )) "$gpu_name"
+  echo ""
+
+  # GPU utilization bar
+  bar "$gpu_util" 100 "$bar_width" "$GREEN" "GPU"
+  printf "${DIM}${gpu_temp}°C  ${gpu_clock} MHz  ${gpu_power} W${RST}\n"
+
+  # Unified memory bar (total used)
+  bar "$mem_used_mib" "$mem_total_mib" "$bar_width" "$MAGENTA" "UNI"
+  printf "$(format_mib $mem_used_mib) / $(format_mib $mem_total_mib)\n"
+
+  # GPU-allocated portion bar
+  bar "$gpu_alloc_mib" "$mem_total_mib" "$bar_width" "$CYAN" "GPU-M"
+  printf "$(format_mib $gpu_alloc_mib) mapped\n"
+
+  # CPU/system portion bar
+  bar "$non_gpu_mib" "$mem_total_mib" "$bar_width" "$YELLOW" "SYS"
+  printf "$(format_mib $non_gpu_mib) system\n"
+
+  echo ""
+
+  # Process table
+  printf "${BOLD}  %-8s  %10s  %s${RST}\n" "PID" "GPU MEM" "PROCESS"
+  printf "${DIM}  %-8s  %10s  %s${RST}\n" "--------" "----------" "------------------------------"
+
+  # Sort by memory (descending)
+  local sorted
+  sorted=$(for p in "${proc_data[@]}"; do echo "$p"; done | sort -t'|' -k2 -rn)
+
+  local line_count=0
+  local max_procs=$(( rows - 12 ))
+  (( max_procs < 3 )) && max_procs=3
+
+  while IFS='|' read -r pid mem pname; do
+    [ -z "$pid" ] && continue
+    (( line_count >= max_procs )) && break
+
+    local mem_fmt
+    mem_fmt=$(format_mib "$mem")
+
+    local pcolor="$RST"
+    if (( mem > 10000 )); then
+      pcolor="$BOLD$CYAN"
+    elif (( mem > 1000 )); then
+      pcolor="$CYAN"
+    fi
+
+    printf "  ${pcolor}%-8s  %10s${RST}  %s\n" "$pid" "$mem_fmt" "$pname"
+    (( line_count++ ))
+  done <<< "$sorted"
+
+  if [ ${#proc_data[@]} -eq 0 ]; then
+    printf "  ${DIM}(no GPU processes)${RST}\n"
+  fi
+
+  echo ""
+  printf "  ${DIM}Free: $(format_mib $mem_avail_mib) available  |  q to quit  |  ${INTERVAL}s refresh${RST}\n"
+}
+
+# --- Main loop ---
+while true; do
+  render
+  # Read with timeout; quit on 'q'
+  if read -rsn1 -t "$INTERVAL" key 2>/dev/null; then
+    case "$key" in
+      q|Q) break ;;
+    esac
+  fi
+done

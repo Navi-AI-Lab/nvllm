@@ -69,7 +69,7 @@ CuTe DSL kernel at production throughput.
 docker build -f docker/Dockerfile.gb10 -t nvllm:gb10 .
 
 # Launch server (debug/eager mode)
-bash scripts/run_qwen35_27b_cute_paged.sh --debug
+bash scripts/run_qwen35_27b_cute_paged.sh --debug  # renamed to scripts/serve-cute.sh
 
 # Run GSM8K
 python3 tests/evals/gsm8k/gsm8k_eval.py --num-questions 50 --max-tokens 256 \

@@ -1,12 +1,13 @@
 #!/bin/bash
-# nvllm -- Run natfii/Qwen3.5-27B-NVFP4-Opus-GB10 with CuTe Paged Attention
+# nvllm -- Serve natfii/Qwen3.5-27B-NVFP4-Opus-GB10 with CuTe Paged Attention
 #
 # Custom CuTe DSL paged attention backend for SM120/SM121 (GB10).
 # Requires FP8 E4M3 KV cache (the only kv_cache_dtype CuTe backend supports).
+# This is the kernel development script — use scripts/serve.sh for production.
 #
 # Usage:
-#   ./scripts/run_qwen35_27b_cute_paged.sh          # Standard launch
-#   ./scripts/run_qwen35_27b_cute_paged.sh --debug  # Eager mode, no CUDA graphs
+#   ./scripts/serve-cute.sh          # Standard launch
+#   ./scripts/serve-cute.sh --debug  # Eager mode, no CUDA graphs
 
 set -euo pipefail
 
@@ -55,6 +56,8 @@ echo "  Port:        $PORT"
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs)"; fi
 echo ""
 
+# NOTE: --enable-prefix-caching removed — corrupts SSM state in hybrid attention models.
+# Re-evaluate when upstream vLLM explicitly supports prefix caching + FLA/mamba.
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -77,7 +80,6 @@ docker run -d \
   --language-model-only \
   --mamba-cache-mode align \
   --mamba-block-size 64 \
-  --enable-prefix-caching \
   --trust-remote-code \
   --gpu-memory-utilization 0.80 \
   --max-num-batched-tokens 65536 \

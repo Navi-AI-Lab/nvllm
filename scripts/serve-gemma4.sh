@@ -1,12 +1,17 @@
 #!/bin/bash
-# nvllm -- Run Gemma 4 31B IT (NVFP4) on DGX Spark (GB10)
+# nvllm -- Serve Gemma 4 31B IT (NVFP4) on DGX Spark (GB10)
 #
 # Dense vision-language model with ngram speculative decoding.
-# Supports both local checkpoints and HF model IDs (e.g., RedHatAI/gemma-4-31B-it-NVFP4).
+# Supports both local checkpoints and HF model IDs.
+#
+# WARNING: Performance is severely degraded on GB10 (~8x slower than Qwen3.5-27B).
+#   All attention layers fall back to TRITON_ATTN due to mixed head_dim (256+512).
+#   Waiting on upstream vLLM PR #38891 (per-layer attention backend).
+#   Use Qwen3.5-27B for production workloads until this is resolved.
 #
 # Usage:
-#   ./scripts/run_gemma4.sh          # Standard launch
-#   ./scripts/run_gemma4.sh --debug  # Eager mode, no CUDA graphs
+#   ./scripts/serve-gemma4.sh          # Standard launch
+#   ./scripts/serve-gemma4.sh --debug  # Eager mode, no CUDA graphs
 
 set -euo pipefail
 
@@ -47,7 +52,7 @@ elif [[ "$MODEL" == */* ]]; then
   QUANT_ARG=""
 fi
 
-# Serving config — TurboQuant KV cache for max context
+# Serving config
 KV_CACHE="turboquant35"
 ATTN_BACKEND="TRITON_ATTN"
 
@@ -61,26 +66,23 @@ fi
 
 echo ""
 echo "WARNING: Gemma 4 performance is severely degraded on GB10 (~8x slower than Qwen3.5-27B)."
-echo "  All attention layers fall back to TRITON_ATTN due to mixed head_dim (256+512)."
-echo "  Waiting on upstream vLLM PR #38891 (per-layer attention backend) for a fix."
+echo "  Mixed head_dim (256+512) forces TRITON_ATTN fallback on all layers."
+echo "  Waiting on upstream vLLM PR #38891 (per-layer attention backend)."
 echo "  Ngram spec decode acceptance is <1% — adds overhead with no benefit."
-echo "  Use Qwen3.5-27B for production workloads until this is resolved."
 echo ""
 echo "=== Launching Gemma 4 31B IT (NVFP4) ==="
 echo "  Model:       $MODEL"
+echo "  Attention:   $ATTN_BACKEND"
 echo "  KV cache:    $KV_CACHE"
 echo "  Context:     32768 tokens"
-echo "  Spec decode: ngram (3 tokens, prompt lookup max 3)"
+echo "  Spec decode: ngram (3 tokens)"
 echo "  Max seqs:    4"
 echo "  Port:        $PORT"
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs)"; fi
 echo ""
 
 # Gemma4 requires a numba workaround: pip install inside the container
-# before starting vLLM. We use --entrypoint bash for this.
-# The model directory is mounted as /model inside the container.
-# JSON args are passed via environment variables to avoid quoting issues
-# inside the bash -c string.
+# before starting vLLM.
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \

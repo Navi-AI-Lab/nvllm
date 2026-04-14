@@ -30,7 +30,7 @@
 ## How to reproduce
 
 ```bash
-./scripts/run_qwen35_27b_cute_paged.sh
+./scripts/run_qwen35_27b_cute_paged.sh  # renamed to scripts/serve-cute.sh
 
 curl -s http://localhost:8000/v1/completions \
   -H "Content-Type: application/json" \

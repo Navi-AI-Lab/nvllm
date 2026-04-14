@@ -1,14 +1,14 @@
 #!/bin/bash
-# nvllm -- Run natfii/Qwen3.5-27B-NVFP4-Opus-GB10 on DGX Spark (GB10)
+# nvllm -- Serve natfii/Qwen3.5-27B-NVFP4-Opus-GB10 on DGX Spark (GB10)
 #
-# Dense Qwen3.5 model with hybrid attention (linear + full) and MTP.
-# ~18 GB NVFP4 quantized — fits in GB10's 128 GB with 64k context.
-# Automatically downloads the model from Hugging Face on first run.
+# Dense Qwen3.5 with hybrid attention (linear + full).
+# ~18 GB NVFP4 quantized — fits GB10's 128 GB with 64k context.
+# Uses triton_attn backend (production default).
 #
 # Usage:
-#   ./scripts/run_qwen35_27b_nvfp4.sh          # Standard launch (FP8 KV)
-#   ./scripts/run_qwen35_27b_nvfp4.sh --tq     # TurboQuant KV cache (more context)
-#   ./scripts/run_qwen35_27b_nvfp4.sh --debug  # Eager mode, no CUDA graphs
+#   ./scripts/serve.sh          # Standard launch (FP8 KV)
+#   ./scripts/serve.sh --tq     # TurboQuant KV cache (more context)
+#   ./scripts/serve.sh --debug  # Eager mode, no CUDA graphs
 
 set -euo pipefail
 
@@ -56,6 +56,7 @@ fi
 
 echo "=== Launching Qwen3.5-27B-NVFP4-Opus-GB10 ==="
 echo "  Model:       $HF_MODEL"
+echo "  Attention:   $ATTN_BACKEND"
 echo "  KV cache:    $KV_CACHE"
 echo "  Context:     $MAX_MODEL_LEN tokens"
 echo "  Max seqs:    $MAX_NUM_SEQS"

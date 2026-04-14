@@ -1,18 +1,18 @@
 #!/bin/bash
-# nvllm -- Run Nemotron-3-Super-120B on DGX Spark (GB10)
+# nvllm -- Serve Nemotron-3-Super-120B on DGX Spark (GB10)
 #
-# MoE model with NVFP4 weights, FlashInfer attention, tool calling.
-# Automatically downloads the model on first run.
+# MoE model with NVFP4 weights, TurboQuant KV cache, tool calling.
+# 12B active params — 128K context fits in GB10's 128 GB.
 #
 # Usage:
-#   ./scripts/run_nemotron.sh          # Standard launch
-#   ./scripts/run_nemotron.sh --debug  # Eager mode, no CUDA graphs
+#   ./scripts/serve-nemotron.sh          # Standard launch
+#   ./scripts/serve-nemotron.sh --debug  # Eager mode, no CUDA graphs
 
 set -euo pipefail
 
 source "$(dirname "$0")/common.sh"
 
-MODEL_ID="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+HF_MODEL="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 CONTAINER="nvllm"
 SERVED_NAME="default"
 PORT=8000
@@ -28,7 +28,7 @@ done
 
 # Pre-flight checks
 nvllm_check_image
-nvllm_ensure_model "$MODEL_ID"
+nvllm_ensure_model "$HF_MODEL"
 nvllm_cleanup_container "$CONTAINER"
 nvllm_check_port "$PORT"
 
@@ -38,7 +38,7 @@ ATTN_BACKEND="TRITON_ATTN"
 MAX_MODEL_LEN=131072
 MAX_NUM_SEQS=2
 
-# Build extra args as array to preserve JSON quoting
+# Build extra args
 EXTRA_ARGS=()
 if [ "$DEBUG" -eq 1 ]; then
   EXTRA_ARGS+=(--enforce-eager)
@@ -47,11 +47,13 @@ else
 fi
 
 echo "=== Launching Nemotron-3-Super-120B ==="
-echo "  Model:    $MODEL_ID"
-echo "  KV cache: $KV_CACHE"
-echo "  Context:  $MAX_MODEL_LEN tokens"
-echo "  Port:     $PORT"
-if [ "$DEBUG" -eq 1 ]; then echo "  Mode:     Debug (eager, no CUDA graphs)"; fi
+echo "  Model:       $HF_MODEL"
+echo "  Attention:   $ATTN_BACKEND"
+echo "  KV cache:    $KV_CACHE"
+echo "  Context:     $MAX_MODEL_LEN tokens"
+echo "  Max seqs:    $MAX_NUM_SEQS"
+echo "  Port:        $PORT"
+if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs)"; fi
 echo ""
 
 docker run -d \
@@ -67,7 +69,7 @@ docker run -d \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   "$NVLLM_IMAGE" \
   serve \
-  --model "$MODEL_ID" \
+  --model "$HF_MODEL" \
   --served-model-name "$SERVED_NAME" \
   --host 0.0.0.0 --port "$PORT" \
   --kv-cache-dtype "$KV_CACHE" \
