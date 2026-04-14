@@ -408,6 +408,9 @@ class Qwen3NextDecoderLayer(nn.Module):
             )
 
         # Fusion binding happens in _try_bind_fusion() after weights are loaded.
+        # Save max_num_seqs now — vllm_config is available during __init__
+        # but NOT during forward (get_current_vllm_config() fails there).
+        self._max_num_seqs = vllm_config.scheduler_config.max_num_seqs
         self._fusion_bound = False
 
     def _try_bind_fusion(self) -> bool:
@@ -429,16 +432,13 @@ class Qwen3NextDecoderLayer(nn.Module):
                 "skipping fusion binding for layer %d", self.layer_idx)
             return False
 
-        vllm_config = get_current_vllm_config()
-        max_num_seqs = vllm_config.scheduler_config.max_num_seqs
-
         impl.bind_fusion_weights(
             wo_weight=o_proj.weight,
             wo_scales=o_proj.weight_scale,
             wo_global_scale=o_proj.weight_global_scale,
             rmsnorm_gamma=self.post_attention_layernorm.weight,
             rmsnorm_eps=self.post_attention_layernorm.variance_epsilon,
-            max_num_seqs=max_num_seqs,
+            max_num_seqs=self._max_num_seqs,
         )
 
         logger.info(

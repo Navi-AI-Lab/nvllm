@@ -196,6 +196,7 @@ class Qwen3_5DecoderLayer(Qwen3NextDecoderLayer):
         # Fusion binding happens in _try_bind_fusion() (inherited from
         # Qwen3NextDecoderLayer) after weights are loaded on first forward.
         # Must set here because super().__init__ skips Qwen3NextDecoderLayer.
+        self._max_num_seqs = vllm_config.scheduler_config.max_num_seqs
         self._fusion_bound = False
 
 
