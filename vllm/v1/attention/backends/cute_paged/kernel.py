@@ -1542,7 +1542,7 @@ if _CUTE_AVAILABLE:
             if wo_fused != Int32(0):
                 # Self-zero: first CTA zeros its wo_output rows before atomicAdd.
                 # Eliminates external zero_() call (graph-safe).
-                if cute.arch.block_idx.x == Int32(0):
+                if bx == Int32(0):
                     wo_zero_base = wo_output_ptr + Int64(
                         seq_idx * Int32(5120) * Int32(4))  # FP32=4B, hidden=5120
                     my_zero_start = tid * Int32(40)  # 5120/128 threads = 40 each
