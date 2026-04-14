@@ -966,7 +966,7 @@ if _CUTE_AVAILABLE:
                         num_q_heads, num_kv_heads,
                         kv_page_stride: Int32,
                         wo_weight_ptr: Int64, wo_scale_ptr: Int64,
-                        wo_output_ptr: Int64, wo_global_scale,
+                        wo_output_ptr: Int64, wo_gs_ptr: Int64,
                         wo_num_k_tiles: Int32,
                         wo_weight_row_stride: Int32,
                         wo_fused: Int32,
@@ -979,6 +979,8 @@ if _CUTE_AVAILABLE:
                         hidden_dim: Int32,
                         total_ctas_per_seq: Int32,
                         rmsnorm_fused: Int32,
+                        gate_ptr: Int64,
+                        gate_fused: Int32,
                         grid_x: Int32, grid_y: Int32, grid_z: Int32):
             """JIT host wrapper: compiles kernel launch into MLIR."""
             self._kernel(
@@ -987,7 +989,7 @@ if _CUTE_AVAILABLE:
                 num_q_heads, num_kv_heads,
                 kv_page_stride,
                 wo_weight_ptr, wo_scale_ptr,
-                wo_output_ptr, wo_global_scale,
+                wo_output_ptr, wo_gs_ptr,
                 wo_num_k_tiles, wo_weight_row_stride,
                 wo_fused,
                 rmsnorm_gamma_ptr,
@@ -999,6 +1001,8 @@ if _CUTE_AVAILABLE:
                 hidden_dim,
                 total_ctas_per_seq,
                 rmsnorm_fused,
+                gate_ptr,
+                gate_fused,
             ).launch(
                 grid=[grid_x, grid_y, grid_z],
                 block=[self.num_threads, 1, 1],
@@ -1012,7 +1016,7 @@ if _CUTE_AVAILABLE:
                      num_q_heads, num_kv_heads,
                      kv_page_stride: Int32,
                      wo_weight_ptr: Int64, wo_scale_ptr: Int64,
-                     wo_output_ptr: Int64, wo_global_scale,
+                     wo_output_ptr: Int64, wo_gs_ptr: Int64,
                      wo_num_k_tiles: Int32,
                      wo_weight_row_stride: Int32,
                      wo_fused: Int32,
@@ -1024,7 +1028,9 @@ if _CUTE_AVAILABLE:
                      rmsnorm_eps,
                      hidden_dim: Int32,
                      total_ctas_per_seq: Int32,
-                     rmsnorm_fused: Int32):
+                     rmsnorm_fused: Int32,
+                     gate_ptr: Int64,
+                     gate_fused: Int32):
             """CuTe DSL decode kernel for FP8 paged attention on SM121.
 
             Structure: outer _md loop over head_dim blocks, inner page loop.
@@ -1509,7 +1515,7 @@ if _CUTE_AVAILABLE:
                 n_per_thr = Int32(40)  # outputs per thread (5120/128)
                 my_row_base = tid * n_per_thr
 
-                wo_gs = Float32(wo_global_scale)
+                wo_gs = Float32(wo_gs_ptr)
 
                 # Serialize over 5 groups of 8 output rows
                 for _out_group in cutlass.range_constexpr(5):
@@ -1818,15 +1824,19 @@ if _CUTE_AVAILABLE:
             # element indexing on multi-dimensional tensors.  The
             # kernel computes gmem_idx as a manual flat offset, so
             # the tensor must be 1D for query[gmem_idx] to work.
-            q_flat = query.contiguous().view(-1)
+            assert query.is_contiguous(), "CuTe decode kernel requires contiguous query tensor"
+            q_flat = query.view(-1)
 
             # Grid: (ceil(group_size / cta_q), num_kv_heads, num_seqs)
             num_q_tiles = max(
                 (group_size + self.cta_q - 1) // self.cta_q, 1,
             )
-            grid = (num_q_tiles, num_kv_heads, num_seqs)
+            padded_num_seqs = kwargs.get("padded_num_seqs", num_seqs)
+            grid = (num_q_tiles, num_kv_heads, padded_num_seqs)
 
-            output = torch.empty_like(query)
+            output = kwargs.get("output_buf", None)
+            if output is None:
+                output = torch.empty_like(query)
             # Output also needs 1D for the same reason
             out_flat = output.view(-1)
 
@@ -1836,7 +1846,7 @@ if _CUTE_AVAILABLE:
                 wo_weight_ptr = Int64(wo_weight.data_ptr())
                 wo_scale_ptr = Int64(wo_scales.data_ptr())
                 wo_output_ptr = Int64(wo_output.data_ptr())
-                wo_gs = float(wo_global_scale.item())
+                wo_gs_ptr = Int64(wo_global_scale.data_ptr())
                 wo_K = num_q_heads * self.head_dim  # 6144 for Qwen 27B
                 wo_nkt = Int32((wo_K // 16 + 3) // 4)  # numKTiles swizzle
                 wo_row_stride = Int32(wo_weight.shape[1])  # K/2 bytes/row
@@ -1845,7 +1855,7 @@ if _CUTE_AVAILABLE:
                 wo_weight_ptr = Int64(0)
                 wo_scale_ptr = Int64(0)
                 wo_output_ptr = Int64(0)
-                wo_gs = 0.0
+                wo_gs_ptr = Int64(0)
                 wo_nkt = Int32(0)
                 wo_row_stride = Int32(0)
                 wo_fused_flag = Int32(0)
@@ -1875,6 +1885,15 @@ if _CUTE_AVAILABLE:
                 total_ctas = Int32(0)
                 rmsnorm_fused_flag = Int32(0)
 
+            # Output gate: pointer for sigmoid fusion
+            gate_buf = kwargs.get("gate_buf", None)
+            if gate_buf is not None:
+                gate_ptr = Int64(gate_buf.data_ptr())
+                gate_fused_flag = Int32(1)
+            else:
+                gate_ptr = Int64(0)
+                gate_fused_flag = Int32(0)
+
             all_args = (
                 q_flat, k_ptr, v_ptr, page_table, seq_lens,
                 out_flat,
@@ -1882,13 +1901,14 @@ if _CUTE_AVAILABLE:
                 Int32(num_q_heads), Int32(num_kv_heads),
                 kv_page_stride,
                 wo_weight_ptr, wo_scale_ptr, wo_output_ptr,
-                wo_gs, wo_nkt, wo_row_stride,
+                wo_gs_ptr, wo_nkt, wo_row_stride,
                 wo_fused_flag,
                 rmsnorm_gamma_ptr, rmsnorm_residual_ptr,
                 rmsnorm_output_ptr, residual_output_ptr,
                 arrival_count_ptr, rmsnorm_eps_val,
                 hidden_dim_val, total_ctas,
                 rmsnorm_fused_flag,
+                gate_ptr, gate_fused_flag,
                 Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
             )
 
@@ -2056,6 +2076,9 @@ def paged_attention_forward(
     residual_output: torch.Tensor | None = None,     # [num_seqs, hidden_dim] BF16
     arrival_count: torch.Tensor | None = None,       # [num_seqs] int32
     rmsnorm_eps: float | None = None,                 # from config.rms_norm_eps
+    # CUDA graph support (optional)
+    gate_buf: torch.Tensor | None = None,            # [num_seqs, num_q_heads, head_dim] BF16
+    padded_num_seqs: int | None = None,               # stable grid dim for graph capture
 ) -> torch.Tensor:
     """Paged attention forward -- CuTe JIT kernel or PyTorch fallback.
 
@@ -2117,6 +2140,9 @@ def paged_attention_forward(
         residual_output=residual_output,
         arrival_count=arrival_count,
         rmsnorm_eps=rmsnorm_eps,
+        gate_buf=gate_buf,
+        output_buf=None,  # Not used yet, kernel allocates own for now
+        padded_num_seqs=padded_num_seqs,
     )
 
     return cute_out
