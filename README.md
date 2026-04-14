@@ -27,13 +27,19 @@ If you use vLLM for your research, please cite their [paper](https://arxiv.org/a
 }
 ```
 
-## Quick Start (Prebuilt Image)
+## Quick Start
 
-Pull the prebuilt image (~15-25 GB) and run a model:
+> **Recommended:** Build from source. The prebuilt images on GHCR and Docker Hub lag behind `main` — custom kernel work (CuTe attention, stream-K GEMM) ships here first and images are only rebuilt periodically.
+
+### Prebuilt image (convenience)
 
 ```bash
 docker pull ghcr.io/navi-ai-lab/nvllm:latest
 ```
+
+Also on Docker Hub: `docker.io/naviailab/nvllm:latest`
+
+### Build from source (recommended)
 
 **Required flags:** `--gpus all --ipc=host --network host` (vLLM needs shared memory and GPU access).
 
@@ -43,10 +49,6 @@ docker pull ghcr.io/navi-ai-lab/nvllm:latest
 - `~/.cache/vllm_compile` → `/root/.cache/vllm/torch_compile_cache` — CUDA graph cache
 
 **For gated models** (e.g., Gemma 4): pass `-e HF_TOKEN=hf_...` or mount a token file.
-
-Also available on Docker Hub: `docker.io/naviailab/nvllm:latest` (may lag behind GHCR — build from source for latest kernel work).
-
-## Build from Source
 
 ### Prerequisites
 - NVIDIA DGX Spark (GB10) or GH200
