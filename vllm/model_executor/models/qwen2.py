@@ -208,6 +208,8 @@ class Qwen2Attention(nn.Module):
 
         # W_O fusion: detect CuTe paged backend at runtime
         self._wo_fusion_ready = False
+        # Phase C: RMSNorm fusion — set externally by Qwen2DecoderLayer
+        self._rmsnorm_fusion_ready = False
 
     def _prepare_wo_fusion(self) -> bool:
         """Check if W_O fusion is available and cache weight pointers.
@@ -245,7 +247,10 @@ class Qwen2Attention(nn.Module):
         self,
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
-    ) -> torch.Tensor:
+        residual: torch.Tensor | None = None,
+        rmsnorm_gamma: torch.Tensor | None = None,
+        rmsnorm_eps: float = 1e-6,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
 
@@ -284,17 +289,60 @@ class Qwen2Attention(nn.Module):
             self.attn._wo_global_scale = self._wo_global_scale
             self.attn._wo_output = wo_output
 
+            # Phase C: RMSNorm fusion — set side-channel if active
+            rmsnorm_active = (
+                self._rmsnorm_fusion_ready
+                and rmsnorm_gamma is not None
+                and residual is not None
+            )
+            if rmsnorm_active:
+                hidden_dim = rmsnorm_gamma.shape[0]
+                rmsnorm_out = torch.empty(
+                    num_tokens, hidden_dim,
+                    dtype=hidden_states.dtype, device=q.device,
+                )
+                residual_out = torch.empty(
+                    num_tokens, hidden_dim,
+                    dtype=hidden_states.dtype, device=q.device,
+                )
+                # Allocate arrival counter (persistent across steps;
+                # self-resetting in kernel, zero-init at first allocation)
+                if not hasattr(self, '_arrival_count_buf') or \
+                   self._arrival_count_buf.shape[0] < num_tokens:
+                    self._arrival_count_buf = torch.zeros(
+                        num_tokens, dtype=torch.int32, device=q.device,
+                    )
+                self.attn._rmsnorm_gamma = rmsnorm_gamma
+                self.attn._rmsnorm_residual = residual
+                self.attn._rmsnorm_output = rmsnorm_out
+                self.attn._residual_output = residual_out
+                self.attn._arrival_count = self._arrival_count_buf[:num_tokens]
+                self.attn._rmsnorm_eps = rmsnorm_eps
+
             attn_output = self.attn(q, k, v)
 
-            # Clean up side-channel
+            # Clean up side-channel (Phase B)
             self.attn._wo_weight = None
             self.attn._wo_scales = None
             self.attn._wo_global_scale = None
             self.attn._wo_output = None
 
-            # wo_output contains the fused W_O result in FP32
-            output = wo_output.to(hidden_states.dtype)
-            return output
+            if rmsnorm_active:
+                # Clean up side-channel (Phase C)
+                self.attn._rmsnorm_gamma = None
+                self.attn._rmsnorm_residual = None
+                self.attn._rmsnorm_output = None
+                self.attn._residual_output = None
+                self.attn._arrival_count = None
+                self.attn._rmsnorm_eps = None
+                # CRITICAL: Do NOT call wo_output.to(hidden_states.dtype).
+                # Phase C reads wo_output as FP32. The BF16 cast would
+                # corrupt the input. Return already-BF16 outputs directly.
+                return rmsnorm_out, residual_out
+            else:
+                # wo_output contains the fused W_O result in FP32
+                output = wo_output.to(hidden_states.dtype)
+                return output
         else:
             # Unfused path (unchanged)
             attn_output = self.attn(q, k, v)
@@ -367,13 +415,43 @@ class Qwen2DecoderLayer(nn.Module):
             hidden_states = self.input_layernorm(hidden_states)
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
-        hidden_states = self.self_attn(
-            positions=positions,
-            hidden_states=hidden_states,
-        )
 
-        # Fully Connected
-        hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
+        # Phase C: Check if RMSNorm fusion is active
+        # Detect once on first forward pass (same pattern as W_O fusion)
+        rmsnorm_fusion_active = self.self_attn._rmsnorm_fusion_ready
+        if not rmsnorm_fusion_active and self.self_attn._wo_fusion_ready:
+            # Enable Phase C if W_O fusion is ready (same backend check)
+            self.self_attn._rmsnorm_fusion_ready = True
+            rmsnorm_fusion_active = True
+
+        if rmsnorm_fusion_active:
+            # Fused path: attention + W_O + RMSNorm in one kernel launch.
+            # Pass residual and gamma to self_attn for Phase C.
+            result = self.self_attn(
+                positions=positions,
+                hidden_states=hidden_states,
+                residual=residual,
+                rmsnorm_gamma=self.post_attention_layernorm.weight,
+                rmsnorm_eps=self.post_attention_layernorm.variance_epsilon,
+            )
+            if isinstance(result, tuple):
+                # Phase C active: (rmsnorm_output, residual_output)
+                # post_attention_layernorm is SKIPPED — Phase C already did it
+                hidden_states, residual = result
+            else:
+                # Phase C not active (e.g. prefill fallback) — normal path
+                hidden_states = result
+                hidden_states, residual = self.post_attention_layernorm(
+                    hidden_states, residual)
+        else:
+            hidden_states = self.self_attn(
+                positions=positions,
+                hidden_states=hidden_states,
+            )
+            # Fully Connected
+            hidden_states, residual = self.post_attention_layernorm(
+                hidden_states, residual)
+
         hidden_states = self.mlp(hidden_states)
         return hidden_states, residual
 

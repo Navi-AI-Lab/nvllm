@@ -225,6 +225,16 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         wo_global_scale = getattr(layer, '_wo_global_scale', None)
         wo_output = getattr(layer, '_wo_output', None)
 
+        # Phase C: RMSNorm fusion — read side-channel from Attention layer
+        # These are set by the model layer when fusion is enabled.
+        # When absent (None), the kernel skips the RMSNorm epilogue.
+        rmsnorm_gamma = getattr(layer, '_rmsnorm_gamma', None)
+        rmsnorm_residual = getattr(layer, '_rmsnorm_residual', None)
+        rmsnorm_output = getattr(layer, '_rmsnorm_output', None)
+        residual_output = getattr(layer, '_residual_output', None)
+        arrival_count = getattr(layer, '_arrival_count', None)
+        rmsnorm_eps = getattr(layer, '_rmsnorm_eps', None)
+
         from vllm.v1.attention.backends.cute_paged.kernel import (
             paged_attention_forward,
         )
@@ -249,6 +259,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             wo_scales=wo_scales,
             wo_global_scale=wo_global_scale,
             wo_output=wo_output,
+            rmsnorm_gamma=rmsnorm_gamma,
+            rmsnorm_residual=rmsnorm_residual,
+            rmsnorm_output=rmsnorm_output,
+            residual_output=residual_output,
+            arrival_count=arrival_count,
+            rmsnorm_eps=rmsnorm_eps,
         )
 
         # Kernel returns 3D [num_actual_tokens, num_heads, head_dim],

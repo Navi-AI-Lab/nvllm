@@ -815,6 +815,99 @@ if _CUTE_AVAILABLE:
         )
         return Uint32(result_ir)
 
+    # --- Phase C: RMSNorm fusion PTX helpers --------------------------------
+
+    @dsl_user_op
+    def _threadfence(*, loc=None, ip=None):
+        """Global memory fence — membar.gl.
+
+        Ensures prior stores (Phase B atomicAdd) are visible to all
+        threads in the GPU before Phase C reads the accumulated result.
+        """
+        _llvm_dialect.inline_asm(
+            T.i32(), [],
+            "membar.gl; mov.u32 $0, 0;",
+            "=r",
+            has_side_effects=True, loc=loc, ip=ip)
+
+    @dsl_user_op
+    def _atomic_add_u32(addr: Int64, val: Int32, *, loc=None, ip=None) -> Int32:
+        """Integer atomicAdd, returns old value.
+
+        Used for cross-CTA arrival counting — last CTA runs Phase C.
+        """
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        val_ir = Int32(val).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(), [addr_ir, val_ir],
+            "atom.global.add.u32 $0, [$1], $2;", "=r,l,r",
+            has_side_effects=True, loc=loc, ip=ip)
+        return Int32(result_ir)
+
+    @dsl_user_op
+    def _rsqrt_approx_f32(x: Float32, *, loc=None, ip=None) -> Float32:
+        """Hardware reciprocal square root — rsqrt.approx.ftz.f32.
+
+        Single-instruction, sufficient precision for RMSNorm.
+        """
+        x_ir = Float32(x).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.f32(), [x_ir],
+            "rsqrt.approx.ftz.f32 $0, $1;", "=f,f",
+            has_side_effects=True, loc=loc, ip=ip)
+        return Float32(result_ir)
+
+    @dsl_user_op
+    def _ld_global_f32(addr: Int64, *, loc=None, ip=None) -> Float32:
+        """Load FP32 from global memory at byte address."""
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.f32(), [addr_ir],
+            "ld.global.f32 $0, [$1];", "=f,l",
+            has_side_effects=True, loc=loc, ip=ip)
+        return Float32(result_ir)
+
+    @dsl_user_op
+    def _ld_global_b16_to_f32(addr: Int64, *, loc=None, ip=None) -> Float32:
+        """Load BF16 from global memory and convert to FP32.
+
+        Loads 16-bit value, shifts left 16 to reconstruct FP32 bits.
+        BF16 is the upper 16 bits of IEEE 754 float32.
+
+        NOTE: Single-line brace pattern — matches proven _ld_shared_b16.
+        Multi-line braces cause ptxas parse errors inside dynamic ifs.
+        """
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.f32(), [addr_ir],
+            "{.reg .b16 t16; .reg .b32 t32;"
+            " ld.global.b16 t16, [$1];"
+            " cvt.u32.u16 t32, t16;"
+            " shl.b32 t32, t32, 16;"
+            " mov.b32 $0, t32;}",
+            "=f,l",
+            has_side_effects=True, loc=loc, ip=ip)
+        return Float32(result_ir)
+
+    @dsl_user_op
+    def _st_global_bf16_from_f32(addr: Int64, val: Float32, *,
+                                  loc=None, ip=None) -> None:
+        """Convert FP32 to BF16 and store to global memory.
+
+        Uses cvt.rn.bf16.f32 for round-to-nearest conversion.
+
+        NOTE: Single-line brace pattern — matches proven
+        _st_shared_b16_from_u32. Multi-line braces cause ptxas
+        parse errors inside dynamic ifs.
+        """
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        val_ir = Float32(val).ir_value(loc=loc, ip=ip)
+        _llvm_dialect.inline_asm(
+            None, [addr_ir, val_ir],
+            "{.reg .b16 t; cvt.rn.bf16.f32 t, $1; st.global.b16 [$0], t;}",
+            "l,f",
+            has_side_effects=True, loc=loc, ip=ip)
+
     # --- DecodeKernel -------------------------------------------------------
 
     class DecodeKernel:
@@ -877,6 +970,15 @@ if _CUTE_AVAILABLE:
                         wo_num_k_tiles: Int32,
                         wo_weight_row_stride: Int32,
                         wo_fused: Int32,
+                        rmsnorm_gamma_ptr: Int64,
+                        rmsnorm_residual_ptr: Int64,
+                        rmsnorm_output_ptr: Int64,
+                        residual_output_ptr: Int64,
+                        arrival_count_ptr: Int64,
+                        rmsnorm_eps,
+                        hidden_dim: Int32,
+                        total_ctas_per_seq: Int32,
+                        rmsnorm_fused: Int32,
                         grid_x: Int32, grid_y: Int32, grid_z: Int32):
             """JIT host wrapper: compiles kernel launch into MLIR."""
             self._kernel(
@@ -888,6 +990,15 @@ if _CUTE_AVAILABLE:
                 wo_output_ptr, wo_global_scale,
                 wo_num_k_tiles, wo_weight_row_stride,
                 wo_fused,
+                rmsnorm_gamma_ptr,
+                rmsnorm_residual_ptr,
+                rmsnorm_output_ptr,
+                residual_output_ptr,
+                arrival_count_ptr,
+                rmsnorm_eps,
+                hidden_dim,
+                total_ctas_per_seq,
+                rmsnorm_fused,
             ).launch(
                 grid=[grid_x, grid_y, grid_z],
                 block=[self.num_threads, 1, 1],
@@ -904,7 +1015,16 @@ if _CUTE_AVAILABLE:
                      wo_output_ptr: Int64, wo_global_scale,
                      wo_num_k_tiles: Int32,
                      wo_weight_row_stride: Int32,
-                     wo_fused: Int32):
+                     wo_fused: Int32,
+                     rmsnorm_gamma_ptr: Int64,
+                     rmsnorm_residual_ptr: Int64,
+                     rmsnorm_output_ptr: Int64,
+                     residual_output_ptr: Int64,
+                     arrival_count_ptr: Int64,
+                     rmsnorm_eps,
+                     hidden_dim: Int32,
+                     total_ctas_per_seq: Int32,
+                     rmsnorm_fused: Int32):
             """CuTe DSL decode kernel for FP8 paged attention on SM121.
 
             Structure: outer _md loop over head_dim blocks, inner page loop.
@@ -1510,6 +1630,147 @@ if _CUTE_AVAILABLE:
                                     wo_out_base + Int64(
                                         out_row * Int32(4)), a7)
 
+            # ═══════════════════════════════════════════════════
+            # Phase C: Residual Add + RMSNorm (last CTA only)
+            # ═══════════════════════════════════════════════════
+            # After Phase B's atomicAdd accumulates partial W_O sums from
+            # all CTAs, the last CTA to arrive runs the fused residual add
+            # + RMSNorm. Other CTAs return early.
+            #
+            # Game engine parallel: "deferred shading resolve" — after
+            # tile-local light accumulation, one tile does the final
+            # tonemap (RMSNorm) before writing to the framebuffer.
+            #
+            # NOTE: range_constexpr(5) assumes hidden_dim/128 = 40 and
+            # group_size = 8, i.e. 5 groups of 8. This is correct for
+            # Qwen3.5-27B (hidden_dim=5120). Models with different
+            # hidden_dim would need this adjusted.
+            if rmsnorm_fused != Int32(0):
+                # Fence: ensure all Phase B atomicAdd writes are
+                # globally visible before any CTA reads them
+                _threadfence()
+
+                # Arrival counter: atomicAdd 1, last CTA runs Phase C
+                old_count = _atomic_add_u32(
+                    arrival_count_ptr + Int64(seq_idx * Int32(4)),
+                    Int32(1))
+
+                if old_count == total_ctas_per_seq - Int32(1):
+                    # I am the last CTA — all Phase B writes are complete.
+
+                    # Derive tiling from hidden_dim parameter (NOT hardcoded)
+                    hd_c = hidden_dim
+                    n_per_thr_c = hd_c // Int32(128)  # 40 for 5120
+
+                    # Base pointers for this sequence
+                    res_base = rmsnorm_residual_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))  # BF16 = 2 bytes
+                    wo_base_c = wo_output_ptr + Int64(
+                        seq_idx * hd_c * Int32(4))  # FP32 = 4 bytes
+                    gamma_base = rmsnorm_gamma_ptr  # [hidden_dim] BF16
+                    out_base_c = rmsnorm_output_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))  # BF16 output
+                    resout_base = residual_output_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))  # BF16 output
+
+                    my_start_c = tid * n_per_thr_c
+
+                    # ── Pass 1: Residual add + sum-of-squares ──
+                    # Re-reads from global in Pass 3 — NO SMEM staging.
+                    # Writing 5 groups to same 8 SMEM slots would
+                    # overwrite groups 0-3 with group 4.
+                    ss = Float32(0.0)
+
+                    for _grp in cutlass.range_constexpr(5):
+                        base_idx = my_start_c + Int32(_grp * 8)
+
+                        for _ei in cutlass.range_constexpr(8):
+                            idx_c = base_idx + Int32(_ei)
+                            # Load residual (BF16 → FP32) from global
+                            res_f32 = _ld_global_b16_to_f32(
+                                res_base + Int64(idx_c * Int32(2)))
+                            # Load wo_output (FP32) from global
+                            wo_f32 = _ld_global_f32(
+                                wo_base_c + Int64(idx_c * Int32(4)))
+                            nr = res_f32 + wo_f32
+                            ss = ss + nr * nr
+
+                    # ── Pass 2: Reduction (warp shuffle + cross-warp SMEM) ──
+                    # Intra-warp butterfly reduction (5 steps for 32 lanes)
+                    ss = ss + shfl_xor_sync(ss, Int32(1))
+                    ss = ss + shfl_xor_sync(ss, Int32(2))
+                    ss = ss + shfl_xor_sync(ss, Int32(4))
+                    ss = ss + shfl_xor_sync(ss, Int32(8))
+                    ss = ss + shfl_xor_sync(ss, Int32(16))
+
+                    # Cross-warp: lane 0 of each warp writes to SMEM
+                    # Reuse sync_md buffer (4 FP32 slots = 16 bytes)
+                    if lane == Int32(0):
+                        _st_shared_f32(
+                            sync_md + Int64(warp * Int32(4)), ss)
+                    cute.arch.sync_threads()
+
+                    # Warp 0, lane 0: sum all 4 warp partials
+                    if warp == Int32(0):
+                        if lane == Int32(0):
+                            total_ss = _ld_shared_f32(sync_md)
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(4))
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(8))
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(12))
+                            # variance = total / hidden_dim
+                            variance = total_ss / Float32(hd_c)
+                            inv_rms = _rsqrt_approx_f32(
+                                variance + Float32(rmsnorm_eps))
+                            # Broadcast inv_rms via SMEM slot 0
+                            _st_shared_f32(sync_md, inv_rms)
+                    cute.arch.sync_threads()
+
+                    # All threads read the broadcast inv_rms
+                    inv_rms_val = _ld_shared_f32(sync_md)
+
+                    # ── Pass 3: Re-read from global (L2-hot), scale + write ──
+                    # Both residual and wo_output are L2-hot: Phase B
+                    # just wrote wo_output, Pass 1 just read residual.
+                    for _grp in cutlass.range_constexpr(5):
+                        base_idx = my_start_c + Int32(_grp * 8)
+
+                        for _oi in cutlass.range_constexpr(8):
+                            idx_c = base_idx + Int32(_oi)
+                            # Re-read and recompute new_residual (L2-hot)
+                            res_f32 = _ld_global_b16_to_f32(
+                                res_base + Int64(idx_c * Int32(2)))
+                            wo_f32 = _ld_global_f32(
+                                wo_base_c + Int64(idx_c * Int32(4)))
+                            new_res = res_f32 + wo_f32
+
+                            # Load gamma (BF16 → FP32)
+                            gamma_f32 = _ld_global_b16_to_f32(
+                                gamma_base + Int64(idx_c * Int32(2)))
+
+                            # hidden = new_res * inv_rms * gamma
+                            hidden_val = new_res * inv_rms_val * gamma_f32
+
+                            # Write hidden_states (→BF16) to output
+                            _st_global_bf16_from_f32(
+                                out_base_c + Int64(idx_c * Int32(2)),
+                                hidden_val)
+                            # Write new_residual (→BF16) to residual output
+                            _st_global_bf16_from_f32(
+                                resout_base + Int64(idx_c * Int32(2)),
+                                new_res)
+
+                    # Self-reset arrival counter: atomicAdd -N to reset to 0.
+                    # Eliminates need for caller zero_() per launch.
+                    # (Still zero-init at allocation as safety net.)
+                    if tid == Int32(0):
+                        _atomic_add_u32(
+                            arrival_count_ptr + Int64(
+                                seq_idx * Int32(4)),
+                            Int32(0) - total_ctas_per_seq)
+
         def __call__(self, **kwargs):
             """Python-level wrapper: compute grid/block and launch."""
             query = kwargs["query"]
@@ -1525,6 +1786,14 @@ if _CUTE_AVAILABLE:
             wo_scales = kwargs.get("wo_scales", None)        # [N, K_sf] fp8
             wo_global_scale = kwargs.get("wo_global_scale", None)  # scalar
             wo_output = kwargs.get("wo_output", None)        # [num_seqs, N]
+
+            # Phase C: RMSNorm fusion params (optional)
+            rmsnorm_gamma = kwargs.get("rmsnorm_gamma", None)       # [hidden_dim] BF16
+            rmsnorm_residual = kwargs.get("rmsnorm_residual", None) # [num_seqs, hidden_dim] BF16
+            rmsnorm_output = kwargs.get("rmsnorm_output", None)     # [num_seqs, hidden_dim] BF16
+            residual_output = kwargs.get("residual_output", None)   # [num_seqs, hidden_dim] BF16
+            arrival_count = kwargs.get("arrival_count", None)       # [num_seqs] int32
+            rmsnorm_eps = kwargs.get("rmsnorm_eps", None)           # float (from config)
 
             num_q_heads = query.shape[1]
             # kv_cache: [num_pages, 2, page_size, num_kv_heads, head_dim]
@@ -1581,6 +1850,31 @@ if _CUTE_AVAILABLE:
                 wo_row_stride = Int32(0)
                 wo_fused_flag = Int32(0)
 
+            # Phase C: build RMSNorm pointer args — real values when fusion
+            # is enabled, zeros when not (kernel guards on rmsnorm_fused_flag).
+            # hidden_dim derived from gamma tensor shape, NOT hardcoded.
+            # total_ctas derived from grid dimensions, NOT hardcoded.
+            if rmsnorm_gamma is not None:
+                rmsnorm_gamma_ptr = Int64(rmsnorm_gamma.data_ptr())
+                rmsnorm_residual_ptr = Int64(rmsnorm_residual.data_ptr())
+                rmsnorm_output_ptr = Int64(rmsnorm_output.data_ptr())
+                residual_output_ptr = Int64(residual_output.data_ptr())
+                arrival_count_ptr = Int64(arrival_count.data_ptr())
+                rmsnorm_eps_val = float(rmsnorm_eps) if rmsnorm_eps is not None else 1e-6
+                hidden_dim_val = Int32(rmsnorm_gamma.shape[0])
+                total_ctas = Int32(grid[0] * grid[1])
+                rmsnorm_fused_flag = Int32(1)
+            else:
+                rmsnorm_gamma_ptr = Int64(0)
+                rmsnorm_residual_ptr = Int64(0)
+                rmsnorm_output_ptr = Int64(0)
+                residual_output_ptr = Int64(0)
+                arrival_count_ptr = Int64(0)
+                rmsnorm_eps_val = 0.0
+                hidden_dim_val = Int32(0)
+                total_ctas = Int32(0)
+                rmsnorm_fused_flag = Int32(0)
+
             all_args = (
                 q_flat, k_ptr, v_ptr, page_table, seq_lens,
                 out_flat,
@@ -1590,6 +1884,11 @@ if _CUTE_AVAILABLE:
                 wo_weight_ptr, wo_scale_ptr, wo_output_ptr,
                 wo_gs, wo_nkt, wo_row_stride,
                 wo_fused_flag,
+                rmsnorm_gamma_ptr, rmsnorm_residual_ptr,
+                rmsnorm_output_ptr, residual_output_ptr,
+                arrival_count_ptr, rmsnorm_eps_val,
+                hidden_dim_val, total_ctas,
+                rmsnorm_fused_flag,
                 Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
             )
 
@@ -1750,6 +2049,13 @@ def paged_attention_forward(
     wo_scales: torch.Tensor | None = None,        # [N, K_sf] fp8_e4m3fn
     wo_global_scale: torch.Tensor | None = None,  # scalar f32
     wo_output: torch.Tensor | None = None,        # [num_seqs, N] f32
+    # Phase C: RMSNorm fusion (optional)
+    rmsnorm_gamma: torch.Tensor | None = None,       # [hidden_dim] BF16
+    rmsnorm_residual: torch.Tensor | None = None,    # [num_seqs, hidden_dim] BF16
+    rmsnorm_output: torch.Tensor | None = None,      # [num_seqs, hidden_dim] BF16
+    residual_output: torch.Tensor | None = None,     # [num_seqs, hidden_dim] BF16
+    arrival_count: torch.Tensor | None = None,       # [num_seqs] int32
+    rmsnorm_eps: float | None = None,                 # from config.rms_norm_eps
 ) -> torch.Tensor:
     """Paged attention forward -- CuTe JIT kernel or PyTorch fallback.
 
@@ -1805,6 +2111,12 @@ def paged_attention_forward(
         wo_scales=wo_scales,
         wo_global_scale=wo_global_scale,
         wo_output=wo_output,
+        rmsnorm_gamma=rmsnorm_gamma,
+        rmsnorm_residual=rmsnorm_residual,
+        rmsnorm_output=rmsnorm_output,
+        residual_output=residual_output,
+        arrival_count=arrival_count,
+        rmsnorm_eps=rmsnorm_eps,
     )
 
     return cute_out

@@ -1,0 +1,69 @@
+{
+  "test": "gsm8k_sanity_gate",
+  "label": "phase_c_rmsnorm",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "correct": 8,
+  "total": 8,
+  "errors": 0,
+  "accuracy": "8/8 (100%)",
+  "verdict": "PASS",
+  "questions": [
+    {
+      "id": "Q1",
+      "expected": 72,
+      "got": 72,
+      "status": "OK",
+      "elapsed": 2.2
+    },
+    {
+      "id": "Q2",
+      "expected": 10,
+      "got": 10,
+      "status": "OK",
+      "elapsed": 2.2
+    },
+    {
+      "id": "Q3",
+      "expected": 5,
+      "got": 5,
+      "status": "OK",
+      "elapsed": 2.5
+    },
+    {
+      "id": "Q4",
+      "expected": 42,
+      "got": 42,
+      "status": "OK",
+      "elapsed": 2.4
+    },
+    {
+      "id": "Q5",
+      "expected": 624,
+      "got": 624,
+      "status": "OK",
+      "elapsed": 2.2
+    },
+    {
+      "id": "Q6",
+      "expected": 35,
+      "got": 35,
+      "status": "OK",
+      "elapsed": 2.6
+    },
+    {
+      "id": "Q7",
+      "expected": 48,
+      "got": 48,
+      "status": "OK",
+      "elapsed": 2.4
+    },
+    {
+      "id": "Q8",
+      "expected": 16,
+      "got": 16,
+      "status": "OK",
+      "elapsed": 2.3
+    }
+  ]
+}
