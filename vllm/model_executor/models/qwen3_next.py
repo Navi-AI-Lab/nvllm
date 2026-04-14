@@ -463,15 +463,20 @@ class Qwen3NextDecoderLayer(nn.Module):
             hidden_states, residual = self.input_layernorm(
                 hidden_states, residual)
 
+        num_tokens = hidden_states.shape[0]
+
+        # Fusion only active for decode (one token per sequence).
+        # Prefill has num_tokens >> max_num_seqs and the persistent
+        # buffers are sized for max_num_seqs only.
         fusion_active = (
             self._fusion_bound
             and self.layer_type == "full_attention"
+            and num_tokens <= self._max_num_seqs
         )
 
         if fusion_active:
             # Write residual to impl's persistent buffer for Phase C.
             # Kernel reads this for: new_residual = residual + wo_output
-            num_tokens = hidden_states.shape[0]
             impl = self.self_attn.attn.impl
             impl.residual_buf[:num_tokens].copy_(residual[:num_tokens])
 
