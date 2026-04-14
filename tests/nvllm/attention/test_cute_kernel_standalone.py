@@ -214,5 +214,150 @@ def test_cute_kernel():
         print(f"\nFAIL: max diff = {max_diff:.4f}")
 
 
+def test_wo_fusion():
+    """Test fused attention + W_O GEMV vs unfused (attention then matmul)."""
+    from vllm.v1.attention.backends.cute_paged.kernel import (
+        paged_attention_forward, _CUTE_AVAILABLE,
+    )
+
+    if not _CUTE_AVAILABLE:
+        print("CUTLASS not available, skipping W_O fusion test")
+        return
+
+    # Config matching Qwen3.5-27B
+    num_q_heads = 24
+    num_kv_heads = 4
+    head_dim = 256
+    hidden_dim = 3584
+    page_size = 64
+    scale = 1.0 / (head_dim ** 0.5)  # 0.0625
+    group_size = num_q_heads // num_kv_heads  # 6
+
+    torch.manual_seed(42)
+    device = "cuda"
+
+    # 1 sequence, 6 tokens (decode)
+    num_seqs = 1
+    seq_lens = torch.tensor([6], dtype=torch.int32, device=device)
+    query = torch.randn(1, num_q_heads, head_dim, dtype=torch.bfloat16,
+                         device=device)
+
+    # KV cache: unified 5D [num_pages, 2, page_size, num_kv_heads, head_dim]
+    num_pages = 2
+    kv_cache = torch.zeros(num_pages, 2, page_size, num_kv_heads, head_dim,
+                           dtype=torch.uint8, device=device)
+    k_float = torch.randn(num_pages, page_size, num_kv_heads, head_dim,
+                           device=device).clamp(-10, 10)
+    kv_cache[:, 0] = k_float.to(torch.float8_e4m3fn).view(torch.uint8)
+    v_float = torch.randn(num_pages, page_size, num_kv_heads, head_dim,
+                           device=device).clamp(-10, 10)
+    kv_cache[:, 1] = v_float.to(torch.float8_e4m3fn).view(torch.uint8)
+
+    page_table = torch.zeros(1, 2, dtype=torch.int32, device=device)
+
+    # --- Create NVFP4 W_O weights ---
+    K = num_q_heads * head_dim  # 6144
+    N = hidden_dim              # 3584
+
+    # Random FP4 nibbles (0-15, including sign in bit 3)
+    torch.manual_seed(123)
+    wo_nibbles = torch.randint(0, 16, (N, K), dtype=torch.uint8, device=device)
+
+    # Pack into uint8 (2 nibbles per byte): low nibble = even, high nibble = odd
+    wo_weight = torch.zeros(N, K // 2, dtype=torch.uint8, device=device)
+    for k in range(0, K, 2):
+        lo = wo_nibbles[:, k] & 0x0F
+        hi = wo_nibbles[:, k + 1] & 0x0F
+        wo_weight[:, k // 2] = lo | (hi << 4)
+
+    # Scale factors: all 1.0 in FP8 E4M3 (byte 0x38) for simplicity
+    K_sf = K // 16  # 384
+    wo_scales_linear = torch.full((N, K_sf), 0x38, dtype=torch.uint8,
+                                  device=device)
+    wo_scales_linear = wo_scales_linear.view(torch.float8_e4m3fn)
+
+    # Swizzle the scales (required by kernel)
+    from vllm.model_executor.layers.quantization.utils.nvfp4_utils import (
+        swizzle_blockscale,
+    )
+    wo_scales = swizzle_blockscale(wo_scales_linear)
+
+    wo_global_scale = torch.tensor(1.0, dtype=torch.float32, device=device)
+
+    print("=" * 60)
+    print("W_O Fusion Test")
+    print("=" * 60)
+    print(f"Config: Q={num_q_heads}h KV={num_kv_heads}h hd={head_dim} "
+          f"hidden={hidden_dim} K={K}")
+
+    # --- Reference: unfused attention -> dequant -> matmul ---
+    # Step 1: run attention only (no W_O)
+    attn_out = paged_attention_forward(
+        query=query, kv_cache=kv_cache, page_table=page_table,
+        seq_lens=seq_lens, scale=scale, k_scale=1.0, v_scale=1.0,
+        page_size=page_size,
+    )  # [1, 24, 256]
+    print(f"Attention output shape: {attn_out.shape}")
+
+    # Step 2: dequant FP4 weights and matmul in PyTorch
+    # Unpack nibbles back to float
+    kE2M1 = torch.tensor([0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0],
+                          dtype=torch.float32, device=device)
+    # Unpack all nibbles
+    flat_bytes = wo_weight.flatten()
+    lo_nibbles = flat_bytes & 0x0F
+    hi_nibbles = (flat_bytes >> 4) & 0x0F
+    all_nibbles = torch.stack([lo_nibbles, hi_nibbles], dim=1).flatten()
+    # all_nibbles has shape [N * K] in (lo, hi, lo, hi, ...) order
+    all_nibbles = all_nibbles.reshape(N, K)
+
+    signs = ((all_nibbles >> 3) & 1).float()
+    abs_vals = (all_nibbles & 7).long()
+    wo_dequant = kE2M1[abs_vals] * (1.0 - 2.0 * signs)  # apply sign
+    # wo_dequant: [N, K] float32, with global_scale=1.0 and block_scale=1.0
+
+    # Reference output
+    attn_flat = attn_out.view(1, -1).float()  # [1, K=6144]
+    ref_output = attn_flat @ wo_dequant.T      # [1, N=3584]
+
+    # --- Fused: attention + W_O in one kernel ---
+    wo_output = torch.zeros(num_seqs, N, dtype=torch.float32, device=device)
+
+    fused_attn_out = paged_attention_forward(
+        query=query, kv_cache=kv_cache, page_table=page_table,
+        seq_lens=seq_lens, scale=scale, k_scale=1.0, v_scale=1.0,
+        page_size=page_size,
+        wo_weight=wo_weight,
+        wo_scales=wo_scales,
+        wo_global_scale=wo_global_scale,
+        wo_output=wo_output,
+    )
+
+    # --- Compare ---
+    fused_f = wo_output.float()
+    ref_f = ref_output.float()
+    diff = (fused_f - ref_f).abs()
+
+    print(f"\nResults:")
+    print(f"  fused[0,:8]  = {fused_f[0,:8].tolist()}")
+    print(f"  ref[0,:8]    = {ref_f[0,:8].tolist()}")
+    print(f"  max diff     = {diff.max().item():.6f}")
+    print(f"  mean diff    = {diff.mean().item():.6f}")
+
+    # Per-output-slice analysis
+    for i in range(0, N, N // 4):
+        sl = diff[0, i:i+N//4]
+        print(f"  rows {i:4d}-{i+N//4:4d}: max={sl.max().item():.6f} "
+              f"mean={sl.mean().item():.6f}")
+
+    max_diff = diff.max().item()
+    if max_diff < 0.05:
+        print(f"\nPASS: max diff = {max_diff:.4f}")
+    else:
+        print(f"\nFAIL: max diff = {max_diff:.4f}")
+
+
 if __name__ == "__main__":
     test_cute_kernel()
+    print("\n" + "=" * 60 + "\n")
+    test_wo_fusion()
