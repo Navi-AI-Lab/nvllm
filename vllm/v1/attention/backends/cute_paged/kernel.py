@@ -707,13 +707,10 @@ if _CUTE_AVAILABLE:
         bits_ir = bits.ir_value(loc=loc, ip=ip)
         result_ir = _llvm_dialect.inline_asm(
             T.f32(),
-            [T.i32()],
+            [bits_ir],
             "mov.b32 $0, $1;",
             "=f,r",
-            asm_dialect=0,
-            operands_=[bits_ir],
-            loc=loc,
-            ip=ip,
+            has_side_effects=True,
         )
         return Float32(result_ir)
 
@@ -724,29 +721,29 @@ if _CUTE_AVAILABLE:
         E2M1 format: [sign(1) | exp(2) | mant(1)]
         Unsigned values: {0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0}
 
-        Conversion: build IEEE 754 float32 from E2M1 fields.
-        - Normal (exp > 0): f32_exp = e2m1_exp + 126, f32_mant = e2m1_mant << 22
-        - Subnormal (exp=0, mant=1): value = 0.5 -> f32 bits = 0x3F000000
-        - Zero (exp=0, mant=0): value = 0.0
-        - Sign bit OR'd into bit 31
+        Pure integer arithmetic — no comparison operators (CuTe DSL
+        comparisons return predicates, not Int32 0/1 flags).
         """
         sign = (nibble >> Int32(3)) & Int32(1)
         exp2 = (nibble >> Int32(1)) & Int32(3)
         mant1 = nibble & Int32(1)
 
-        # Normal case: exp > 0
-        f32_normal = (sign << Int32(31)) | ((exp2 + Int32(126)) << Int32(23)) | (mant1 << Int32(22))
+        # exp2_flag = 1 when exp2 > 0, 0 when exp2 == 0
+        # For 2-bit value: OR the two bits together
+        exp2_flag = (exp2 | (exp2 >> Int32(1))) & Int32(1)
+        exp2_zero = Int32(1) - exp2_flag
 
-        # Subnormal case: exp=0, mant=1 -> 0.5f with sign
-        f32_subnormal = (sign << Int32(31)) | Int32(0x3F000000)
+        # Normal case (exp2 > 0): (exp2 + 126) << 23 | mant1 << 22
+        normal_bits = ((exp2 + Int32(126)) << Int32(23)) | (mant1 << Int32(22))
 
-        # Zero case
-        f32_zero = sign << Int32(31)
+        # Subnormal case (exp2 == 0, mant1 == 1): 0.5 = 0x3F000000
+        special_bits = mant1 * Int32(0x3F000000)
 
-        # Branchless select
-        is_normal = exp2 > Int32(0)
-        is_subnormal = (exp2 == Int32(0)) & (mant1 > Int32(0))
-        result_bits = f32_normal * is_normal + f32_subnormal * is_subnormal + f32_zero * (Int32(1) - is_normal - is_subnormal)
+        # Branchless select via multiply-by-flag
+        unsigned_bits = normal_bits * exp2_flag + special_bits * exp2_zero
+
+        # Apply sign
+        result_bits = unsigned_bits | (sign << Int32(31))
 
         return _bitcast_i32_to_f32(result_bits)
 
@@ -760,23 +757,16 @@ if _CUTE_AVAILABLE:
         hi = (byte_val >> Int32(4)) & Int32(0x0F)
         return _fp4_nibble_to_f32(lo), _fp4_nibble_to_f32(hi)
 
-    @dsl_user_op
-    def _cvt_bf16x2_lo_to_f32(bf16x2, *, loc=None, ip=None) -> Float32:
-        """Extract the low BF16 from a packed BF16x2 Uint32 and convert to Float32."""
-        val_ir = bf16x2.ir_value(loc=loc, ip=ip)
-        result_ir = _llvm_dialect.inline_asm(
-            T.f32(),
-            [T.i32()],
-            "{ .reg .b16 %lo;\\n"
-            "  mov.b32 {%lo, _}, $1;\\n"
-            "  cvt.f32.bf16 $0, %lo; }",
-            "=f,r",
-            asm_dialect=0,
-            operands_=[val_ir],
-            loc=loc,
-            ip=ip,
-        )
-        return Float32(result_ir)
+    @cute.jit
+    def _cvt_bf16x2_lo_to_f32(bf16x2: Uint32) -> Float32:
+        """Extract the low BF16 from a packed BF16x2 Uint32 and convert to Float32.
+
+        BF16 is the top 16 bits of IEEE 754 float32, so: mask low 16 bits,
+        shift left 16, reinterpret as float. Pure DSL — no inline PTX.
+        """
+        masked = bf16x2 & Uint32(0xFFFF)
+        shifted = Int32(masked << Uint32(16))
+        return _bitcast_i32_to_f32(shifted)
 
     @cute.jit
     def _ld_swizzled_scale(
@@ -818,13 +808,10 @@ if _CUTE_AVAILABLE:
         val_ir = val.ir_value(loc=loc, ip=ip)
         result_ir = _llvm_dialect.inline_asm(
             T.i32(),
-            [T.i64(), T.f32()],
+            [addr_ir, val_ir],
             "atom.global.add.f32 $0, [$1], $2;",
             "=r,l,f",
-            asm_dialect=0,
-            operands_=[addr_ir, val_ir],
-            loc=loc,
-            ip=ip,
+            has_side_effects=True,
         )
         return Uint32(result_ir)
 
@@ -1419,10 +1406,11 @@ if _CUTE_AVAILABLE:
                     a7 = Float32(0.0)
 
                     # Inner loop over K dimension (group_size * head_dim)
-                    # Process one element at a time for correctness
-                    for _ki in cutlass.range_constexpr(6 * 256):  # 1536
-                        k_idx = Int32(_ki)
-
+                    # Runtime while loop — constexpr would unroll 1536
+                    # iterations × 8 accums × 5 groups = 61K ops, OOMs
+                    k_dim = group_size * hd  # 6 * 256 = 1536
+                    k_idx = Int32(0)
+                    while k_idx < k_dim:
                         # Load attention output element (BF16 from global)
                         attn_val = Float32(output[attn_base + k_idx])
 
@@ -1449,12 +1437,10 @@ if _CUTE_AVAILABLE:
                                 the_byte = _extract_byte_from_b32(
                                     raw, bpos)
 
-                                # Extract nibble
-                                if k_is_hi == Int32(0):
-                                    nib = the_byte & Int32(0x0F)
-                                else:
-                                    nib = (the_byte >> Int32(4)) & Int32(
-                                        0x0F)
+                                # Extract nibble (branchless)
+                                nib_shift = k_is_hi << Int32(2)  # 0 or 4
+                                nib = (the_byte >> nib_shift) & Int32(
+                                    0x0F)
 
                                 w_f32 = _fp4_nibble_to_f32(nib)
 
@@ -1482,6 +1468,8 @@ if _CUTE_AVAILABLE:
                                     a6 = a6 + w_dequant * attn_val
                                 if _oi == 7:
                                     a7 = a7 + w_dequant * attn_val
+
+                        k_idx = k_idx + Int32(1)
 
                     # atomicAdd accumulators to global FP32 output buffer
                     wo_out_base = wo_output_ptr + Int64(

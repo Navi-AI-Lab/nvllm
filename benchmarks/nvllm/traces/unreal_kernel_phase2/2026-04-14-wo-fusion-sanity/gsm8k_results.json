@@ -1,0 +1,8 @@
+{
+  "test": "gsm8k_sanity_gate",
+  "phase": "unreal_kernel_phase2_wo_fusion",
+  "model": "natfii/Qwen3.5-27B-NVFP4-Opus-GB10",
+  "backend": "CUTE_PAGED",
+  "accuracy": "4/8 (50%)",
+  "verdict": "PASS"
+}
