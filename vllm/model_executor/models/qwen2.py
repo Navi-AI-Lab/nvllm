@@ -206,6 +206,41 @@ class Qwen2Attention(nn.Module):
             else {},
         )
 
+        # W_O fusion: detect CuTe paged backend at runtime
+        self._wo_fusion_ready = False
+
+    def _prepare_wo_fusion(self) -> bool:
+        """Check if W_O fusion is available and cache weight pointers.
+        Called once on first forward pass. Returns True if fusion is active.
+        """
+        # Check if the attention backend is CuTe paged
+        attn_impl = getattr(self.attn, 'impl', None)
+        if attn_impl is None:
+            return False
+
+        from vllm.v1.attention.backends.cute_paged._backend import (
+            CutePagedAttentionImpl,
+        )
+        if not isinstance(attn_impl, CutePagedAttentionImpl):
+            return False
+
+        # Check if o_proj has NVFP4 weights (uint8 packed)
+        if not hasattr(self.o_proj, 'weight') or self.o_proj.weight.dtype != torch.uint8:
+            return False
+
+        # Check for required NVFP4 attributes
+        if not hasattr(self.o_proj, 'weight_scale'):
+            return False
+        if not hasattr(self.o_proj, 'weight_global_scale'):
+            return False
+
+        # Cache weight tensors for the fused path
+        self._wo_weight = self.o_proj.weight.data           # [N, K/2] uint8
+        self._wo_scales = self.o_proj.weight_scale.data      # [N, K_sf] fp8 swizzled
+        self._wo_global_scale = self.o_proj.weight_global_scale.data  # scalar f32
+
+        return True
+
     def forward(
         self,
         positions: torch.Tensor,
@@ -231,9 +266,40 @@ class Qwen2Attention(nn.Module):
             k = k.view(total_tokens, self.kv_size)
 
         q, k = self.rotary_emb(positions, q, k)
-        attn_output = self.attn(q, k, v)
-        output, _ = self.o_proj(attn_output)
-        return output
+
+        # Check W_O fusion readiness (once)
+        if not self._wo_fusion_ready:
+            self._wo_fusion_ready = self._prepare_wo_fusion()
+
+        if self._wo_fusion_ready:
+            # Fused path: attention + W_O GEMV in one kernel launch
+            num_tokens = q.shape[0]
+            wo_output = torch.zeros(
+                num_tokens, self._wo_weight.shape[0],  # [num_tokens, hidden_dim]
+                dtype=torch.float32, device=q.device,
+            )
+            # Set side-channel on the Attention layer for backend to pick up
+            self.attn._wo_weight = self._wo_weight
+            self.attn._wo_scales = self._wo_scales
+            self.attn._wo_global_scale = self._wo_global_scale
+            self.attn._wo_output = wo_output
+
+            attn_output = self.attn(q, k, v)
+
+            # Clean up side-channel
+            self.attn._wo_weight = None
+            self.attn._wo_scales = None
+            self.attn._wo_global_scale = None
+            self.attn._wo_output = None
+
+            # wo_output contains the fused W_O result in FP32
+            output = wo_output.to(hidden_states.dtype)
+            return output
+        else:
+            # Unfused path (unchanged)
+            attn_output = self.attn(q, k, v)
+            output, _ = self.o_proj(attn_output)
+            return output
 
 
 class Qwen2DecoderLayer(nn.Module):
