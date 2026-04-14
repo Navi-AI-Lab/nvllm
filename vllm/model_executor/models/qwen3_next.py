@@ -282,6 +282,7 @@ class Qwen3NextAttention(nn.Module):
         positions: torch.Tensor,
         output: torch.Tensor,
         hidden_states: torch.Tensor,
+        fusion_active: bool = False,
     ):
         qkv, _ = self.qkv_proj(hidden_states)
 
@@ -295,7 +296,9 @@ class Qwen3NextAttention(nn.Module):
             q = q.reshape(*orig_shape, -1)
             gate = gate.reshape(*orig_shape, -1)
         else:
-            q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+            q, k, v = qkv.split(
+                [self.q_size, self.kv_size, self.kv_size], dim=-1)
+            gate = None
 
         q = self.q_norm(q.view(-1, self.num_heads, self.head_dim)).view(
             -1, self.num_heads * self.head_dim
@@ -306,13 +309,23 @@ class Qwen3NextAttention(nn.Module):
 
         q, k = self.rotary_emb(positions, q, k)
 
+        if fusion_active and gate is not None:
+            # Write gate to impl's persistent buffer for kernel fusion.
+            # Kernel does: sigmoid(gate) * attn → W_O GEMV → RMSNorm
+            num_tokens = hidden_states.shape[0]
+            self.attn.impl.gate_buf[:num_tokens].copy_(gate[:num_tokens])
+
         attn_output = self.attn(q, k, v)
 
-        if self.attn_output_gate:
-            gate = torch.sigmoid(gate)
-            attn_output = attn_output * gate
-
-        output[:], _ = self.o_proj(attn_output)
+        if not fusion_active:
+            # Unfused path: apply gate and o_proj in Python
+            if self.attn_output_gate and gate is not None:
+                gate = torch.sigmoid(gate)
+                attn_output = attn_output * gate
+            output[:], _ = self.o_proj(attn_output)
+        # When fusion_active, kernel already wrote to impl's persistent
+        # buffers (wo_output, rmsnorm_output, residual_output).
+        # Caller reads from those buffers directly.
 
 
 class Qwen3NextDecoderLayer(nn.Module):
@@ -394,6 +407,44 @@ class Qwen3NextDecoderLayer(nn.Module):
                 ),
             )
 
+        # Fusion binding happens in _try_bind_fusion() after weights are loaded.
+        self._fusion_bound = False
+
+    def _try_bind_fusion(self) -> bool:
+        """Attempt to bind CuTe fusion weights. Returns True if successful."""
+        if self.layer_type != "full_attention":
+            return False
+
+        from vllm.v1.attention.backends.cute_paged._backend import (
+            CutePagedAttentionImpl,
+        )
+        impl = self.self_attn.attn.impl
+        if not isinstance(impl, CutePagedAttentionImpl):
+            return False
+
+        o_proj = self.self_attn.o_proj
+        if not hasattr(o_proj, 'weight_global_scale'):
+            logger.warning(
+                "CuTe fusion: o_proj weights not loaded yet or not NVFP4, "
+                "skipping fusion binding for layer %d", self.layer_idx)
+            return False
+
+        vllm_config = get_current_vllm_config()
+        max_num_seqs = vllm_config.scheduler_config.max_num_seqs
+
+        impl.bind_fusion_weights(
+            wo_weight=o_proj.weight,
+            wo_scales=o_proj.weight_scale,
+            wo_global_scale=o_proj.weight_global_scale,
+            rmsnorm_gamma=self.post_attention_layernorm.weight,
+            rmsnorm_eps=self.post_attention_layernorm.variance_epsilon,
+            max_num_seqs=max_num_seqs,
+        )
+
+        logger.info(
+            "CuTe fusion bound for layer %d (full_attention)", self.layer_idx)
+        return True
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -401,27 +452,54 @@ class Qwen3NextDecoderLayer(nn.Module):
         positions: torch.Tensor = None,
         **kwargs: object,
     ):
+        # Lazy fusion binding on first forward (weights loaded by now)
+        if not self._fusion_bound:
+            self._fusion_bound = self._try_bind_fusion()
+
         if residual is None:
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
         else:
-            hidden_states, residual = self.input_layernorm(hidden_states, residual)
+            hidden_states, residual = self.input_layernorm(
+                hidden_states, residual)
+
+        fusion_active = (
+            self._fusion_bound
+            and self.layer_type == "full_attention"
+        )
+
+        if fusion_active:
+            # Write residual to impl's persistent buffer for Phase C.
+            # Kernel reads this for: new_residual = residual + wo_output
+            num_tokens = hidden_states.shape[0]
+            impl = self.self_attn.attn.impl
+            impl.residual_buf[:num_tokens].copy_(residual[:num_tokens])
 
         self_attention_output = torch.empty_like(hidden_states)
+
         if self.layer_type == "linear_attention":
             self.linear_attn(
                 hidden_states=hidden_states,
                 output=self_attention_output,
             )
+            hidden_states = self_attention_output
         elif self.layer_type == "full_attention":
             self.self_attn(
                 hidden_states=hidden_states,
                 output=self_attention_output,
                 positions=positions,
+                fusion_active=fusion_active,
             )
+            if fusion_active:
+                # Kernel produced: rmsnorm_output (hidden_states for MLP)
+                # and residual_output (updated residual for next layer).
+                # Skip post_attention_layernorm — kernel did it.
+                hidden_states = impl.rmsnorm_output[:num_tokens]
+                residual = impl.residual_output[:num_tokens]
+            else:
+                hidden_states = self_attention_output
         else:
             raise ValueError("Invalid layer_type")
-        hidden_states = self_attention_output
 
         if self.layer_scale:
             if len(hidden_states.shape) == 2:
@@ -433,8 +511,12 @@ class Qwen3NextDecoderLayer(nn.Module):
                     self.attn_layer_scale.to(hidden_states.dtype) + 1
                 )
 
-        # Fully Connected
-        hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
+        if not fusion_active:
+            # Unfused path: apply post_attention_layernorm in Python
+            hidden_states, residual = self.post_attention_layernorm(
+                hidden_states, residual)
+        # When fusion_active, Phase C already did residual add + RMSNorm
+
         hidden_states = self.mlp(hidden_states)
 
         if self.layer_scale:
@@ -443,7 +525,9 @@ class Qwen3NextDecoderLayer(nn.Module):
                     self.ffn_layer_scale.to(hidden_states.dtype)[0] + 1
                 )
             else:
-                assert len(hidden_states.shape) == len(self.ffn_layer_scale.shape), (
+                assert len(hidden_states.shape) == len(
+                    self.ffn_layer_scale.shape
+                ), (
                     f"shape must be the same {len(hidden_states.shape)}, "
                     f"{len(self.ffn_layer_scale.shape)}"
                 )
