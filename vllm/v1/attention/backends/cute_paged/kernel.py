@@ -698,6 +698,136 @@ if _CUTE_AVAILABLE:
         """
         return cute.arch.fmax(a, b)
 
+    # --- FP4 E2M1 dequant + atomicAdd utilities ----------------------------
+    # Helpers for NVFP4 weight dequantization and W_O output fusion.
+
+    @dsl_user_op
+    def _bitcast_i32_to_f32(bits, *, loc=None, ip=None) -> Float32:
+        """Reinterpret Int32 bits as Float32 (mov.b32)."""
+        bits_ir = bits.ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.f32(),
+            [T.i32()],
+            "mov.b32 $0, $1;",
+            "=f,r",
+            asm_dialect=0,
+            operands_=[bits_ir],
+            loc=loc,
+            ip=ip,
+        )
+        return Float32(result_ir)
+
+    @cute.jit
+    def _fp4_nibble_to_f32(nibble: Int32) -> Float32:
+        """Convert a single FP4 E2M1 nibble (4 bits in an Int32) to Float32.
+
+        E2M1 format: [sign(1) | exp(2) | mant(1)]
+        Unsigned values: {0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0}
+
+        Conversion: build IEEE 754 float32 from E2M1 fields.
+        - Normal (exp > 0): f32_exp = e2m1_exp + 126, f32_mant = e2m1_mant << 22
+        - Subnormal (exp=0, mant=1): value = 0.5 -> f32 bits = 0x3F000000
+        - Zero (exp=0, mant=0): value = 0.0
+        - Sign bit OR'd into bit 31
+        """
+        sign = (nibble >> Int32(3)) & Int32(1)
+        exp2 = (nibble >> Int32(1)) & Int32(3)
+        mant1 = nibble & Int32(1)
+
+        # Normal case: exp > 0
+        f32_normal = (sign << Int32(31)) | ((exp2 + Int32(126)) << Int32(23)) | (mant1 << Int32(22))
+
+        # Subnormal case: exp=0, mant=1 -> 0.5f with sign
+        f32_subnormal = (sign << Int32(31)) | Int32(0x3F000000)
+
+        # Zero case
+        f32_zero = sign << Int32(31)
+
+        # Branchless select
+        is_normal = exp2 > Int32(0)
+        is_subnormal = (exp2 == Int32(0)) & (mant1 > Int32(0))
+        result_bits = f32_normal * is_normal + f32_subnormal * is_subnormal + f32_zero * (Int32(1) - is_normal - is_subnormal)
+
+        return _bitcast_i32_to_f32(result_bits)
+
+    @cute.jit
+    def _fp4_byte_to_f32x2(byte_val: Int32) -> tuple:
+        """Unpack one uint8 (two packed FP4 E2M1 values) into (Float32, Float32).
+
+        Low nibble = even-indexed element, High nibble = odd-indexed element.
+        """
+        lo = byte_val & Int32(0x0F)
+        hi = (byte_val >> Int32(4)) & Int32(0x0F)
+        return _fp4_nibble_to_f32(lo), _fp4_nibble_to_f32(hi)
+
+    @dsl_user_op
+    def _cvt_bf16x2_lo_to_f32(bf16x2, *, loc=None, ip=None) -> Float32:
+        """Extract the low BF16 from a packed BF16x2 Uint32 and convert to Float32."""
+        val_ir = bf16x2.ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.f32(),
+            [T.i32()],
+            "{ .reg .b16 %lo;\\n"
+            "  mov.b32 {%lo, _}, $1;\\n"
+            "  cvt.f32.bf16 $0, %lo; }",
+            "=f,r",
+            asm_dialect=0,
+            operands_=[val_ir],
+            loc=loc,
+            ip=ip,
+        )
+        return Float32(result_ir)
+
+    @cute.jit
+    def _ld_swizzled_scale(
+        sf_ptr: Int64,
+        m: Int32,
+        k_group: Int32,
+        num_k_tiles: Int32,
+    ) -> Float32:
+        """Load one FP8 E4M3 block scale from swizzled layout, return as Float32.
+
+        Swizzle layout: [numMTiles, numKTiles, 32, 4, 4]
+        Offset formula from CUTLASS nvfp4_utils.cuh.
+        """
+        m_tile = m >> Int32(7)                    # m / 128
+        outer_m = m & Int32(31)                   # m % 32
+        inner_m = (m >> Int32(5)) & Int32(3)      # (m / 32) % 4
+        k_tile = k_group >> Int32(2)              # k_group / 4
+        inner_k = k_group & Int32(3)              # k_group % 4
+
+        sf_offset = (m_tile * num_k_tiles + k_tile) * Int32(512) \
+            + outer_m * Int32(16) + inner_m * Int32(4) + inner_k
+
+        # Load byte via aligned b32 load + extract
+        aligned_addr = sf_ptr + Int64(sf_offset & Int32(0xFFFFFFFC))
+        raw_word = _ld_global_b32(aligned_addr)
+        byte_pos = sf_offset & Int32(3)
+        scale_byte = _extract_byte_from_b32(raw_word, byte_pos)
+
+        # Convert FP8 E4M3 -> BF16x2 -> F32
+        # Pack same byte twice, convert pair, extract low
+        packed = _pack_lo16(scale_byte, scale_byte)
+        bf16_lo, _bf16_hi = fp8x4_e4m3_to_bfloat2x2(packed)
+        return _cvt_bf16x2_lo_to_f32(bf16_lo)
+
+    @dsl_user_op
+    def _atomic_add_f32(addr, val, *, loc=None, ip=None) -> Uint32:
+        """atomicAdd a Float32 value to global memory. Returns old value (discarded)."""
+        addr_ir = addr.ir_value(loc=loc, ip=ip)
+        val_ir = val.ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(),
+            [T.i64(), T.f32()],
+            "atom.global.add.f32 $0, [$1], $2;",
+            "=r,l,f",
+            asm_dialect=0,
+            operands_=[addr_ir, val_ir],
+            loc=loc,
+            ip=ip,
+        )
+        return Uint32(result_ir)
+
     # --- DecodeKernel -------------------------------------------------------
 
     class DecodeKernel:
