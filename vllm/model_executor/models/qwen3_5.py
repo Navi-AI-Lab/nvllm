@@ -193,6 +193,11 @@ class Qwen3_5DecoderLayer(Qwen3NextDecoderLayer):
                 ),
             )
 
+        # Fusion binding happens in _try_bind_fusion() (inherited from
+        # Qwen3NextDecoderLayer) after weights are loaded on first forward.
+        # Must set here because super().__init__ skips Qwen3NextDecoderLayer.
+        self._fusion_bound = False
+
 
 @support_torch_compile(
     dynamic_arg_dims={

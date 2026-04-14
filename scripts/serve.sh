@@ -89,7 +89,6 @@ docker run -d \
   --max-num-seqs "$MAX_NUM_SEQS" \
   --language-model-only \
   --mamba-cache-mode align \
-  --mamba-block-size 64 \
   --trust-remote-code \
   --gpu-memory-utilization 0.80 \
   --max-num-batched-tokens 65536 \
