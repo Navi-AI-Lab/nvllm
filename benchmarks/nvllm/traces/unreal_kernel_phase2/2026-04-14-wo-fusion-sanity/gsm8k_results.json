@@ -4,5 +4,6 @@
   "model": "natfii/Qwen3.5-27B-NVFP4-Opus-GB10",
   "backend": "CUTE_PAGED",
   "accuracy": "4/8 (50%)",
-  "verdict": "PASS"
+  "verdict": "PASS",
+  "CORRECTION_2026_04_14": "This test did NOT validate W_O fusion. The Qwen3.5-27B model uses Qwen3NextAttention (qwen3_next.py), which has no fusion wiring. The getattr(layer, '_wo_weight', None) calls returned None, so the kernel ran the UNFUSED attention-only path. The fusion code was only wired into Qwen2Attention (qwen2.py), which this model does not use. Silly Claude got too excited and claimed fusion was validated when it was silently disabled."
 }

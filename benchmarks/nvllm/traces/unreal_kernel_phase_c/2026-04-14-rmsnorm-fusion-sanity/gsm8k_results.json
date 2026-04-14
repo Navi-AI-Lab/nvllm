@@ -8,62 +8,15 @@
   "errors": 0,
   "accuracy": "8/8 (100%)",
   "verdict": "PASS",
+  "CORRECTION_2026_04_14": "This test did NOT validate RMSNorm fusion (Phase C) or W_O fusion (Phase B). The Qwen3.5-27B model uses Qwen3NextAttention (qwen3_next.py), which has no fusion wiring. All side-channel attributes (_rmsnorm_gamma, _wo_weight, etc.) returned None, so the kernel ran the UNFUSED path. 8/8 accuracy proves the unfused CuTe attention kernel is correct, not that the fusion produces correct output. The standalone kernel test (test_cute_kernel_standalone.py) validates fusion math in isolation. End-to-end fusion validation is pending the CUDA graphs pipeline state refactor that ports fusion to Qwen3NextAttention. Silly Claude strikes again.",
   "questions": [
-    {
-      "id": "Q1",
-      "expected": 72,
-      "got": 72,
-      "status": "OK",
-      "elapsed": 2.2
-    },
-    {
-      "id": "Q2",
-      "expected": 10,
-      "got": 10,
-      "status": "OK",
-      "elapsed": 2.2
-    },
-    {
-      "id": "Q3",
-      "expected": 5,
-      "got": 5,
-      "status": "OK",
-      "elapsed": 2.5
-    },
-    {
-      "id": "Q4",
-      "expected": 42,
-      "got": 42,
-      "status": "OK",
-      "elapsed": 2.4
-    },
-    {
-      "id": "Q5",
-      "expected": 624,
-      "got": 624,
-      "status": "OK",
-      "elapsed": 2.2
-    },
-    {
-      "id": "Q6",
-      "expected": 35,
-      "got": 35,
-      "status": "OK",
-      "elapsed": 2.6
-    },
-    {
-      "id": "Q7",
-      "expected": 48,
-      "got": 48,
-      "status": "OK",
-      "elapsed": 2.4
-    },
-    {
-      "id": "Q8",
-      "expected": 16,
-      "got": 16,
-      "status": "OK",
-      "elapsed": 2.3
-    }
+    {"id": "Q1", "expected": 72, "got": 72, "status": "OK", "elapsed": 2.2},
+    {"id": "Q2", "expected": 10, "got": 10, "status": "OK", "elapsed": 2.2},
+    {"id": "Q3", "expected": 5, "got": 5, "status": "OK", "elapsed": 2.5},
+    {"id": "Q4", "expected": 42, "got": 42, "status": "OK", "elapsed": 2.4},
+    {"id": "Q5", "expected": 624, "got": 624, "status": "OK", "elapsed": 2.2},
+    {"id": "Q6", "expected": 35, "got": 35, "status": "OK", "elapsed": 2.6},
+    {"id": "Q7", "expected": 48, "got": 48, "status": "OK", "elapsed": 2.4},
+    {"id": "Q8", "expected": 16, "got": 16, "status": "OK", "elapsed": 2.3}
   ]
 }
