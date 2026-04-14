@@ -8,6 +8,7 @@ This is a fork of vLLM optimized for local inference on NVIDIA GB10 (DGX Spark).
 - **Architecture:** SM120/SM121, 128 GB unified memory
 - **All development and testing happens on-device** — no CI cluster
 - **Custom patches live alongside upstream;** check upstream issues before debugging serving bugs
+- **Readme is a more up to date representation of the repo state than this file.** Standards live here
 
 ---
 
