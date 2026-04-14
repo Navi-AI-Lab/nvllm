@@ -48,9 +48,14 @@ SMEM after Phase A:
 
 All 128 threads (4 warps) cooperatively compute the W_O projection.
 
-- **Input:** Attention output in SMEM (from Phase A)
+- **Input:** Attention output in global memory (written by Phase A's cross-warp reduction, likely L2-resident since just written)
 - **Weights:** NVFP4 W_O matrix streamed from global memory
 - **Output:** Partial hidden state (FP32, length 3584) in registers → atomicAdd to global buffer
+
+**Note:** Phase A's cross-warp reduction writes the final BF16 result directly to the global
+output buffer (not SMEM). Phase B reads this back — likely an L2 hit since Phase A just
+wrote it. The HBM savings come from eliminating the separate o_proj GEMM kernel launch
+and its redundant read of the same attention output.
 
 ### Handoff
 
@@ -196,12 +201,11 @@ Phase A (attention):
   sync_o:  4 × 16 × 16 × 4B      =  4,096 B
   sync_md: 4 × 16 × 8B            =    512 B
 
-Phase B (W_O GEMV) — reuses SMEM after Phase A:
-  attn_output: 16 × 256 × 2B     =  8,192 B  (written by Phase A, read by Phase B)
-  K/V SMEM:                         freed after Phase A
+Phase B (W_O GEMV) — reads attention output from global memory (L2-cached):
+  No additional SMEM needed — weights stream from global, accumulation in registers
 
 Peak SMEM: 45,568 B (Phase A) — unchanged from current kernel
-Phase B uses strictly less SMEM than Phase A (only attn_output needed)
+Phase B adds zero SMEM pressure
 Total available: 101,376 B — 55,808 B headroom
 ```
 
