@@ -195,6 +195,69 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             self.head_size, self.num_queries_per_kv,
         )
 
+        self._fusion_bound = False
+
+    def bind_fusion_weights(
+        self,
+        wo_weight: torch.Tensor,
+        wo_scales: torch.Tensor,
+        wo_global_scale: torch.Tensor,
+        rmsnorm_gamma: torch.Tensor,
+        rmsnorm_eps: float,
+        max_num_seqs: int,
+    ) -> None:
+        """Bind static fusion weights and allocate persistent I/O buffers.
+
+        Called once from the model layer after weight loading. Replaces
+        the per-forward side-channel set/clear pattern. All buffer
+        addresses are stable — safe for CUDA graph capture and replay.
+
+        Args:
+            wo_weight: NVFP4 packed weights [N, K/2] uint8
+            wo_scales: Per-block scales [N, K_sf] fp8
+            wo_global_scale: Scalar scale [1] fp32 (kernel reads via ld.global)
+            rmsnorm_gamma: LayerNorm weight [hidden_dim] bf16
+            rmsnorm_eps: LayerNorm epsilon (e.g. 1e-6)
+            max_num_seqs: Maximum batch size for buffer allocation
+        """
+        # Static weights (bound once, never change)
+        self.wo_weight = wo_weight
+        self.wo_scales = wo_scales
+        self.wo_global_scale = wo_global_scale
+        self.rmsnorm_gamma = rmsnorm_gamma
+        self.rmsnorm_eps = rmsnorm_eps
+
+        hidden_dim = rmsnorm_gamma.shape[0]
+        device = wo_weight.device
+        q_size = self.num_heads * self.head_size  # num_heads * head_dim
+
+        # Persistent I/O buffers — fixed addresses for graph capture/replay.
+        # Content changes each forward; addresses never change.
+        self.wo_output = torch.zeros(
+            max_num_seqs, hidden_dim, dtype=torch.float32, device=device)
+        self.rmsnorm_output = torch.empty(
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
+        self.residual_output = torch.empty(
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
+        self.arrival_count = torch.zeros(
+            max_num_seqs, dtype=torch.int32, device=device)
+        self.gate_buf = torch.empty(
+            max_num_seqs, q_size, dtype=torch.bfloat16, device=device)
+        self.residual_buf = torch.empty(
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
+        # NOTE: residual_buf is not in the spec's buffer diagram but is needed
+        # for graph safety — the model layer copies the input residual here
+        # before attention, ensuring a stable address for the kernel's Phase C.
+
+        self._fusion_bound = True
+
+        logger.info(
+            "CuTe fusion bound: hidden_dim=%d, q_size=%d, max_seqs=%d, "
+            "wo_weight=%s, rmsnorm_gamma=%s",
+            hidden_dim, q_size, max_num_seqs,
+            list(wo_weight.shape), list(rmsnorm_gamma.shape),
+        )
+
     def forward(
         self,
         layer: torch.nn.Module,
@@ -209,41 +272,34 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
     ) -> torch.Tensor:
         assert output is not None, "Output tensor must be provided"
 
-        # Profiling pass: no computation needed
         if attn_metadata is None:
             return output.fill_(0)
 
-        # Extract descale factors from the attention layer
         k_scale = getattr(layer, "_k_scale_float", 1.0)
         v_scale = getattr(layer, "_v_scale_float", 1.0)
 
-        # Phase B: W_O fusion — read side-channel from Attention layer
-        # These are set by the model layer (Task 5) when fusion is enabled.
-        # When absent (None), the kernel skips the W_O GEMV epilogue.
-        wo_weight = getattr(layer, '_wo_weight', None)
-        wo_scales = getattr(layer, '_wo_scales', None)
-        wo_global_scale = getattr(layer, '_wo_global_scale', None)
-        wo_output = getattr(layer, '_wo_output', None)
-
-        # Phase C: RMSNorm fusion — read side-channel from Attention layer
-        # These are set by the model layer when fusion is enabled.
-        # When absent (None), the kernel skips the RMSNorm epilogue.
-        rmsnorm_gamma = getattr(layer, '_rmsnorm_gamma', None)
-        rmsnorm_residual = getattr(layer, '_rmsnorm_residual', None)
-        rmsnorm_output = getattr(layer, '_rmsnorm_output', None)
-        residual_output = getattr(layer, '_residual_output', None)
-        arrival_count = getattr(layer, '_arrival_count', None)
-        rmsnorm_eps = getattr(layer, '_rmsnorm_eps', None)
+        # Fusion weights: pre-bound via bind_fusion_weights() or None
+        wo_weight = self.wo_weight if self._fusion_bound else None
+        wo_scales = self.wo_scales if self._fusion_bound else None
+        wo_global_scale = self.wo_global_scale if self._fusion_bound else None
+        wo_output = self.wo_output if self._fusion_bound else None
+        rmsnorm_gamma = self.rmsnorm_gamma if self._fusion_bound else None
+        rmsnorm_residual = self.residual_buf if self._fusion_bound else None
+        rmsnorm_output = self.rmsnorm_output if self._fusion_bound else None
+        residual_output = self.residual_output if self._fusion_bound else None
+        arrival_count = self.arrival_count if self._fusion_bound else None
+        rmsnorm_eps = self.rmsnorm_eps if self._fusion_bound else None
+        gate_buf = self.gate_buf if self._fusion_bound else None
 
         from vllm.v1.attention.backends.cute_paged.kernel import (
             paged_attention_forward,
         )
 
-        # kv_cache shape: [num_pages, 2, 64, num_kv_heads, head_dim] uint8
-        # Dim 1: 0=K, 1=V (FlashInfer convention)
-        # Kernel uses raw _ld_global_b32 with stride-aware addressing —
-        # K/V byte offsets computed from kv_cache.stride(1). No copy needed.
         num_actual_tokens = attn_metadata.num_actual_tokens
+
+        # For graph-safe dispatch: padded batch size for grid.z
+        num_seqs = len(attn_metadata.seq_lens)
+        padded_num_seqs = num_seqs  # graph capture overrides via metadata
 
         result = paged_attention_forward(
             query=query[:num_actual_tokens],
@@ -265,10 +321,10 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             residual_output=residual_output,
             arrival_count=arrival_count,
             rmsnorm_eps=rmsnorm_eps,
+            gate_buf=gate_buf,
+            padded_num_seqs=padded_num_seqs,
         )
 
-        # Kernel returns 3D [num_actual_tokens, num_heads, head_dim],
-        # matching the output buffer shape from vLLM's attention layer.
         output[:num_actual_tokens].copy_(result)
         return output
 
