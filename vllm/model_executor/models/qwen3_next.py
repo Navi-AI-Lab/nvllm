@@ -312,8 +312,16 @@ class Qwen3NextAttention(nn.Module):
         if fusion_active and gate is not None:
             # Write gate to impl's persistent buffer for kernel fusion.
             # Kernel does: sigmoid(gate) * attn → W_O GEMV → RMSNorm
-            num_tokens = hidden_states.shape[0]
-            self.attn.impl.gate_buf[:num_tokens].copy_(gate[:num_tokens])
+            # Use num_actual_tokens from attn_metadata (not padded shape).
+            from vllm.forward_context import get_forward_context
+            _nat = get_forward_context().attn_metadata[
+                self.attn.layer_name].num_actual_tokens
+            self.attn.impl.gate_buf[:_nat].copy_(gate[:_nat])
+
+        # Signal fusion activation to backend impl. The impl only sends
+        # fusion pointers to the kernel when BOTH _fusion_bound (weights
+        # allocated) AND _fusion_active (this call is fused) are True.
+        self.attn.impl._fusion_active = fusion_active
 
         attn_output = self.attn(q, k, v)
 
@@ -465,17 +473,37 @@ class Qwen3NextDecoderLayer(nn.Module):
 
         num_tokens = hidden_states.shape[0]
 
-        # Fusion only active for decode (one token per sequence).
-        # Prefill has num_tokens >> max_num_seqs and the persistent
-        # buffers are sized for max_num_seqs only.
-        # TODO: Re-enable after fusion is validated on Qwen3NextAttention.
-        fusion_active = False  # disabled for baseline validation
+        # Fusion only active for decode-only batches where each
+        # sequence has exactly one token. With pre-allocated tensors
+        # (V1 model runner), hidden_states.shape[0] is the padded
+        # max_num_batched_tokens, NOT the actual token count.
+        # Read the real count from the current forward's attn_metadata.
+        fusion_active = False
+        nat = num_tokens
+        if self._fusion_bound and self.layer_type == "full_attention":
+            try:
+                from vllm.forward_context import get_forward_context
+                ctx = get_forward_context()
+                attn_md = ctx.attn_metadata[
+                    self.self_attn.attn.layer_name]
+                nat = attn_md.num_actual_tokens
+                is_decode = getattr(attn_md, 'is_decode_only', False)
+                # TODO: Re-enable once Phase B/C kernel fusion is validated.
+                # Infrastructure is ready (bug fixes 1-5 below), but the
+                # kernel GEMV/RMSNorm output is numerically wrong.
+                # Bugs fixed: (1) _fusion_active flag, (2) self-zero race,
+                # (3) padded tensor detection, (4) buffer alloc timing,
+                # (5) padding row zeroing.
+                fusion_active = False  # is_decode and nat <= self._max_num_seqs
+            except (RuntimeError, KeyError, AttributeError, TypeError):
+                pass
 
         if fusion_active:
             # Write residual to impl's persistent buffer for Phase C.
             # Kernel reads this for: new_residual = residual + wo_output
+            # Use nat (actual tokens), not num_tokens (padded batch).
             impl = self.self_attn.attn.impl
-            impl.residual_buf[:num_tokens].copy_(residual[:num_tokens])
+            impl.residual_buf[:nat].copy_(residual[:nat])
 
         self_attention_output = torch.empty_like(hidden_states)
 
@@ -496,8 +524,15 @@ class Qwen3NextDecoderLayer(nn.Module):
                 # Kernel produced: rmsnorm_output (hidden_states for MLP)
                 # and residual_output (updated residual for next layer).
                 # Skip post_attention_layernorm — kernel did it.
-                hidden_states = impl.rmsnorm_output[:num_tokens]
-                residual = impl.residual_output[:num_tokens]
+                # Write INTO the padded tensors at [:nat]. Zero padding
+                # rows [nat:] so the MLP sees zeros (matching unfused
+                # path where attention on zero-padded input → zero).
+                self_attention_output[:nat].copy_(
+                    impl.rmsnorm_output[:nat])
+                if nat < num_tokens:
+                    self_attention_output[nat:].zero_()
+                residual[:nat].copy_(impl.residual_output[:nat])
+                hidden_states = self_attention_output
             else:
                 hidden_states = self_attention_output
         else:

@@ -1540,20 +1540,12 @@ if _CUTE_AVAILABLE:
             # hidden_dim=5120 (5120/128=40).  Serialized over 5 groups
             # of 8 rows with explicit scalar accumulators (no arrays).
             if wo_fused != Int32(0):
-                # Self-zero: first CTA zeros its wo_output rows before atomicAdd.
-                # Eliminates external zero_() call (graph-safe).
-                if bx == Int32(0):
-                    wo_zero_base = wo_output_ptr + Int64(
-                        seq_idx * Int32(5120) * Int32(4))  # FP32=4B, hidden=5120
-                    my_zero_start = tid * Int32(40)  # 5120/128 threads = 40 each
-                    for _zg in cutlass.range_constexpr(5):
-                        base_z = my_zero_start + Int32(_zg * 8)
-                        for _zi in cutlass.range_constexpr(8):
-                            idx_z = base_z + Int32(_zi)
-                            _st_global_f32(
-                                wo_zero_base + Int64(idx_z * Int32(4)),
-                                Float32(0.0))
-                cute.arch.sync_threads()
+                # wo_output is zeroed by Python (impl.wo_output.zero_())
+                # before kernel launch — CUDA stream ordering guarantees
+                # the memset completes before any CTA runs.
+                # Self-zero inside the kernel is NOT safe: multiple
+                # KV-head CTAs (grid.y) write the same rows, and plain
+                # stores race with other CTAs' atomicAdd.
 
                 # Attention output: [num_seqs, num_q_heads, head_dim] BF16
                 # This CTA covers heads [q_head_start .. q_head_start+group_size-1]

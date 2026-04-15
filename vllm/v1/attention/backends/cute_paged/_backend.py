@@ -196,6 +196,46 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         )
 
         self._fusion_bound = False
+        self._fusion_active = False
+
+        # Pre-allocate fusion buffers during init so they don't
+        # interfere with vLLM V1's memory pool during forward.
+        # Uses vllm_config to get max_num_seqs and hidden_dim.
+        try:
+            from vllm.config import get_current_vllm_config
+            cfg = get_current_vllm_config()
+            max_num_seqs = cfg.scheduler_config.max_num_seqs
+            hidden_dim = cfg.model_config.hf_config.hidden_size
+            q_size = self.num_heads * self.head_size
+            self._preallocate_fusion_buffers(
+                max_num_seqs, hidden_dim, q_size, "cuda")
+        except Exception:
+            pass  # Will allocate lazily in bind_fusion_weights
+
+    def _preallocate_fusion_buffers(
+        self,
+        max_num_seqs: int,
+        hidden_dim: int,
+        q_size: int,
+        device: str | torch.device,
+    ) -> None:
+        """Allocate persistent fusion I/O buffers.
+
+        Called during __init__ (before forward) so allocations don't
+        interfere with vLLM V1's pre-allocated memory pool.
+        """
+        self.wo_output = torch.zeros(
+            max_num_seqs, hidden_dim, dtype=torch.float32, device=device)
+        self.rmsnorm_output = torch.empty(
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
+        self.residual_output = torch.empty(
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
+        self.arrival_count = torch.zeros(
+            max_num_seqs, dtype=torch.int32, device=device)
+        self.gate_buf = torch.empty(
+            max_num_seqs, q_size, dtype=torch.bfloat16, device=device)
+        self.residual_buf = torch.empty(
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
 
     def bind_fusion_weights(
         self,
@@ -228,26 +268,15 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self.rmsnorm_eps = rmsnorm_eps
 
         hidden_dim = rmsnorm_gamma.shape[0]
-        device = wo_weight.device
         q_size = self.num_heads * self.head_size  # num_heads * head_dim
 
-        # Persistent I/O buffers — fixed addresses for graph capture/replay.
-        # Content changes each forward; addresses never change.
-        self.wo_output = torch.zeros(
-            max_num_seqs, hidden_dim, dtype=torch.float32, device=device)
-        self.rmsnorm_output = torch.empty(
-            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
-        self.residual_output = torch.empty(
-            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
-        self.arrival_count = torch.zeros(
-            max_num_seqs, dtype=torch.int32, device=device)
-        self.gate_buf = torch.empty(
-            max_num_seqs, q_size, dtype=torch.bfloat16, device=device)
-        self.residual_buf = torch.empty(
-            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
-        # NOTE: residual_buf is not in the spec's buffer diagram but is needed
-        # for graph safety — the model layer copies the input residual here
-        # before attention, ensuring a stable address for the kernel's Phase C.
+        # Persistent I/O buffers are pre-allocated during __init__ via
+        # _preallocate_fusion_buffers() so they don't interfere with
+        # vLLM V1's memory pool during the first forward pass.
+        # If not yet allocated (e.g. __init__ didn't have config), do it now.
+        if not hasattr(self, 'wo_output'):
+            self._preallocate_fusion_buffers(
+                max_num_seqs, hidden_dim, q_size, wo_weight.device)
 
         self._fusion_bound = True
 
@@ -278,18 +307,29 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         k_scale = getattr(layer, "_k_scale_float", 1.0)
         v_scale = getattr(layer, "_v_scale_float", 1.0)
 
-        # Fusion weights: pre-bound via bind_fusion_weights() or None
-        wo_weight = self.wo_weight if self._fusion_bound else None
-        wo_scales = self.wo_scales if self._fusion_bound else None
-        wo_global_scale = self.wo_global_scale if self._fusion_bound else None
-        wo_output = self.wo_output if self._fusion_bound else None
-        rmsnorm_gamma = self.rmsnorm_gamma if self._fusion_bound else None
-        rmsnorm_residual = self.residual_buf if self._fusion_bound else None
-        rmsnorm_output = self.rmsnorm_output if self._fusion_bound else None
-        residual_output = self.residual_output if self._fusion_bound else None
-        arrival_count = self.arrival_count if self._fusion_bound else None
-        rmsnorm_eps = self.rmsnorm_eps if self._fusion_bound else None
-        gate_buf = self.gate_buf if self._fusion_bound else None
+        # Fusion requires both: weights bound AND model layer opted in.
+        # _fusion_bound = weights/buffers allocated (set once at init).
+        # _fusion_active = model layer says "this forward is fused" (per-call).
+        use_fusion = self._fusion_bound and self._fusion_active
+        wo_weight = self.wo_weight if use_fusion else None
+        wo_scales = self.wo_scales if use_fusion else None
+        wo_global_scale = self.wo_global_scale if use_fusion else None
+        wo_output = self.wo_output if use_fusion else None
+        rmsnorm_gamma = self.rmsnorm_gamma if use_fusion else None
+        rmsnorm_residual = self.residual_buf if use_fusion else None
+        rmsnorm_output = self.rmsnorm_output if use_fusion else None
+        residual_output = self.residual_output if use_fusion else None
+        arrival_count = self.arrival_count if use_fusion else None
+        rmsnorm_eps = self.rmsnorm_eps if use_fusion else None
+        gate_buf = self.gate_buf if use_fusion else None
+
+        # Zero accumulation buffers before kernel launch.
+        # Must happen before any CTA's atomicAdd — Python-side zero_()
+        # is ordered before the kernel by CUDA stream semantics.
+        # (Self-zero inside the kernel races across KV-head CTAs.)
+        if use_fusion:
+            self.wo_output.zero_()
+            self.arrival_count.zero_()
 
         from vllm.v1.attention.backends.cute_paged.kernel import (
             paged_attention_forward,
