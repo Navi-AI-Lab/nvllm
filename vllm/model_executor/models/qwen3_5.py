@@ -594,6 +594,18 @@ class Qwen3_5ForCausalLMBase(
 
 class Qwen3_5ForCausalLM(Qwen3_5ForCausalLMBase):
     pass
+    # TODO: Re-enable fusion binding after kernel Phase B/C is fixed.
+    # Must run AFTER process_weights_after_loading (NVFP4 weight
+    # attributes don't exist during load_weights). Can't run in
+    # forward() either — torch._dynamo traces it and chokes on
+    # logger/isinstance calls. Need a post-weight-processing hook.
+    #
+    # def load_weights(self, weights):
+    #     result = super().load_weights(weights)
+    #     for layer in self.model.layers:
+    #         if not layer._fusion_bound:
+    #             layer._fusion_bound = layer._try_bind_fusion()
+    #     return result
 
 
 class Qwen3_5MoeForCausalLM(Qwen3_5ForCausalLMBase, QwenNextMixtureOfExperts):

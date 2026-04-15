@@ -460,9 +460,14 @@ class Qwen3NextDecoderLayer(nn.Module):
         positions: torch.Tensor = None,
         **kwargs: object,
     ):
-        # Lazy fusion binding on first forward (weights loaded by now)
-        if not self._fusion_bound:
-            self._fusion_bound = self._try_bind_fusion()
+        # Fusion binding deferred — _try_bind_fusion() contains logger
+        # calls and dynamic Python that break torch._dynamo graph
+        # capture (PIECEWISE mode). Binding is triggered from
+        # process_weights_after_loading() in the model class instead.
+        #
+        # Original lazy-bind (re-enable when CUDA graph capture is sorted):
+        # if not self._fusion_bound:
+        #     self._fusion_bound = self._try_bind_fusion()
 
         if residual is None:
             residual = hidden_states
@@ -473,30 +478,26 @@ class Qwen3NextDecoderLayer(nn.Module):
 
         num_tokens = hidden_states.shape[0]
 
-        # Fusion only active for decode-only batches where each
-        # sequence has exactly one token. With pre-allocated tensors
-        # (V1 model runner), hidden_states.shape[0] is the padded
-        # max_num_batched_tokens, NOT the actual token count.
-        # Read the real count from the current forward's attn_metadata.
+        # TODO: Re-enable fusion once Phase B/C kernel is validated.
+        # Infrastructure is ready (bugs 1-5 fixed), kernel math TBD.
+        # Bugs fixed: (1) _fusion_active flag, (2) self-zero race,
+        # (3) padded tensor detection, (4) buffer alloc timing,
+        # (5) padding row zeroing.
         fusion_active = False
         nat = num_tokens
-        if self._fusion_bound and self.layer_type == "full_attention":
-            try:
-                from vllm.forward_context import get_forward_context
-                ctx = get_forward_context()
-                attn_md = ctx.attn_metadata[
-                    self.self_attn.attn.layer_name]
-                nat = attn_md.num_actual_tokens
-                is_decode = getattr(attn_md, 'is_decode_only', False)
-                # TODO: Re-enable once Phase B/C kernel fusion is validated.
-                # Infrastructure is ready (bug fixes 1-5 below), but the
-                # kernel GEMV/RMSNorm output is numerically wrong.
-                # Bugs fixed: (1) _fusion_active flag, (2) self-zero race,
-                # (3) padded tensor detection, (4) buffer alloc timing,
-                # (5) padding row zeroing.
-                fusion_active = False  # is_decode and nat <= self._max_num_seqs
-            except (RuntimeError, KeyError, AttributeError, TypeError):
-                pass
+        # --- Fusion guard (uncomment to re-enable) ---
+        # if self._fusion_bound and self.layer_type == "full_attention":
+        #     try:
+        #         from vllm.forward_context import get_forward_context
+        #         ctx = get_forward_context()
+        #         attn_md = ctx.attn_metadata[
+        #             self.self_attn.attn.layer_name]
+        #         nat = attn_md.num_actual_tokens
+        #         is_decode = getattr(attn_md, 'is_decode_only', False)
+        #         fusion_active = is_decode and nat <= self._max_num_seqs
+        #     except (RuntimeError, KeyError, AttributeError, TypeError):
+        #         pass
+        # --- End fusion guard ---
 
         if fusion_active:
             # Write residual to impl's persistent buffer for Phase C.
