@@ -36,6 +36,7 @@ SEPARATE_GROUPS = [
 EXCLUDE = [
     "vllm/model_executor/models",
     "vllm/nvllm/models",
+    "vllm/nvllm/layers",
     "vllm/model_executor/layers/fla/ops",
     # Ignore triton kernels in ops.
     "vllm/v1/attention/ops",
