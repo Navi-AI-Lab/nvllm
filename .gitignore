@@ -253,6 +253,10 @@ benchmarks/nvllm/results/*.sqlite
 # nvllm evaluation results (evals/)
 benchmarks/nvllm/results/evals/
 
+# nvllm trace full-logs (keep trimmed decode_log.txt tracked, full dumps local-only)
+benchmarks/nvllm/traces/**/*.full.txt
+benchmarks/nvllm/traces/**/*.full.log
+
 # nvllm: excluded from fork
 CLAUDE.md
 .claude/

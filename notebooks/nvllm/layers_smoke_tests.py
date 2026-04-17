@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+# SPDX-FileCopyrightText: Copyright contributors to the nvllm fork
 """Tier-1 host-side smoke tests for nvllm Phase C owned layer classes.
 
 Run:  .venv/bin/python notebooks/nvllm/layers_smoke_tests.py
