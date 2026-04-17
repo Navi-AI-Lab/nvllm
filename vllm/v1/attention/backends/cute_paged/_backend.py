@@ -10,12 +10,16 @@ See: docs/superpowers/specs/2026-04-10-cute-paged-attention-design.md
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
 
 from vllm.logger import init_logger
+
+# Set CUTE_DEBUG_FUSION=1 to enable per-call diff vs Python-dequant W_O ref.
+_DEBUG_FUSION = os.environ.get("CUTE_DEBUG_FUSION", "0") == "1"
 from vllm.v1.attention.backend import (
     AttentionBackend,
     AttentionCGSupport,
@@ -311,6 +315,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # _fusion_bound = weights/buffers allocated (set once at init).
         # _fusion_active = model layer says "this forward is fused" (per-call).
         use_fusion = self._fusion_bound and self._fusion_active
+        if _DEBUG_FUSION:
+            logger.info(
+                "[CUTE_DEBUG_FUSION] layer=%s bound=%s active=%s use_fusion=%s",
+                getattr(layer, "layer_name", "<layer>"),
+                self._fusion_bound, self._fusion_active, use_fusion,
+            )
         wo_weight = self.wo_weight if use_fusion else None
         wo_scales = self.wo_scales if use_fusion else None
         wo_global_scale = self.wo_global_scale if use_fusion else None
@@ -365,8 +375,118 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             padded_num_seqs=padded_num_seqs,
         )
 
+        # --- DEBUG: fusion diagnostic (CUTE_DEBUG_FUSION=1) ---
+        # Compares kernel's impl.wo_output (Phase B GEMV) against a Python
+        # reference computed from the kernel's own Phase A output (`result`)
+        # and a one-time-dequantized W_O. Proves whether Phase B is faithful.
+        if _DEBUG_FUSION and use_fusion:
+            self._debug_fusion_diff(
+                result=result,
+                num_actual_tokens=num_actual_tokens,
+                layer_name=getattr(layer, "layer_name", "<layer>"),
+            )
+        # --- END DEBUG ---
+
         output[:num_actual_tokens].copy_(result)
         return output
+
+    def _debug_fusion_diff(
+        self,
+        result: torch.Tensor,
+        num_actual_tokens: int,
+        layer_name: str,
+    ) -> None:
+        """One-shot per-call diagnostic: compare kernel wo_output to ref."""
+        # Dequant W_O lazily on first call, then cache on self.
+        if not hasattr(self, "_wo_dq_cached"):
+            W = self.wo_weight           # [N, K/2] uint8 NVFP4 packed
+            S_sw = self.wo_scales        # [N, K_sf] fp8_e4m3fn (swizzled!)
+            GS = self.wo_global_scale.item()
+
+            # Invert the CUTLASS swizzle to recover logical [N, K/16] scales.
+            # Our swizzle layout is [M/128, K/4, 32, 4, 4]; inverse permute (0,4,3,1,2).
+            N, K_half = W.shape
+            K = K_half * 2
+            num_k_groups = K // 16
+            num_m_tiles = (N + 127) // 128
+            num_k_tiles = (num_k_groups + 3) // 4
+            if S_sw.shape[0] == N and S_sw.shape[1] == num_k_groups \
+                    and num_m_tiles * 128 == N and num_k_tiles * 4 == num_k_groups:
+                # Swizzled 5D layout: (m_tile, k_tile, m_inner=32, m_mid=4, k_inner=4).
+                # Recover (m_tile, m_mid, m_inner, k_tile, k_inner) so reshape
+                # yields M = m_tile*128 + m_mid*32 + m_inner in C order.
+                S_sw_view = S_sw.view(num_m_tiles, num_k_tiles, 32, 4, 4)
+                S_unswizzled = S_sw_view.permute(0, 3, 2, 1, 4).contiguous()
+                S_unswizzled = S_unswizzled.view(N, num_k_groups).to(torch.float32)
+            else:
+                # Fall back: treat as logical already (diagnostic best-effort).
+                S_unswizzled = S_sw.to(torch.float32).view(N, num_k_groups)
+
+            # FP4 E2M1 LUT (matches kernel _fp4_nibble_to_f32)
+            lut = torch.tensor(
+                [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
+                 -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0],
+                dtype=torch.float32, device=W.device,
+            )
+            low_nib = (W & 0x0F).to(torch.int64)
+            high_nib = ((W >> 4) & 0x0F).to(torch.int64)
+            nib = torch.empty(N, K, dtype=torch.int64, device=W.device)
+            nib[:, 0::2] = low_nib
+            nib[:, 1::2] = high_nib
+            W_fp = lut[nib]
+            sf_expanded = S_unswizzled.repeat_interleave(16, dim=1)
+            self._wo_dq_cached = (W_fp * sf_expanded * GS).contiguous()
+            logger.info(
+                "[CUTE_DEBUG_FUSION] layer=%s cached W_O dq: shape=%s absmax=%.4f",
+                layer_name, list(self._wo_dq_cached.shape),
+                self._wo_dq_cached.abs().max().item(),
+            )
+
+        W_dq = self._wo_dq_cached            # [N, K]
+        nat = int(num_actual_tokens)
+        attn = result[:nat].reshape(nat, -1).float()  # [nat, K]
+        ref = attn @ W_dq.T                           # [nat, N]
+
+        kernel_out = self.wo_output[:nat].float()
+        diff = (kernel_out - ref).abs()
+        logger.info(
+            "[CUTE_DEBUG_FUSION] layer=%s nat=%d phaseB  "
+            "ref: absmax=%.4f mean=%.4e  "
+            "kernel: absmax=%.4f mean=%.4e  "
+            "diff: max=%.4f mean=%.4e  close=%s",
+            layer_name, nat,
+            ref.abs().max().item(), ref.mean().item(),
+            kernel_out.abs().max().item(), kernel_out.mean().item(),
+            diff.max().item(), diff.mean().item(),
+            bool(torch.allclose(kernel_out, ref, rtol=1e-2, atol=1e-2)),
+        )
+
+        # --- Phase C reference: residual add + RMSNorm ---
+        residual_in = self.residual_buf[:nat].float()         # BF16 → F32
+        new_residual_ref = residual_in + kernel_out            # f32
+        gamma = self.rmsnorm_gamma.float()
+        eps = float(self.rmsnorm_eps)
+        var = new_residual_ref.pow(2).mean(dim=-1, keepdim=True)
+        inv_rms = torch.rsqrt(var + eps)
+        hidden_ref = new_residual_ref * inv_rms * gamma        # f32
+
+        hidden_kernel = self.rmsnorm_output[:nat].float()
+        res_kernel = self.residual_output[:nat].float()
+        h_diff = (hidden_kernel - hidden_ref).abs()
+        r_diff = (res_kernel - new_residual_ref).abs()
+        logger.info(
+            "[CUTE_DEBUG_FUSION] layer=%s nat=%d phaseC  "
+            "hidden_ref_absmax=%.4f hidden_kernel_absmax=%.4f h_max_diff=%.4f  "
+            "res_ref_absmax=%.4f res_kernel_absmax=%.4f r_max_diff=%.4f  "
+            "close_h=%s close_r=%s",
+            layer_name, nat,
+            hidden_ref.abs().max().item(), hidden_kernel.abs().max().item(),
+            h_diff.max().item(),
+            new_residual_ref.abs().max().item(), res_kernel.abs().max().item(),
+            r_diff.max().item(),
+            bool(torch.allclose(hidden_kernel, hidden_ref, rtol=2e-2, atol=2e-2)),
+            bool(torch.allclose(res_kernel, new_residual_ref, rtol=2e-2, atol=2e-2)),
+        )
 
     def do_kv_cache_update(
         self,
@@ -391,7 +511,13 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         )
 
     def process_weights_after_loading(self, act_dtype: torch.dtype) -> None:
-        pass
+        # Invoked by vLLM's weight loader for each Attention module AFTER
+        # quant methods have processed weights (swizzle, pad, invert GS).
+        # This is the last safe opportunity to bind fusion state before
+        # torch.compile traces the forward pass.
+        cb = getattr(self, "_fusion_bind_callback", None)
+        if cb is not None:
+            cb()
 
 
 # ---------------------------------------------------------------------------

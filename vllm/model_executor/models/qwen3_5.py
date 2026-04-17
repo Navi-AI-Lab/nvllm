@@ -199,6 +199,21 @@ class Qwen3_5DecoderLayer(Qwen3NextDecoderLayer):
         self._max_num_seqs = vllm_config.scheduler_config.max_num_seqs
         self._fusion_bound = False
 
+        # Stash bind callback on the CuTe impl for
+        # CutePagedAttentionImpl.process_weights_after_loading() to invoke
+        # after NVFP4 swizzle. Mirrors Qwen3NextDecoderLayer's __init__
+        # (which this subclass bypasses via super(Parent, self).__init__()).
+        if self.layer_type == "full_attention":
+            try:
+                from vllm.v1.attention.backends.cute_paged._backend import (
+                    CutePagedAttentionImpl,
+                )
+                impl = self.self_attn.attn.impl
+                if isinstance(impl, CutePagedAttentionImpl):
+                    impl._fusion_bind_callback = self._try_bind_fusion
+            except (ImportError, AttributeError):
+                pass
+
 
 @support_torch_compile(
     dynamic_arg_dims={

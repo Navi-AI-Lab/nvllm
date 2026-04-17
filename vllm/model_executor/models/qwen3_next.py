@@ -336,6 +336,31 @@ class Qwen3NextAttention(nn.Module):
         # Caller reads from those buffers directly.
 
 
+# --- DISABLED: dynamo-disabled fusion guard helper ---
+# AOT compile refuses to call torch.compiler.disable'd functions.
+# Re-enable when we have a way to run the guard outside the traced forward
+# (e.g., backend-side computation of fusion_active from attn_metadata).
+#
+# @torch._dynamo.disable
+# def _fusion_guard_check(layer) -> tuple[bool, int]:
+#     """Dynamo-disabled helper: read attn_metadata, decide fusion_active.
+#
+#     Placed outside the traced forward so accesses to forward_context and
+#     arbitrary Python attrs (is_decode_only, num_actual_tokens) don't trip
+#     the tracer. Silent-fail returns (False, 0) if ctx isn't available.
+#     """
+#     try:
+#         from vllm.forward_context import get_forward_context
+#         ctx = get_forward_context()
+#         attn_md = ctx.attn_metadata[layer.self_attn.attn.layer_name]
+#         nat = attn_md.num_actual_tokens
+#         is_decode = getattr(attn_md, "is_decode_only", False)
+#         return (is_decode and nat <= layer._max_num_seqs), nat
+#     except (RuntimeError, KeyError, AttributeError, TypeError):
+#         return False, 0
+# --- END DISABLED ---
+
+
 class Qwen3NextDecoderLayer(nn.Module):
     def __init__(
         self,
@@ -421,8 +446,30 @@ class Qwen3NextDecoderLayer(nn.Module):
         self._max_num_seqs = vllm_config.scheduler_config.max_num_seqs
         self._fusion_bound = False
 
+        # Stash a bind callback on the CuTe impl so that
+        # CutePagedAttentionImpl.process_weights_after_loading() can
+        # invoke it post-weight-load (after NVFP4 swizzle). This is the
+        # only hook that fires AFTER weights are fully processed and
+        # BEFORE the first forward / torch.compile trace.
+        if self.layer_type == "full_attention":
+            try:
+                from vllm.v1.attention.backends.cute_paged._backend import (
+                    CutePagedAttentionImpl,
+                )
+                impl = self.self_attn.attn.impl
+                if isinstance(impl, CutePagedAttentionImpl):
+                    impl._fusion_bind_callback = self._try_bind_fusion
+            except (ImportError, AttributeError):
+                pass
+
+    @torch._dynamo.disable
     def _try_bind_fusion(self) -> bool:
-        """Attempt to bind CuTe fusion weights. Returns True if successful."""
+        """Attempt to bind CuTe fusion weights. Returns True if successful.
+
+        Decorated with torch._dynamo.disable so the logger.info calls in
+        bind_fusion_weights don't break graph capture during the first
+        traced forward pass.
+        """
         if self.layer_type != "full_attention":
             return False
 
@@ -449,6 +496,11 @@ class Qwen3NextDecoderLayer(nn.Module):
             max_num_seqs=self._max_num_seqs,
         )
 
+        # Self-set the flag so callers that discard the return value
+        # (e.g. the impl.process_weights_after_loading callback path)
+        # still see fusion as bound on subsequent forward passes.
+        self._fusion_bound = True
+
         logger.info(
             "CuTe fusion bound for layer %d (full_attention)", self.layer_idx)
         return True
@@ -460,14 +512,15 @@ class Qwen3NextDecoderLayer(nn.Module):
         positions: torch.Tensor = None,
         **kwargs: object,
     ):
-        # Fusion binding deferred — _try_bind_fusion() contains logger
-        # calls and dynamic Python that break torch._dynamo graph
-        # capture (PIECEWISE mode). Binding is triggered from
-        # process_weights_after_loading() in the model class instead.
-        #
-        # Original lazy-bind (re-enable when CUDA graph capture is sorted):
+        # Fusion binding is triggered from Qwen3NextModel.load_weights()
+        # AFTER all weights are loaded — cannot happen inside forward()
+        # because the logger call in bind_fusion_weights breaks both
+        # torch._dynamo and AOT compile graph capture.
+        # --- DISABLED inline-bind (kept for reference; re-enable when
+        #     graph capture is sorted or bind_fusion_weights is silent) ---
         # if not self._fusion_bound:
         #     self._fusion_bound = self._try_bind_fusion()
+        # --- END DISABLED ---
 
         if residual is None:
             residual = hidden_states
@@ -478,25 +531,23 @@ class Qwen3NextDecoderLayer(nn.Module):
 
         num_tokens = hidden_states.shape[0]
 
-        # TODO: Re-enable fusion once Phase B/C kernel is validated.
-        # Infrastructure is ready (bugs 1-5 fixed), kernel math TBD.
-        # Bugs fixed: (1) _fusion_active flag, (2) self-zero race,
-        # (3) padded tensor detection, (4) buffer alloc timing,
-        # (5) padding row zeroing.
+        # Fusion activation — re-enabled 2026-04-16 for Phase B/C diagnostic.
+        # Infrastructure bugs 1-5 fixed; kernel math being verified with
+        # CUTE_DEBUG_FUSION=1 diff logging in _backend.forward.
         fusion_active = False
         nat = num_tokens
-        # --- Fusion guard (uncomment to re-enable) ---
-        # if self._fusion_bound and self.layer_type == "full_attention":
-        #     try:
-        #         from vllm.forward_context import get_forward_context
-        #         ctx = get_forward_context()
-        #         attn_md = ctx.attn_metadata[
-        #             self.self_attn.attn.layer_name]
-        #         nat = attn_md.num_actual_tokens
-        #         is_decode = getattr(attn_md, 'is_decode_only', False)
-        #         fusion_active = is_decode and nat <= self._max_num_seqs
-        #     except (RuntimeError, KeyError, AttributeError, TypeError):
-        #         pass
+        # --- Fusion guard (inline; runs fine in eager / V1 dispatch) ---
+        if self._fusion_bound and self.layer_type == "full_attention":
+            try:
+                from vllm.forward_context import get_forward_context
+                ctx = get_forward_context()
+                attn_md = ctx.attn_metadata[
+                    self.self_attn.attn.layer_name]
+                nat = attn_md.num_actual_tokens
+                is_decode = getattr(attn_md, 'is_decode_only', False)
+                fusion_active = is_decode and nat <= self._max_num_seqs
+            except (RuntimeError, KeyError, AttributeError, TypeError):
+                pass
         # --- End fusion guard ---
 
         if fusion_active:
