@@ -1709,13 +1709,25 @@ if _CUTE_AVAILABLE:
                 # globally visible before any CTA reads them
                 _threadfence()
 
-                # Arrival counter: atomicAdd 1, last CTA runs Phase C
-                old_count = _atomic_add_u32(
-                    arrival_count_ptr + Int64(seq_idx * Int32(4)),
-                    Int32(1))
+                # Arrival counter: only thread 0 of each CTA bumps it,
+                # then broadcasts "am I in the last-arriving CTA" via
+                # SMEM to all 128 threads. Without this, every thread
+                # atomicAdds (512 bumps per call instead of 4) and only
+                # ONE thread matches old==total-1 → partial Phase C.
+                if tid == Int32(0):
+                    old_count = _atomic_add_u32(
+                        arrival_count_ptr + Int64(seq_idx * Int32(4)),
+                        Int32(1))
+                    if old_count == total_ctas_per_seq - Int32(1):
+                        _st_shared_f32(sync_md, Float32(1.0))
+                    else:
+                        _st_shared_f32(sync_md, Float32(0.0))
+                cute.arch.sync_threads()
 
-                if old_count == total_ctas_per_seq - Int32(1):
-                    # I am the last CTA — all Phase B writes are complete.
+                is_last_cta = _ld_shared_f32(sync_md)
+
+                if is_last_cta > Float32(0.5):
+                    # I am in the last CTA — all Phase B writes are complete.
 
                     # Derive tiling from hidden_dim parameter (NOT hardcoded)
                     hd_c = hidden_dim
