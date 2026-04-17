@@ -31,6 +31,7 @@ try:
     from cutlass._mlir.dialects import llvm as _llvm_dialect
     from cutlass.cute.typing import BFloat16, Float32, Int32, Int64, Uint32
     from cutlass.cutlass_dsl import T, dsl_user_op
+    import cuda.bindings.driver as _cuda_driver
     _CUTE_AVAILABLE = True
 except ImportError:
     logger.warning(
@@ -1005,8 +1006,15 @@ if _CUTE_AVAILABLE:
                         rmsnorm_fused: Int32,
                         gate_ptr: Int64,
                         gate_fused: Int32,
-                        grid_x: Int32, grid_y: Int32, grid_z: Int32):
-            """JIT host wrapper: compiles kernel launch into MLIR."""
+                        grid_x: Int32, grid_y: Int32, grid_z: Int32,
+                        stream):
+            """JIT host wrapper: compiles kernel launch into MLIR.
+
+            stream: cuda.CUstream — honored by CuTe DSL via `.launch(stream=...)`,
+            which maps to `async_deps` on gpu.launch_func. Without this the
+            kernel launches on CuTe's internal default stream and is invisible
+            to PyTorch CUDA graph capture, breaking FULL_AND_PIECEWISE mode.
+            """
             self._kernel(
                 query, k_ptr, v_ptr, page_table, seq_lens,
                 output, scale, k_scale, v_scale,
@@ -1031,6 +1039,7 @@ if _CUTE_AVAILABLE:
                 grid=[grid_x, grid_y, grid_z],
                 block=[self.num_threads, 1, 1],
                 smem=self.smem_bytes,
+                stream=stream,
             )
 
         @cute.kernel
@@ -1938,6 +1947,14 @@ if _CUTE_AVAILABLE:
                 gate_ptr = Int64(0)
                 gate_fused_flag = Int32(0)
 
+            # Thread the current torch CUDA stream into the CuTe launch so
+            # kernel launches participate in any active CUDA graph capture.
+            # See stream_adapter.py: cuda.CUstream -> gpu.AsyncTokenType,
+            # consumed by gpu.launch_func as its async_deps / launch stream.
+            stream_arg = _cuda_driver.CUstream(
+                int(torch.cuda.current_stream().cuda_stream)
+            )
+
             all_args = (
                 q_flat, k_ptr, v_ptr, page_table, seq_lens,
                 out_flat,
@@ -1954,6 +1971,7 @@ if _CUTE_AVAILABLE:
                 rmsnorm_fused_flag,
                 gate_ptr, gate_fused_flag,
                 Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
+                stream_arg,
             )
 
             if self._compiled is None:
@@ -1998,8 +2016,15 @@ if _CUTE_AVAILABLE:
                         seq_lens, query_start_loc, output,
                         scale, k_scale, v_scale,
                         num_q_heads, num_kv_heads,
-                        grid_x: Int32, grid_y: Int32, grid_z: Int32):
-            """JIT host wrapper: compiles kernel launch into MLIR."""
+                        grid_x: Int32, grid_y: Int32, grid_z: Int32,
+                        stream):
+            """JIT host wrapper: compiles kernel launch into MLIR.
+
+            stream: cuda.CUstream — required for CUDA graph capture to see
+            the launch. Without it the prefill kernel would launch on CuTe's
+            internal default stream, invisible to torch graph capture. Same
+            fix as DecodeKernel; see that method for the full rationale.
+            """
             self._kernel(
                 query, k_cache, v_cache, page_table, seq_lens,
                 query_start_loc, output, scale, k_scale, v_scale,
@@ -2008,6 +2033,7 @@ if _CUTE_AVAILABLE:
                 grid=[grid_x, grid_y, grid_z],
                 block=[self.num_threads, 1, 1],
                 smem=self.smem_bytes,
+                stream=stream,
             )
 
         @cute.kernel
@@ -2057,6 +2083,13 @@ if _CUTE_AVAILABLE:
 
             output = torch.empty_like(query)
 
+            # Thread current torch CUDA stream into the CuTe launch so the
+            # kernel participates in any active CUDA graph capture. See
+            # DecodeKernel for full rationale.
+            stream_arg = _cuda_driver.CUstream(
+                int(torch.cuda.current_stream().cuda_stream)
+            )
+
             if self._compiled is None:
                 logger.info("Compiling CuTe prefill kernel (first call)...")
                 self._compiled = cute.compile(
@@ -2066,6 +2099,7 @@ if _CUTE_AVAILABLE:
                     float(scale), float(k_scale), float(v_scale),
                     Int32(num_q_heads), Int32(num_kv_heads),
                     Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
+                    stream_arg,
                 )
 
             self._compiled(
@@ -2074,6 +2108,7 @@ if _CUTE_AVAILABLE:
                 float(scale), float(k_scale), float(v_scale),
                 Int32(num_q_heads), Int32(num_kv_heads),
                 Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
+                stream_arg,
             )
             return output
 

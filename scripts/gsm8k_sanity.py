@@ -154,6 +154,7 @@ def run_sanity(api_base: str, model: str, timeout: int, max_tokens: int):
                 "id": q["id"],
                 "expected": q["expected"],
                 "got": got,
+                "raw": text.strip(),
                 "status": "OK" if ok else "WRONG",
                 "elapsed": round(time.time() - t0, 1),
             })
@@ -227,7 +228,7 @@ def main():
 
     if args.save:
         with open(args.save, "w") as f:
-            json.dumps(summary, f, indent=2)
+            json.dump(summary, f, indent=2)
         if not args.json:
             print(f"Saved to {args.save}")
 
