@@ -1,5 +1,6 @@
 # Copyright 2026 Navi Ai Labs
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """CuTe DSL paged attention backend classes for SM120/SM121 (GB10).
 
 Custom attention kernel using CuTe Python DSL with FP8 MMA for QK,
@@ -8,6 +9,7 @@ BF16 MMA for PV, and CpAsync for paged KV loads. Targets NVIDIA GB10
 
 See: docs/superpowers/specs/2026-04-10-cute-paged-attention-design.md
 """
+
 from __future__ import annotations
 
 import os
@@ -17,9 +19,6 @@ from typing import TYPE_CHECKING, ClassVar
 import torch
 
 from vllm.logger import init_logger
-
-# Set CUTE_DEBUG_FUSION=1 to enable per-call diff vs Python-dequant W_O ref.
-_DEBUG_FUSION = os.environ.get("CUTE_DEBUG_FUSION", "0") == "1"
 from vllm.v1.attention.backend import (
     AttentionBackend,
     AttentionCGSupport,
@@ -38,10 +37,14 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
+# Set CUTE_DEBUG_FUSION=1 to enable per-call diff vs Python-dequant W_O ref.
+_DEBUG_FUSION = os.environ.get("CUTE_DEBUG_FUSION", "0") == "1"
+
 
 # ---------------------------------------------------------------------------
 # Metadata
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CutePagedMetadata(AttentionMetadata):
@@ -57,13 +60,13 @@ class CutePagedMetadata(AttentionMetadata):
     num_prefill_tokens: int
 
     # Sequence info
-    seq_lens: torch.Tensor          # [num_seqs] int32 on device
-    query_start_loc: torch.Tensor   # [num_seqs + 1] int32 on device
+    seq_lens: torch.Tensor  # [num_seqs] int32 on device
+    query_start_loc: torch.Tensor  # [num_seqs + 1] int32 on device
     max_query_len: int
     max_seq_len: int
 
     # Page table
-    block_table: torch.Tensor       # [num_seqs, max_blocks_per_seq] int32
+    block_table: torch.Tensor  # [num_seqs, max_blocks_per_seq] int32
 
     # Flags
     is_decode_only: bool
@@ -73,6 +76,7 @@ class CutePagedMetadata(AttentionMetadata):
 # Backend
 # ---------------------------------------------------------------------------
 
+
 class CutePagedBackend(AttentionBackend):
     """CuTe DSL paged attention backend for SM120/SM121."""
 
@@ -81,7 +85,8 @@ class CutePagedBackend(AttentionBackend):
 
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
-        "fp8", "fp8_e4m3",
+        "fp8",
+        "fp8_e4m3",
     ]
 
     @staticmethod
@@ -102,13 +107,15 @@ class CutePagedBackend(AttentionBackend):
 
     @classmethod
     def supports_compute_capability(
-        cls, capability: DeviceCapability,
+        cls,
+        capability: DeviceCapability,
     ) -> bool:
         return capability.major == 12
 
     @classmethod
     def supports_kv_cache_dtype(
-        cls, kv_cache_dtype: CacheDType | None,
+        cls,
+        kv_cache_dtype: CacheDType | None,
     ) -> bool:
         return kv_cache_dtype in ("fp8", "fp8_e4m3")
 
@@ -150,6 +157,7 @@ class CutePagedBackend(AttentionBackend):
 # Attention Implementation
 # ---------------------------------------------------------------------------
 
+
 class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
     """CuTe DSL paged attention forward pass."""
 
@@ -169,13 +177,9 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         kv_sharing_target_layer_name: str | None = None,
     ) -> None:
         if sliding_window is not None:
-            raise ValueError(
-                "CutePagedAttention does not support sliding window"
-            )
+            raise ValueError("CutePagedAttention does not support sliding window")
         if logits_soft_cap is not None:
-            raise ValueError(
-                "CutePagedAttention does not support logits_soft_cap"
-            )
+            raise ValueError("CutePagedAttention does not support logits_soft_cap")
         if attn_type != AttentionType.DECODER:
             raise ValueError(
                 f"CutePagedAttention only supports DECODER, got {attn_type}"
@@ -195,26 +199,19 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         logger.info(
             "CutePagedAttention initialized: %d Q heads, %d KV heads, "
             "head_dim=%d, GQA ratio=%d",
-            self.num_heads, self.num_kv_heads,
-            self.head_size, self.num_queries_per_kv,
+            self.num_heads,
+            self.num_kv_heads,
+            self.head_size,
+            self.num_queries_per_kv,
         )
 
+        # Fusion state is owned exclusively by this impl (spec § Impl side).
+        # Buffers are allocated later in attach_fusion() with sizes passed
+        # by the model, NOT read from get_current_vllm_config() — avoids the
+        # hf_config vs hf_text_config fragility (code-review I1).
         self._fusion_bound = False
         self._fusion_active = False
-
-        # Pre-allocate fusion buffers during init so they don't
-        # interfere with vLLM V1's memory pool during forward.
-        # Uses vllm_config to get max_num_seqs and hidden_dim.
-        try:
-            from vllm.config import get_current_vllm_config
-            cfg = get_current_vllm_config()
-            max_num_seqs = cfg.scheduler_config.max_num_seqs
-            hidden_dim = cfg.model_config.hf_config.hidden_size
-            q_size = self.num_heads * self.head_size
-            self._preallocate_fusion_buffers(
-                max_num_seqs, hidden_dim, q_size, "cuda")
-        except Exception:
-            pass  # Will allocate lazily in bind_fusion_weights
+        self._fusion_attached = False  # set by attach_fusion
 
     def _preallocate_fusion_buffers(
         self,
@@ -229,67 +226,168 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         interfere with vLLM V1's pre-allocated memory pool.
         """
         self.wo_output = torch.zeros(
-            max_num_seqs, hidden_dim, dtype=torch.float32, device=device)
+            max_num_seqs, hidden_dim, dtype=torch.float32, device=device
+        )
         self.rmsnorm_output = torch.empty(
-            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
+        )
         self.residual_output = torch.empty(
-            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
-        self.arrival_count = torch.zeros(
-            max_num_seqs, dtype=torch.int32, device=device)
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
+        )
+        self.arrival_count = torch.zeros(max_num_seqs, dtype=torch.int32, device=device)
         self.gate_buf = torch.empty(
-            max_num_seqs, q_size, dtype=torch.bfloat16, device=device)
+            max_num_seqs, q_size, dtype=torch.bfloat16, device=device
+        )
         self.residual_buf = torch.empty(
-            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device)
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
+        )
 
-    def bind_fusion_weights(
-        self,
-        wo_weight: torch.Tensor,
-        wo_scales: torch.Tensor,
-        wo_global_scale: torch.Tensor,
-        rmsnorm_gamma: torch.Tensor,
-        rmsnorm_eps: float,
-        max_num_seqs: int,
-    ) -> None:
-        """Bind static fusion weights and allocate persistent I/O buffers.
+    def attach_fusion(self, parent_layer: torch.nn.Module) -> None:
+        """Declare fusion intent. Called once per layer from the model
+        `__init__` (see `vllm/nvllm/models/qwen3_5.py:Qwen3_5DecoderLayer`).
 
-        Called once from the model layer after weight loading. Replaces
-        the per-forward side-channel set/clear pattern. All buffer
-        addresses are stable — safe for CUDA graph capture and replay.
+        Stores MODULE refs (not tensor refs) to o_proj and
+        post_attention_layernorm — NVFP4's `process_weights_after_loading`
+        REPLACES `weight_global_scale` with a new Parameter, so any tensor
+        captured here would go stale (code-review C1).
 
-        Args:
-            wo_weight: NVFP4 packed weights [N, K/2] uint8
-            wo_scales: Per-block scales [N, K_sf] fp8
-            wo_global_scale: Scalar scale [1] fp32 (kernel reads via ld.global)
-            rmsnorm_gamma: LayerNorm weight [hidden_dim] bf16
-            rmsnorm_eps: LayerNorm epsilon (e.g. 1e-6)
-            max_num_seqs: Maximum batch size for buffer allocation
+        Pre-allocates persistent fusion buffers synchronously from sizes
+        read off parent_layer. This replaces the old
+        `get_current_vllm_config()` fallback that could silently defer
+        allocation past CUDA-graph capture (code-review I1).
         """
-        # Static weights (bound once, never change)
-        self.wo_weight = wo_weight
-        self.wo_scales = wo_scales
-        self.wo_global_scale = wo_global_scale
-        self.rmsnorm_gamma = rmsnorm_gamma
-        self.rmsnorm_eps = rmsnorm_eps
+        # MTP opt-out (spec "MTP handling"; code-review G3). MTP draft
+        # layers run with different batch shapes, and the fused kernel's
+        # layout assumptions aren't verified for the spec-decode path.
+        prefix = getattr(parent_layer, "prefix", "")
+        if "mtp" in prefix:
+            logger.debug("CuTe fusion: skipping MTP layer %s", prefix or "<no-prefix>")
+            return
 
-        hidden_dim = rmsnorm_gamma.shape[0]
-        q_size = self.num_heads * self.head_size  # num_heads * head_dim
+        # Resolve sizes explicitly — no reliance on hf_config attr name.
+        self_attn = parent_layer.self_attn
+        q_size = self_attn.num_heads * self_attn.head_dim
+        hidden_dim = self_attn.hidden_size
 
-        # Persistent I/O buffers are pre-allocated during __init__ via
-        # _preallocate_fusion_buffers() so they don't interfere with
-        # vLLM V1's memory pool during the first forward pass.
-        # If not yet allocated (e.g. __init__ didn't have config), do it now.
-        if not hasattr(self, 'wo_output'):
-            self._preallocate_fusion_buffers(
-                max_num_seqs, hidden_dim, q_size, wo_weight.device)
+        try:
+            from vllm.config import get_current_vllm_config
+
+            cfg = get_current_vllm_config()
+            max_num_seqs = cfg.scheduler_config.max_num_seqs
+        except Exception as e:
+            logger.error(
+                "CuTe fusion: attach_fusion cannot resolve max_num_seqs; "
+                "fusion disabled for layer %s. Error: %s",
+                prefix,
+                e,
+            )
+            return
+
+        # Store module refs, NOT tensor refs.
+        self._o_proj_module = self_attn.o_proj
+        self._post_norm_module = parent_layer.post_attention_layernorm
+        self._attn_output_gate = bool(self_attn.attn_output_gate)
+        self._fusion_prefix = prefix
+        self._fusion_max_num_seqs = max_num_seqs
+        self._fusion_hidden_dim = hidden_dim
+        self._fusion_q_size = q_size
+
+        # Allocate buffers ONCE. Subsequent attach calls (should not happen
+        # under single-instantiation, but defensive) are no-ops for
+        # buffer allocation so CUDA-graph pointers stay stable (H3).
+        if not hasattr(self, "wo_output"):
+            self._preallocate_fusion_buffers(max_num_seqs, hidden_dim, q_size, "cuda")
+
+        self._fusion_attached = True
+        logger.info(
+            "CuTe fusion attached: layer=%s max_num_seqs=%d hidden_dim=%d "
+            "q_size=%d attn_output_gate=%s",
+            prefix,
+            max_num_seqs,
+            hidden_dim,
+            q_size,
+            self._attn_output_gate,
+        )
+
+    def _resolve_fusion_weights(self) -> None:
+        """Bind current NVFP4 weight tensors off the stored o_proj / post_norm
+        module refs. Called from `process_weights_after_loading` on EVERY
+        invocation — supports live weight reload at
+        `vllm/model_executor/model_loader/reload/layerwise.py:215-284`
+        (code-review C2).
+
+        No short-circuit on `_fusion_bound=True`. Overwrites strong refs so
+        the next forward reads the NEW Parameter identity NVFP4 installed.
+        """
+        if not getattr(self, "_fusion_attached", False):
+            # attach_fusion() was never called (MTP, BF16, non-full-attention,
+            # or attach_fusion hit an early return).
+            return
+
+        o_proj = self._o_proj_module
+        post_norm = self._post_norm_module
+
+        # The "is this NVFP4?" gate — matches current behavior at
+        # `vllm/model_executor/models/qwen3_next.py:484` (code-review H2).
+        # A BF16 / FP8 serve lacks weight_global_scale — skip silently.
+        if not hasattr(o_proj, "weight_global_scale"):
+            logger.warning(
+                "CuTe fusion: o_proj weights not NVFP4 (or not loaded) for "
+                "layer %s; fusion disabled this call.",
+                self._fusion_prefix,
+            )
+            self._fusion_bound = False
+            return
+
+        # Read tensor refs FRESH every call (code-review C1, C2).
+        self.wo_weight = o_proj.weight
+        self.wo_scales = o_proj.weight_scale
+        self.wo_global_scale = o_proj.weight_global_scale
+        self.rmsnorm_gamma = post_norm.weight
+        self.rmsnorm_eps = post_norm.variance_epsilon
 
         self._fusion_bound = True
-
         logger.info(
-            "CuTe fusion bound: hidden_dim=%d, q_size=%d, max_seqs=%d, "
-            "wo_weight=%s, rmsnorm_gamma=%s",
-            hidden_dim, q_size, max_num_seqs,
-            list(wo_weight.shape), list(rmsnorm_gamma.shape),
+            "CuTe fusion resolved: layer=%s wo_weight=%s rmsnorm_gamma=%s",
+            self._fusion_prefix,
+            list(self.wo_weight.shape),
+            list(self.rmsnorm_gamma.shape),
         )
+
+    # --- DISABLED 2026-04-17 (Phase B own-the-stack refactor) ---
+    # Replaced by `attach_fusion(parent_layer)` + `_resolve_fusion_weights()`.
+    # Kept commented (not deleted) until Tier-3 GSM8K 8/8 validates the new
+    # path. Remove in a follow-up commit once the refactor is proven.
+    # --- DISABLED block start ---
+    # def bind_fusion_weights(
+    #     self,
+    #     wo_weight: torch.Tensor,
+    #     wo_scales: torch.Tensor,
+    #     wo_global_scale: torch.Tensor,
+    #     rmsnorm_gamma: torch.Tensor,
+    #     rmsnorm_eps: float,
+    #     max_num_seqs: int,
+    # ) -> None:
+    #     """Bind static fusion weights and allocate persistent I/O buffers."""
+    #     self.wo_weight = wo_weight
+    #     self.wo_scales = wo_scales
+    #     self.wo_global_scale = wo_global_scale
+    #     self.rmsnorm_gamma = rmsnorm_gamma
+    #     self.rmsnorm_eps = rmsnorm_eps
+    #     hidden_dim = rmsnorm_gamma.shape[0]
+    #     q_size = self.num_heads * self.head_size
+    #     if not hasattr(self, "wo_output"):
+    #         self._preallocate_fusion_buffers(
+    #             max_num_seqs, hidden_dim, q_size, wo_weight.device
+    #         )
+    #     self._fusion_bound = True
+    #     logger.info(
+    #         "CuTe fusion bound: hidden_dim=%d, q_size=%d, max_seqs=%d, "
+    #         "wo_weight=%s, rmsnorm_gamma=%s",
+    #         hidden_dim, q_size, max_num_seqs,
+    #         list(wo_weight.shape), list(rmsnorm_gamma.shape),
+    #     )
+    # --- DISABLED block end ---
 
     def forward(
         self,
@@ -311,15 +409,23 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         k_scale = getattr(layer, "_k_scale_float", 1.0)
         v_scale = getattr(layer, "_v_scale_float", 1.0)
 
-        # Fusion requires both: weights bound AND model layer opted in.
-        # _fusion_bound = weights/buffers allocated (set once at init).
-        # _fusion_active = model layer says "this forward is fused" (per-call).
-        use_fusion = self._fusion_bound and self._fusion_active
+        # Per-forward gating lives entirely inside impl (spec § Per-forward
+        # gating). Fusion activates only for decode batches whose
+        # num_actual_tokens fits the pre-allocated buffers — prevents
+        # out-of-range writes if an unusually large decode batch arrives
+        # (code-review A3).
+        num_actual_tokens = attn_metadata.num_actual_tokens
+        is_decode_only = getattr(attn_metadata, "is_decode_only", False)
+        fits_buffer = num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
+        self._fusion_active = self._fusion_bound and is_decode_only and fits_buffer
+        use_fusion = self._fusion_active
         if _DEBUG_FUSION:
             logger.info(
                 "[CUTE_DEBUG_FUSION] layer=%s bound=%s active=%s use_fusion=%s",
                 getattr(layer, "layer_name", "<layer>"),
-                self._fusion_bound, self._fusion_active, use_fusion,
+                self._fusion_bound,
+                self._fusion_active,
+                use_fusion,
             )
         wo_weight = self.wo_weight if use_fusion else None
         wo_scales = self.wo_scales if use_fusion else None
@@ -344,8 +450,6 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         from vllm.v1.attention.backends.cute_paged.kernel import (
             paged_attention_forward,
         )
-
-        num_actual_tokens = attn_metadata.num_actual_tokens
 
         # For graph-safe dispatch: padded batch size for grid.z
         num_seqs = len(attn_metadata.seq_lens)
@@ -399,8 +503,8 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         """One-shot per-call diagnostic: compare kernel wo_output to ref."""
         # Dequant W_O lazily on first call, then cache on self.
         if not hasattr(self, "_wo_dq_cached"):
-            W = self.wo_weight           # [N, K/2] uint8 NVFP4 packed
-            S_sw = self.wo_scales        # [N, K_sf] fp8_e4m3fn (swizzled!)
+            W = self.wo_weight  # [N, K/2] uint8 NVFP4 packed
+            S_sw = self.wo_scales  # [N, K_sf] fp8_e4m3fn (swizzled!)
             GS = self.wo_global_scale.item()
 
             # Invert the CUTLASS swizzle to recover logical [N, K/16] scales.
@@ -410,8 +514,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             num_k_groups = K // 16
             num_m_tiles = (N + 127) // 128
             num_k_tiles = (num_k_groups + 3) // 4
-            if S_sw.shape[0] == N and S_sw.shape[1] == num_k_groups \
-                    and num_m_tiles * 128 == N and num_k_tiles * 4 == num_k_groups:
+            if (
+                S_sw.shape[0] == N
+                and S_sw.shape[1] == num_k_groups
+                and num_m_tiles * 128 == N
+                and num_k_tiles * 4 == num_k_groups
+            ):
                 # Swizzled 5D layout: (m_tile, k_tile, m_inner=32, m_mid=4, k_inner=4).
                 # Recover (m_tile, m_mid, m_inner, k_tile, k_inner) so reshape
                 # yields M = m_tile*128 + m_mid*32 + m_inner in C order.
@@ -424,9 +532,26 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
 
             # FP4 E2M1 LUT (matches kernel _fp4_nibble_to_f32)
             lut = torch.tensor(
-                [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
-                 -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0],
-                dtype=torch.float32, device=W.device,
+                [
+                    0.0,
+                    0.5,
+                    1.0,
+                    1.5,
+                    2.0,
+                    3.0,
+                    4.0,
+                    6.0,
+                    -0.0,
+                    -0.5,
+                    -1.0,
+                    -1.5,
+                    -2.0,
+                    -3.0,
+                    -4.0,
+                    -6.0,
+                ],
+                dtype=torch.float32,
+                device=W.device,
             )
             low_nib = (W & 0x0F).to(torch.int64)
             high_nib = ((W >> 4) & 0x0F).to(torch.int64)
@@ -438,14 +563,15 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             self._wo_dq_cached = (W_fp * sf_expanded * GS).contiguous()
             logger.info(
                 "[CUTE_DEBUG_FUSION] layer=%s cached W_O dq: shape=%s absmax=%.4f",
-                layer_name, list(self._wo_dq_cached.shape),
+                layer_name,
+                list(self._wo_dq_cached.shape),
                 self._wo_dq_cached.abs().max().item(),
             )
 
-        W_dq = self._wo_dq_cached            # [N, K]
+        W_dq = self._wo_dq_cached  # [N, K]
         nat = int(num_actual_tokens)
         attn = result[:nat].reshape(nat, -1).float()  # [nat, K]
-        ref = attn @ W_dq.T                           # [nat, N]
+        ref = attn @ W_dq.T  # [nat, N]
 
         kernel_out = self.wo_output[:nat].float()
         diff = (kernel_out - ref).abs()
@@ -454,21 +580,25 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             "ref: absmax=%.4f mean=%.4e  "
             "kernel: absmax=%.4f mean=%.4e  "
             "diff: max=%.4f mean=%.4e  close=%s",
-            layer_name, nat,
-            ref.abs().max().item(), ref.mean().item(),
-            kernel_out.abs().max().item(), kernel_out.mean().item(),
-            diff.max().item(), diff.mean().item(),
+            layer_name,
+            nat,
+            ref.abs().max().item(),
+            ref.mean().item(),
+            kernel_out.abs().max().item(),
+            kernel_out.mean().item(),
+            diff.max().item(),
+            diff.mean().item(),
             bool(torch.allclose(kernel_out, ref, rtol=1e-2, atol=1e-2)),
         )
 
         # --- Phase C reference: residual add + RMSNorm ---
-        residual_in = self.residual_buf[:nat].float()         # BF16 → F32
-        new_residual_ref = residual_in + kernel_out            # f32
+        residual_in = self.residual_buf[:nat].float()  # BF16 → F32
+        new_residual_ref = residual_in + kernel_out  # f32
         gamma = self.rmsnorm_gamma.float()
         eps = float(self.rmsnorm_eps)
         var = new_residual_ref.pow(2).mean(dim=-1, keepdim=True)
         inv_rms = torch.rsqrt(var + eps)
-        hidden_ref = new_residual_ref * inv_rms * gamma        # f32
+        hidden_ref = new_residual_ref * inv_rms * gamma  # f32
 
         hidden_kernel = self.rmsnorm_output[:nat].float()
         res_kernel = self.residual_output[:nat].float()
@@ -479,10 +609,13 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             "hidden_ref_absmax=%.4f hidden_kernel_absmax=%.4f h_max_diff=%.4f  "
             "res_ref_absmax=%.4f res_kernel_absmax=%.4f r_max_diff=%.4f  "
             "close_h=%s close_r=%s",
-            layer_name, nat,
-            hidden_ref.abs().max().item(), hidden_kernel.abs().max().item(),
+            layer_name,
+            nat,
+            hidden_ref.abs().max().item(),
+            hidden_kernel.abs().max().item(),
             h_diff.max().item(),
-            new_residual_ref.abs().max().item(), res_kernel.abs().max().item(),
+            new_residual_ref.abs().max().item(),
+            res_kernel.abs().max().item(),
             r_diff.max().item(),
             bool(torch.allclose(hidden_kernel, hidden_ref, rtol=2e-2, atol=2e-2)),
             bool(torch.allclose(res_kernel, new_residual_ref, rtol=2e-2, atol=2e-2)),
@@ -511,18 +644,20 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         )
 
     def process_weights_after_loading(self, act_dtype: torch.dtype) -> None:
-        # Invoked by vLLM's weight loader for each Attention module AFTER
-        # quant methods have processed weights (swizzle, pad, invert GS).
-        # This is the last safe opportunity to bind fusion state before
-        # torch.compile traces the forward pass.
-        cb = getattr(self, "_fusion_bind_callback", None)
-        if cb is not None:
-            cb()
+        """Invoked by vLLM's weight loader for each Attention module AFTER
+        all quant methods have processed weights (swizzle, pad, invert GS).
+        This is the last safe opportunity to bind fusion weights before
+        torch.compile traces the forward pass — and it fires a SECOND time
+        on live weight reload (see `layerwise.py:215-284`), so re-resolving
+        on every call is a correctness requirement (code-review C2).
+        """
+        self._resolve_fusion_weights()
 
 
 # ---------------------------------------------------------------------------
 # Metadata Builder
 # ---------------------------------------------------------------------------
+
 
 class CutePagedMetadataBuilder(
     AttentionMetadataBuilder[CutePagedMetadata],
@@ -544,7 +679,8 @@ class CutePagedMetadataBuilder(
         self.block_size = kv_cache_spec.block_size
         logger.info(
             "CutePagedMetadataBuilder: block_size=%d, layers=%d",
-            self.block_size, len(layer_names),
+            self.block_size,
+            len(layer_names),
         )
 
     def build(
@@ -565,9 +701,7 @@ class CutePagedMetadataBuilder(
 
         # Count prefill vs decode requests
         # Decode: query_len == 1, Prefill: query_len > 1
-        query_lens_cpu = (
-            query_start_loc_cpu[1:] - query_start_loc_cpu[:-1]
-        )
+        query_lens_cpu = query_start_loc_cpu[1:] - query_start_loc_cpu[:-1]
         num_decodes = int((query_lens_cpu == 1).sum().item())
         num_prefills = num_reqs - num_decodes
         num_decode_tokens = num_decodes
@@ -589,7 +723,8 @@ class CutePagedMetadataBuilder(
         )
 
     def build_for_cudagraph_capture(
-        self, common_attn_metadata: CommonAttentionMetadata,
+        self,
+        common_attn_metadata: CommonAttentionMetadata,
     ) -> CutePagedMetadata:
         """Override for CUDA graph capture.
 
