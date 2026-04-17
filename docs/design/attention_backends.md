@@ -107,15 +107,6 @@ Priority is **1 = highest** (tried first).
 | 3 | `TRITON_ATTN` |
 | 4 | `FLEX_ATTENTION` |
 
-**Ampere/Hopper (SM 8.x-9.x):**
-
-| Priority | Backend |
-| -------- | ------- |
-| 1 | `FLASH_ATTN` |
-| 2 | `FLASHINFER` |
-| 3 | `TRITON_ATTN` |
-| 4 | `FLEX_ATTENTION` |
-
 ### MLA Attention (DeepSeek-style)
 
 **Blackwell (SM 10.x):**
@@ -177,7 +168,7 @@ Priority is **1 = highest** (tried first).
 | `ROCM_AITER_UNIFIED_ATTN` | | fp16, bf16 | `auto` | %16 | Any | ✅ | ✅ | ❌ | All | N/A |
 | `ROCM_ATTN` | | fp16, bf16, fp32 | `auto`, `float16`, `bfloat16`, `fp8`, `fp8_e4m3`, `fp8_e5m2` | %16 | 32, 64, 80, 96, 128, 160, 192, 224, 256 | ❌ | ✅ | ❌ | Decoder, Encoder, Encoder Only | N/A |
 | `TREE_ATTN` | | fp16, bf16 | `auto`, `float16`, `bfloat16` | %16 | 32, 64, 96, 128, 160, 192, 224, 256 | ❌ | ❌ | ❌ | Decoder | Any |
-| `TRITON_ATTN` | | fp16, bf16, fp32 | `auto`, `float16`, `bfloat16`, `fp8`, `fp8_e4m3`, `fp8_e5m2`, `int8_per_token_head`, `fp8_per_token_head` | %16 | Any | ✅ | ✅ | ❌ | All | Any |
+| `TRITON_ATTN` | | fp16, bf16, fp32 | `auto`, `float16`, `bfloat16`, `fp8`, `fp8_e4m3`, `fp8_e5m2`, `int8_per_token_head`, `fp8_per_token_head`, `turboquant25`, `turboquant35` | %16 | Any | ✅ | ✅ | ❌ | All | Any |
 
 > **†** FlashInfer uses TRTLLM attention on Blackwell (SM100), which supports sinks. Disable via `--attention-config.use_trtllm_attention=0`.
 >

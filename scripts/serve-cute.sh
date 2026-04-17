@@ -68,6 +68,7 @@ docker run -d \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -e CUTE_DEBUG_FUSION="${CUTE_DEBUG_FUSION:-0}" \
   "$NVLLM_IMAGE" \
   serve \
   --model "$HF_MODEL" \
