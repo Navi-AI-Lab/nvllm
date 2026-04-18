@@ -213,6 +213,15 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._fusion_active = False
         self._fusion_attached = False  # set by attach_fusion
 
+        # Phase D MLP fusion state
+        self._mlp_fusion_bound = False
+        self._mlp_fusion_active = False
+        self._mlp_fusion_nat = 0
+        self._mlp_attached = False
+        self._mlp_kernel = None
+        self._mlp_module = None
+        self._mlp_num_k_tiles = 0
+
     def _preallocate_fusion_buffers(
         self,
         max_num_seqs: int,
@@ -241,6 +250,16 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self.residual_buf = torch.empty(
             max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
         )
+
+        # Phase D MLP fusion buffers. mlp_arrival_count is allocated lazily
+        # in attach_mlp_fusion once num_k_tiles is known from the kernel shape.
+        self.mlp_output = torch.empty(
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
+        )
+        self.mlp_partial_fp32 = torch.zeros(
+            max_num_seqs, hidden_dim, dtype=torch.float32, device=device
+        )
+        self.mlp_arrival_count = None
 
     def attach_fusion(self, parent_layer: torch.nn.Module) -> None:
         """Declare fusion intent. Called once per layer from the model
@@ -354,6 +373,175 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             list(self.rmsnorm_gamma.shape),
         )
 
+    def attach_mlp_fusion(self, mlp_module: torch.nn.Module) -> None:
+        """Declare MLP fusion intent (Phase D). Called from
+        `Qwen3_5DecoderLayer.__init__` immediately after `attach_fusion(self)`.
+
+        Resolves shape info from `gate_up_proj` + `down_proj`, instantiates
+        `Phase_D_MLP_Kernel`, allocates `mlp_arrival_count` (sized by
+        num_k_tiles), and exposes `self` on `mlp_module._cute_impl` so
+        `Qwen3_5MLP.forward` can see us.
+
+        MTP opt-out mirrors `attach_fusion` — uses the already-set
+        `_fusion_prefix` for the MTP check since Qwen3_5MLP has no prefix.
+        """
+        from vllm.v1.attention.backends.cute_paged.mlp_kernel import (
+            Phase_D_MLP_Kernel,
+        )
+
+        # Phase D is opt-in until the torch.compile dead-branch issue is
+        # solved: the gate in Qwen3_5MLP.forward (`if _mlp_fusion_active`)
+        # is specialized to False at trace time because attach runs before
+        # the trace. With the default OFF, attach_mlp_fusion short-circuits
+        # and only the unfused gate_up/down path runs. Set CUTE_MLP_FUSION=1
+        # to opt into the (currently slower) fused kernel for development.
+        if os.environ.get("CUTE_MLP_FUSION", "0") != "1":
+            logger.info(
+                "CuTe MLP fusion: disabled (default); set CUTE_MLP_FUSION=1 "
+                "to opt in (development only — torch.compile specialization "
+                "issue still open)."
+            )
+            return
+
+        # MTP opt-out — same pattern as attach_fusion (code-review G3)
+        prefix = getattr(self, "_fusion_prefix", "")
+        if "mtp" in prefix:
+            logger.debug("CuTe MLP fusion: skipping MTP layer %s", prefix)
+            return
+
+        # attach_fusion must have run first (buffers allocated, max_num_seqs set)
+        if not getattr(self, "_fusion_attached", False):
+            logger.warning(
+                "CuTe MLP fusion: attach_fusion() must be called before "
+                "attach_mlp_fusion(); skipping."
+            )
+            return
+
+        self._mlp_module = mlp_module
+
+        # Resolve shapes from gate_up_proj / down_proj. The fused MLP kernel
+        # consumes gate and up as SEPARATE weight tensors; we split the
+        # MergedColumnParallelLinear stacked weight at _resolve_mlp_weights().
+        gate_up = mlp_module.gate_up_proj
+        down = mlp_module.down_proj
+
+        # Output per-TP-partition surfaces vary across linear classes; try the
+        # per-partition attr first, fall back to the unqualified one.
+        hidden_size = getattr(
+            down, "output_size_per_partition", getattr(down, "output_size", None)
+        )
+        intermediate_size = getattr(
+            down, "input_size_per_partition", getattr(down, "input_size", None)
+        )
+        if hidden_size is None or intermediate_size is None:
+            logger.warning(
+                "CuTe MLP fusion: could not resolve hidden/intermediate sizes "
+                "from down_proj=%s; skipping.",
+                type(down).__name__,
+            )
+            return
+
+        try:
+            self._mlp_kernel = Phase_D_MLP_Kernel(
+                hidden_size=hidden_size,
+                intermediate_size=intermediate_size,
+            )
+        except AssertionError as e:
+            logger.warning(
+                "CuTe MLP fusion: kernel shape mismatch "
+                "(hidden=%d, intermediate=%d): %s. Fusion disabled.",
+                hidden_size, intermediate_size, e,
+            )
+            return
+
+        self._mlp_num_k_tiles = self._mlp_kernel.num_k_tiles
+
+        # Allocate arrival counter now that num_k_tiles is known. 2-D layout
+        # [max_num_seqs, num_k_tiles] matches the kernel-side assertion; the
+        # kernel consumes via data_ptr so the byte layout is unchanged
+        # (`token_idx * num_k_tiles + k_tile_id`).
+        max_num_seqs = self._fusion_max_num_seqs
+        self.mlp_arrival_count = torch.zeros(
+            max_num_seqs, self._mlp_num_k_tiles,
+            dtype=torch.int32, device="cuda",
+        )
+
+        # Expose impl on the MLP module so Qwen3_5MLP.forward can find us.
+        mlp_module._cute_impl = self
+
+        self._mlp_attached = True
+        logger.info(
+            "CuTe MLP fusion attached: layer=%s hidden=%d interm=%d "
+            "num_k_tiles=%d tile_s=%d tile_k=%d slice_ctas=%d",
+            prefix, hidden_size, intermediate_size, self._mlp_num_k_tiles,
+            self._mlp_kernel.tile_s, self._mlp_kernel.tile_k,
+            self._mlp_kernel.slice_ctas,
+        )
+
+    def _resolve_mlp_weights(self) -> None:
+        """Bind current NVFP4 gate_up + down weight tensors off the stored
+        MLP module ref. Called from `process_weights_after_loading` alongside
+        `_resolve_fusion_weights`. Splits the MergedColumnParallelLinear
+        stacked gate_up weight into separate gate/up tensors for the kernel.
+        """
+        if not getattr(self, "_mlp_attached", False):
+            return
+
+        mlp = self._mlp_module
+        gate_up = mlp.gate_up_proj
+        down = mlp.down_proj
+
+        # NVFP4 gate: if weight_global_scale missing, model is BF16/FP8 —
+        # disable fusion this call. Mirrors _resolve_fusion_weights pattern.
+        if not hasattr(gate_up, "weight_global_scale"):
+            logger.warning(
+                "CuTe MLP fusion: gate_up_proj weights not NVFP4 (or not "
+                "loaded); MLP fusion disabled this call."
+            )
+            self._mlp_fusion_bound = False
+            return
+        if not hasattr(down, "weight_global_scale"):
+            logger.warning(
+                "CuTe MLP fusion: down_proj weights not NVFP4; disabled."
+            )
+            self._mlp_fusion_bound = False
+            return
+
+        # Split stacked [2*interm, hidden/2] FP4 weights into separate
+        # gate and up views. MergedColumnParallelLinear stacks gate in rows
+        # [0, interm) and up in rows [interm, 2*interm) on the first axis.
+        interm = self._mlp_kernel.intermediate_size
+        gate_up_w = gate_up.weight
+        gate_up_s = gate_up.weight_scale
+
+        if gate_up_w.shape[0] != 2 * interm:
+            logger.warning(
+                "CuTe MLP fusion: gate_up_proj first dim = %d != 2*interm=%d; "
+                "disabled.",
+                gate_up_w.shape[0], 2 * interm,
+            )
+            self._mlp_fusion_bound = False
+            return
+
+        self._mlp_gate_w = gate_up_w[:interm]
+        self._mlp_up_w = gate_up_w[interm : 2 * interm]
+        # NVFP4 scales are stored as torch.float8_e4m3fn; the kernel
+        # consumes them via byte pointers (UE4M3 interpretation happens
+        # inside the kernel), so reinterpret as uint8 to satisfy the
+        # kernel-side dtype assertion. Same memory, no copy.
+        self._mlp_gate_s = gate_up_s[:interm].view(torch.uint8)
+        self._mlp_up_s = gate_up_s[interm : 2 * interm].view(torch.uint8)
+        self._mlp_down_w = down.weight
+        self._mlp_down_s = down.weight_scale.view(torch.uint8)
+
+        self._mlp_fusion_bound = True
+        logger.debug(
+            "CuTe MLP fusion resolved: gate_w=%s up_w=%s down_w=%s",
+            list(self._mlp_gate_w.shape),
+            list(self._mlp_up_w.shape),
+            list(self._mlp_down_w.shape),
+        )
+
     # --- DISABLED 2026-04-17 (Phase B own-the-stack refactor) ---
     # Replaced by `attach_fusion(parent_layer)` + `_resolve_fusion_weights()`.
     # Kept commented (not deleted) until Tier-3 GSM8K 8/8 validates the new
@@ -419,6 +607,9 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         fits_buffer = num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
         self._fusion_active = self._fusion_bound and is_decode_only and fits_buffer
         use_fusion = self._fusion_active
+        # Phase D MLP fusion: reset per-forward lifecycle. Re-evaluated
+        # AFTER the attention kernel succeeds (below, before output copy).
+        self._mlp_fusion_active = False
         if _DEBUG_FUSION:
             logger.info(
                 "[CUTE_DEBUG_FUSION] layer=%s bound=%s active=%s use_fusion=%s",
@@ -490,6 +681,48 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 layer_name=getattr(layer, "layer_name", "<layer>"),
             )
         # --- END DEBUG ---
+
+        # Phase D MLP fusion: launch after attention uber-kernel has written
+        # rmsnorm_output. Consumes rmsnorm_output, produces mlp_output (BF16
+        # MLP delta). Qwen3_5MLP.forward reads mlp_output[:nat] when
+        # _mlp_fusion_active is True. Fails closed on any exception.
+        if (
+            getattr(self, "_mlp_fusion_bound", False)
+            and use_fusion  # attention fusion succeeded (rmsnorm_output valid)
+            and fits_buffer
+        ):
+            try:
+                # Zero per-step mutable buffers. Must precede kernel launch
+                # (Python-side zero_ is stream-ordered before kernel).
+                self.mlp_partial_fp32[:num_actual_tokens, :].zero_()
+                self.mlp_arrival_count[:num_actual_tokens].zero_()
+
+                # Pass stream=None so Phase_D_MLP_Kernel wraps the current
+                # torch stream as a CUstream internally; passing a
+                # torch.cuda.Stream directly fails an internal CuTe DSL
+                # `isinstance(arg, _cext.ir.Value)` assertion.
+                self._mlp_kernel(
+                    self.rmsnorm_output[:num_actual_tokens],
+                    self._mlp_gate_w,
+                    self._mlp_gate_s,
+                    self._mlp_up_w,
+                    self._mlp_up_s,
+                    self._mlp_down_w,
+                    self._mlp_down_s,
+                    self.mlp_partial_fp32[:num_actual_tokens],
+                    self.mlp_arrival_count[:num_actual_tokens],
+                    self.mlp_output[:num_actual_tokens],
+                    num_actual_tokens,
+                )
+                self._mlp_fusion_active = True
+                self._mlp_fusion_nat = num_actual_tokens
+            except Exception as e:  # noqa: BLE001 — fail closed, log and fall back
+                logger.warning(
+                    "CuTe MLP fusion launch failed (fallback to unfused) "
+                    "nat=%d %s: %r",
+                    num_actual_tokens, type(e).__name__, e,
+                )
+                self._mlp_fusion_active = False
 
         output[:num_actual_tokens].copy_(result)
         return output
@@ -652,6 +885,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         on every call is a correctness requirement (code-review C2).
         """
         self._resolve_fusion_weights()
+        self._resolve_mlp_weights()
 
 
 # ---------------------------------------------------------------------------
