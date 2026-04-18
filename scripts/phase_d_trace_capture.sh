@@ -16,11 +16,11 @@ case "$MODE" in
 esac
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT_DIR="$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_mlp_fusion/2026-04-18-phase-d/$MODE"
+OUT_DIR="$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_mlp_fusion/2026-04-18-phase-d1-custom-op/$MODE"
 mkdir -p "$OUT_DIR"
 
 CONTAINER="nvllm-phased-$MODE"
-IMAGE="${NVLLM_IMAGE:-nvllm:gb10-phaseD-fix6}"
+IMAGE="${NVLLM_IMAGE:-nvllm:gb10-phaseD1}"
 PORT=8000
 
 # Clean up any prior container with same name and any stray listener on the port

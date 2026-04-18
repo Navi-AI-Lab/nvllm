@@ -373,14 +373,24 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             list(self.rmsnorm_gamma.shape),
         )
 
-    def attach_mlp_fusion(self, mlp_module: torch.nn.Module) -> None:
+    def attach_mlp_fusion(
+        self,
+        mlp_module: torch.nn.Module,
+        layer_name: str,
+    ) -> None:
         """Declare MLP fusion intent (Phase D). Called from
         `Qwen3_5DecoderLayer.__init__` immediately after `attach_fusion(self)`.
 
         Resolves shape info from `gate_up_proj` + `down_proj`, instantiates
         `Phase_D_MLP_Kernel`, allocates `mlp_arrival_count` (sized by
-        num_k_tiles), and exposes `self` on `mlp_module._cute_impl` so
-        `Qwen3_5MLP.forward` can see us.
+        num_k_tiles), and wires Phase D1 custom-op dispatch: stashes
+        module refs on `self` for the unfused-fallback path, registers
+        `self` under `layer_name` in `_CUTE_MLP_REGISTRY`, and sets
+        `mlp_module._cute_layer_name = layer_name` so
+        `Qwen3_5MLP.forward` routes through `torch.ops.vllm.cute_mlp_forward`.
+
+        `layer_name` (e.g. `"model.layers.N.mlp"`) must be unique per MLP
+        instance — supplied by the decoder at the call site.
 
         MTP opt-out mirrors `attach_fusion` — uses the already-set
         `_fusion_prefix` for the MTP check since Qwen3_5MLP has no prefix.
@@ -466,16 +476,37 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             dtype=torch.int32, device="cuda",
         )
 
-        # Expose impl on the MLP module so Qwen3_5MLP.forward can find us.
-        mlp_module._cute_impl = self
+        # Phase D (pre-D1): exposed impl directly on the module; Qwen3_5MLP.forward
+        # did `getattr(self, "_cute_impl", None)` + per-step `_mlp_fusion_active`
+        # check, which torch.compile dead-branched at trace time. Left commented
+        # for reference; the Phase D1 custom-op path below replaces it.
+        # mlp_module._cute_impl = self
+
+        # Phase D1: stash unfused-path module refs on self for the fallback
+        # branch inside `cute_mlp_forward` (prefill batches, fail-closed
+        # fusion). These are plain torch.nn.Modules; calling them inside an
+        # opaque custom op is safe — inner ops run eagerly, nothing is traced.
+        self._mlp_gate_up_proj = mlp_module.gate_up_proj
+        self._mlp_act_fn = mlp_module.act_fn
+        self._mlp_down_proj = mlp_module.down_proj
+
+        # Phase D1: register impl under the decoder-supplied layer name so
+        # the custom op's runtime body can look it up. Import inside the
+        # method so the _mlp_op module's direct_register_custom_op side
+        # effect runs exactly once, at first attach.
+        from vllm.v1.attention.backends.cute_paged._mlp_op import (
+            _CUTE_MLP_REGISTRY,
+        )
+        _CUTE_MLP_REGISTRY[layer_name] = self
+        mlp_module._cute_layer_name = layer_name
 
         self._mlp_attached = True
         logger.info(
             "CuTe MLP fusion attached: layer=%s hidden=%d interm=%d "
-            "num_k_tiles=%d tile_s=%d tile_k=%d slice_ctas=%d",
+            "num_k_tiles=%d tile_s=%d tile_k=%d slice_ctas=%d op_key=%s",
             prefix, hidden_size, intermediate_size, self._mlp_num_k_tiles,
             self._mlp_kernel.tile_s, self._mlp_kernel.tile_k,
-            self._mlp_kernel.slice_ctas,
+            self._mlp_kernel.slice_ctas, layer_name,
         )
 
     def _resolve_mlp_weights(self) -> None:

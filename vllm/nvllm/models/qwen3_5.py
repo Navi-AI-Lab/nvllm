@@ -366,7 +366,9 @@ class Qwen3_5DecoderLayer(nn.Module):
                     # (Qwen3NextSparseMoeBlock) falls through to the
                     # unfused path.
                     if isinstance(self.mlp, Qwen3_5MLP):
-                        impl.attach_mlp_fusion(self.mlp)
+                        impl.attach_mlp_fusion(
+                            self.mlp, layer_name=f"{self.prefix}.mlp"
+                        )
             except (ImportError, AttributeError):
                 pass
 

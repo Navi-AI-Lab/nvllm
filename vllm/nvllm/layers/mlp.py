@@ -15,8 +15,13 @@ own those (per Phase C spec §Non-goals). Used at one call-site:
 `Qwen3_5DecoderLayer.mlp` when `config.model_type == "qwen3_5_text"`.
 """
 
+import torch
 from torch import nn
 
+# Side-effect import: registers torch.ops.vllm.cute_mlp_forward. Importing
+# here (rather than lazily inside forward) ensures the op exists at
+# torch.compile trace time even for the attached-fusion branch.
+import vllm.v1.attention.backends.cute_paged._mlp_op  # noqa: F401
 from vllm.model_executor.layers.activation import SiluAndMul
 from vllm.model_executor.layers.linear import (
     MergedColumnParallelLinear,
@@ -57,18 +62,32 @@ class Qwen3_5MLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
-        # Phase D fusion gating. When the owning decoder layer's attention
-        # impl launched the fused MLP kernel this forward step,
-        # `_mlp_fusion_active` is True and `impl.mlp_output[:nat]` holds the
-        # MLP delta (`down(silu(gate(x))*up(x))`). Return it directly.
-        # Residual add happens in the next layer's input_layernorm as today.
-        impl = getattr(self, "_cute_impl", None)
-        if impl is not None and getattr(impl, "_mlp_fusion_active", False):
-            nat = impl._mlp_fusion_nat
-            return impl.mlp_output[:nat]
+        # Phase D1 custom-op dispatch. torch.compile treats
+        # `torch.ops.vllm.cute_mlp_forward` as opaque; the per-step
+        # `_mlp_fusion_active` decision moves inside the op body where
+        # Dynamo cannot specialize on it. `_cute_layer_name` is set by
+        # `CutePagedImpl.attach_mlp_fusion` iff fusion is wired up.
+        # When unset (env var off, MTP layer, shape mismatch), fall
+        # through to the original unfused body — identical to upstream.
+        layer_name = getattr(self, "_cute_layer_name", None)
+        if layer_name is None:
+            gate_up, _ = self.gate_up_proj(x)
+            out = self.act_fn(gate_up)
+            out, _ = self.down_proj(out)
+            return out
 
-        # Unfused path (today; unchanged).
-        gate_up, _ = self.gate_up_proj(x)
-        out = self.act_fn(gate_up)
-        out, _ = self.down_proj(out)
-        return out
+        output = torch.empty_like(x)
+        torch.ops.vllm.cute_mlp_forward(x, output, layer_name)
+        return output
+
+        # Phase D (pre-D1) gate — left for reference. Replaced by the
+        # custom-op path above because torch.compile was dead-branching
+        # the `if impl._mlp_fusion_active:` check at trace time.
+        # impl = getattr(self, "_cute_impl", None)
+        # if impl is not None and getattr(impl, "_mlp_fusion_active", False):
+        #     nat = impl._mlp_fusion_nat
+        #     return impl.mlp_output[:nat]
+        # gate_up, _ = self.gate_up_proj(x)
+        # out = self.act_fn(gate_up)
+        # out, _ = self.down_proj(out)
+        # return out
