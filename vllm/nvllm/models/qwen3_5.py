@@ -361,6 +361,12 @@ class Qwen3_5DecoderLayer(nn.Module):
                 impl = self.self_attn.attn.impl
                 if isinstance(impl, CutePagedAttentionImpl):
                     impl.attach_fusion(self)
+                    # Phase D: attach MLP fusion after attn fusion is in
+                    # place. Only dense Qwen3_5MLP is supported; MoE
+                    # (Qwen3NextSparseMoeBlock) falls through to the
+                    # unfused path.
+                    if isinstance(self.mlp, Qwen3_5MLP):
+                        impl.attach_mlp_fusion(self.mlp)
             except (ImportError, AttributeError):
                 pass
 

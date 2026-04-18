@@ -57,6 +57,17 @@ class Qwen3_5MLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
+        # Phase D fusion gating. When the owning decoder layer's attention
+        # impl launched the fused MLP kernel this forward step,
+        # `_mlp_fusion_active` is True and `impl.mlp_output[:nat]` holds the
+        # MLP delta (`down(silu(gate(x))*up(x))`). Return it directly.
+        # Residual add happens in the next layer's input_layernorm as today.
+        impl = getattr(self, "_cute_impl", None)
+        if impl is not None and getattr(impl, "_mlp_fusion_active", False):
+            nat = impl._mlp_fusion_nat
+            return impl.mlp_output[:nat]
+
+        # Unfused path (today; unchanged).
         gate_up, _ = self.gate_up_proj(x)
         out = self.act_fn(gate_up)
         out, _ = self.down_proj(out)
