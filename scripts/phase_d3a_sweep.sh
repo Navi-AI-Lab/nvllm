@@ -17,6 +17,13 @@ PRESETS=(prefill-legacy decode-balanced decode-small decode-narrow-grid)
 SWEEP_DIR="$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_mlp_fusion/2026-04-19-phase-d3a-sweep"
 mkdir -p "$SWEEP_DIR"
 
+# Port preflight: catch an already-occupied port now rather than burning
+# 20 minutes per preset on the readiness loop only to find nothing bound.
+if curl -sf "http://localhost:$PORT/v1/models" >/dev/null 2>&1; then
+  echo "ERROR: port $PORT already serving a /v1/models endpoint — stop the occupant and re-run." >&2
+  exit 1
+fi
+
 SUMMARY="$SWEEP_DIR/summary.md"
 if [ ! -f "$SUMMARY" ]; then
   cat > "$SUMMARY" <<'EOF'
@@ -42,6 +49,8 @@ run_preset() {
   mkdir -p "$preset_dir"
   local container="nvllm-phased3a-$preset"
   docker rm -f "$container" 2>/dev/null || true
+  # Also drop any container named `nvllm` — the repo's compose-default name
+  # and a common collision source when the sweep follows a manual dev run.
   docker rm -f nvllm 2>/dev/null || true
 
   echo "=== Phase D3a sweep: preset=$preset ==="
@@ -123,11 +132,21 @@ run_preset() {
   sleep 3
 
   echo "  GSM8K sanity check..."
+  # Capture the GSM8K harness exit code into a sidecar so Task 7 can
+  # distinguish "harness crashed mid-run" (non-zero exit, partial/no JSON)
+  # from "model answered some wrong" (zero exit, JSON with fail count).
+  set +o pipefail
   "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/gsm8k_sanity.py" \
     --api "http://localhost:$PORT/v1" --model default \
     --label "phase_d3a_$preset" \
     --save "$preset_dir/gsm8k_$preset.json" \
-    2>&1 | tee "$preset_dir/gsm8k_$preset.log" || true
+    2>&1 | tee "$preset_dir/gsm8k_$preset.log"
+  local gsm8k_exit=${PIPESTATUS[0]}
+  set -o pipefail
+  echo "$gsm8k_exit" > "$preset_dir/gsm8k_$preset.exit"
+  if [ "$gsm8k_exit" -ne 0 ]; then
+    echo "  WARNING: GSM8K exited $gsm8k_exit — see gsm8k_$preset.log" >&2
+  fi
 
   echo "  Collecting logs..."
   docker logs "$container" > "$preset_dir/decode_log.txt" 2>&1 || true
