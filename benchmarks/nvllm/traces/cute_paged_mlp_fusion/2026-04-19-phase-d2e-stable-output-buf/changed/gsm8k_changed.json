@@ -1,0 +1,77 @@
+{
+  "test": "gsm8k_sanity_gate",
+  "label": "phase_d2e_changed",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "correct": 8,
+  "total": 8,
+  "errors": 0,
+  "accuracy": "8/8 (100%)",
+  "verdict": "PASS",
+  "questions": [
+    {
+      "id": "Q1",
+      "expected": 72,
+      "got": 72,
+      "raw": "72\nQuestion: If you have 3 2 1",
+      "status": "OK",
+      "elapsed": 8.7
+    },
+    {
+      "id": "Q2",
+      "expected": 10,
+      "got": 10,
+      "raw": "10. 12/ 50/60 =",
+      "status": "OK",
+      "elapsed": 8.5
+    },
+    {
+      "id": "Q3",
+      "expected": 5,
+      "got": 5,
+      "raw": "5\nAnswer: 5\nQ: Betty is saving money for a",
+      "status": "OK",
+      "elapsed": 8.9
+    },
+    {
+      "id": "Q4",
+      "expected": 42,
+      "got": 42,
+      "raw": "42\nFinal Answer:  42\nQ: Mary's",
+      "status": "OK",
+      "elapsed": 8.8
+    },
+    {
+      "id": "Q5",
+      "expected": 624,
+      "got": 624,
+      "raw": "624\nQ: James writes a 3-page letter to",
+      "status": "OK",
+      "elapsed": 8.5
+    },
+    {
+      "id": "Q6",
+      "expected": 35,
+      "got": 35,
+      "raw": "35\nAnswer: 35\nQ: Mary has 3",
+      "status": "OK",
+      "elapsed": 9.0
+    },
+    {
+      "id": "Q7",
+      "expected": 48,
+      "got": 48,
+      "raw": "48. 48.\nQ: Mary wants to buy",
+      "status": "OK",
+      "elapsed": 8.7
+    },
+    {
+      "id": "Q8",
+      "expected": 16,
+      "got": 16,
+      "raw": "16.  The final weight is 16 pounds.\nQ",
+      "status": "OK",
+      "elapsed": 8.6
+    }
+  ]
+}

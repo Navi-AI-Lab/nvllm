@@ -355,6 +355,17 @@ class Phase_D_MLP_Kernel:
         mlp_arrival_count: torch.Tensor,   # [nat, num_k_tiles] u32 (zeroed)
         mlp_output: torch.Tensor,          # [nat, hidden] BF16
         nat: int,
+        # Phase D2e fix: NVFP4 dequantization requires multiplication by
+        # `weight_global_scale` (= 1/input_global_scale stored at quant
+        # time). The per-block UE4M3 scale alone gives values in the
+        # quantizer's rescaled space; without this factor the kernel's
+        # output is off by `prod(weight_global_scale)` per-matmul,
+        # producing gibberish once its output is actually consumed (D2).
+        # `gate_up_global_scale` is shared — gate and up projections come
+        # from one MergedColumnParallelLinear with one weight_global_scale.
+        # Default 1.0 → legacy behavior (kernel-math smoke tests).
+        gate_up_global_scale: float = 1.0,
+        down_global_scale: float = 1.0,
         stream: Optional[object] = None,
     ) -> torch.Tensor:
         if not _CUTE_AVAILABLE:
@@ -417,6 +428,9 @@ class Phase_D_MLP_Kernel:
         else:
             stream_arg = stream
 
+        gate_up_gs_f32 = Float32(float(gate_up_global_scale))
+        down_gs_f32 = Float32(float(down_global_scale))
+
         if self._compiled is None:
             logger.info("Compiling CuTe Phase D MLP kernel (first call)...")
             self._compiled = cute.compile(
@@ -434,6 +448,7 @@ class Phase_D_MLP_Kernel:
                 Int32(self.tile_k),
                 Int32(self.num_k_tiles),
                 Int32(self.slice_ctas),
+                gate_up_gs_f32, down_gs_f32,
                 Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
                 stream_arg,
             )
@@ -452,6 +467,7 @@ class Phase_D_MLP_Kernel:
             Int32(self.tile_k),
             Int32(self.num_k_tiles),
             Int32(self.slice_ctas),
+            gate_up_gs_f32, down_gs_f32,
             Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
             stream_arg,
         )
@@ -474,6 +490,7 @@ class Phase_D_MLP_Kernel:
             num_slices: Int32, slices_per_cta: Int32,
             tile_s: Int32, tile_k: Int32,
             num_k_tiles: Int32, slice_ctas: Int32,
+            gate_up_gs: Float32, down_gs: Float32,
             grid_x: Int32, grid_y: Int32, grid_z: Int32,
             stream,
         ):
@@ -488,6 +505,7 @@ class Phase_D_MLP_Kernel:
                 num_slices, slices_per_cta,
                 tile_s, tile_k,
                 num_k_tiles, slice_ctas,
+                gate_up_gs, down_gs,
             ).launch(
                 grid=[grid_x, grid_y, grid_z],
                 block=[self._num_threads, 1, 1],
@@ -507,6 +525,7 @@ class Phase_D_MLP_Kernel:
             num_slices: Int32, slices_per_cta: Int32,
             tile_s: Int32, tile_k: Int32,
             num_k_tiles: Int32, slice_ctas: Int32,
+            gate_up_gs: Float32, down_gs: Float32,
         ):
             """Phase D end-to-end fused MLP kernel (small-dim path)."""
             # === Phase 0: Thread/block ids =====================
@@ -631,8 +650,17 @@ class Phase_D_MLP_Kernel:
                         scale_gate = _decode_ue4m3_u8_to_f32(scale_byte_gate)
                         scale_up = _decode_ue4m3_u8_to_f32(scale_byte_up)
 
-                        gw_f32 = _fp4_nibble_to_f32(nib_gate) * scale_gate
-                        uw_f32 = _fp4_nibble_to_f32(nib_up) * scale_up
+                        # Phase D2e fix: apply weight_global_scale factor
+                        # that vLLM's NVFP4 path uses as `alpha` post-matmul.
+                        # Without it, kernel output = true_output × (1/wgs).
+                        gw_f32 = (
+                            _fp4_nibble_to_f32(nib_gate) * scale_gate
+                            * gate_up_gs
+                        )
+                        uw_f32 = (
+                            _fp4_nibble_to_f32(nib_up) * scale_up
+                            * gate_up_gs
+                        )
 
                         gate_acc = gate_acc + x_val * gw_f32
                         up_acc = up_acc + x_val * uw_f32
@@ -917,8 +945,11 @@ class Phase_D_MLP_Kernel:
                             dw_scale_f32 = _decode_ue4m3_u8_to_f32(
                                 dw_scale_u8
                             )
+                            # Phase D2e fix: apply down weight_global_scale
+                            # (see gate_up_gs rationale above).
                             dw_val = (
                                 _fp4_nibble_to_f32(dw_nib) * dw_scale_f32
+                                * down_gs
                             )
                             acc_list[r] = (
                                 acc_list[r] + interm_val * dw_val
@@ -995,8 +1026,11 @@ class Phase_D_MLP_Kernel:
                         )
                         dw_scale_u8 = _ld_global_u8(dw_scale_addr)
                         dw_scale_f32 = _decode_ue4m3_u8_to_f32(dw_scale_u8)
+                        # Phase D2e fix: apply down weight_global_scale
+                        # (see gate_up_gs rationale above).
                         dw_val = (
                             _fp4_nibble_to_f32(dw_nib) * dw_scale_f32
+                            * down_gs
                         )
 
                         out_acc = out_acc + interm_val * dw_val

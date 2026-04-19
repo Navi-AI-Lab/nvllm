@@ -365,6 +365,22 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self.rmsnorm_gamma = post_norm.weight
         self.rmsnorm_eps = post_norm.variance_epsilon
 
+        # Phase D2 diagnostic: when CUTE_ATTN_FUSION=0, skip marking
+        # attention as bound — `_fusion_active` will stay False, the
+        # attention kernel takes its non-fused path, and Python handles
+        # gate+o_proj + post_attention_layernorm for every step. Used to
+        # isolate MLP-fusion correctness from attention-fusion state
+        # handoff under CUDA-graph capture/replay. Default: attention
+        # fusion stays on.
+        if os.environ.get("CUTE_ATTN_FUSION", "1") == "0":
+            logger.info(
+                "CuTe fusion: CUTE_ATTN_FUSION=0 diagnostic override; "
+                "layer=%s stays unbound (Python handles post-attn math).",
+                self._fusion_prefix,
+            )
+            self._fusion_bound = False
+            return
+
         self._fusion_bound = True
         logger.info(
             "CuTe fusion resolved: layer=%s wo_weight=%s rmsnorm_gamma=%s",
@@ -383,11 +399,13 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
 
         Resolves shape info from `gate_up_proj` + `down_proj`, instantiates
         `Phase_D_MLP_Kernel`, allocates `mlp_arrival_count` (sized by
-        num_k_tiles), and wires Phase D1 custom-op dispatch: stashes
-        module refs on `self` for the unfused-fallback path, registers
-        `self` under `layer_name` in `_CUTE_MLP_REGISTRY`, and sets
-        `mlp_module._cute_layer_name = layer_name` so
-        `Qwen3_5MLP.forward` routes through `torch.ops.vllm.cute_mlp_forward`.
+        num_k_tiles), and wires Phase D2 custom-op dispatch: stashes
+        module refs on `self` for the fallback unfused path (run inside
+        the op body), registers `self` under `layer_name` in
+        `_CUTE_MLP_REGISTRY`, and sets `mlp_module._cute_layer_name =
+        layer_name` so `Qwen3_5MLP.forward` routes through
+        `torch.ops.vllm.cute_mlp_forward`. The op body itself owns the
+        per-step gate and kernel launch (see `_mlp_op.py`).
 
         `layer_name` (e.g. `"model.layers.N.mlp"`) must be unique per MLP
         instance — supplied by the decoder at the call site.
@@ -399,17 +417,17 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             Phase_D_MLP_Kernel,
         )
 
-        # Phase D is opt-in until the torch.compile dead-branch issue is
-        # solved: the gate in Qwen3_5MLP.forward (`if _mlp_fusion_active`)
-        # is specialized to False at trace time because attach runs before
-        # the trace. With the default OFF, attach_mlp_fusion short-circuits
-        # and only the unfused gate_up/down path runs. Set CUTE_MLP_FUSION=1
-        # to opt into the (currently slower) fused kernel for development.
+        # Phase D remains opt-in while kernel perf is still being tuned.
+        # Phase D2 resolves the dual-firing issue (launch + fallback now
+        # live inside the opaque op body; see _mlp_op.py), but the kernel
+        # itself is still tiled for prefill-sized work and over-launches
+        # for small decode batches. Keep default OFF until Phase D2 kernel
+        # tuning closes the perf gap; set CUTE_MLP_FUSION=1 to opt in.
         if os.environ.get("CUTE_MLP_FUSION", "0") != "1":
             logger.info(
                 "CuTe MLP fusion: disabled (default); set CUTE_MLP_FUSION=1 "
-                "to opt in (development only — torch.compile specialization "
-                "issue still open)."
+                "to opt in (kernel tuning in progress; see Phase D2 trace "
+                "summary)."
             )
             return
 
@@ -564,6 +582,20 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._mlp_up_s = gate_up_s[interm : 2 * interm].view(torch.uint8)
         self._mlp_down_w = down.weight
         self._mlp_down_s = down.weight_scale.view(torch.uint8)
+        # Phase D2e fix: NVFP4 dequantization = fp4 × block_scale ×
+        # weight_global_scale. `process_weights_after_loading` on the
+        # compressed_tensors NVFP4 scheme stores weight_global_scale as
+        # `1 / input_global_scale_from_quant_time` — i.e., exactly the
+        # factor the kernel must multiply into the dequant step. gate and
+        # up share a single MergedColumnParallelLinear so one gs covers
+        # both. `.item()` sync happens once at attach — subsequent per-
+        # step calls pass the cached Python floats (no device sync).
+        self._mlp_gate_up_gs = float(
+            gate_up.weight_global_scale.to(torch.float32).item()
+        )
+        self._mlp_down_gs = float(
+            down.weight_global_scale.to(torch.float32).item()
+        )
 
         self._mlp_fusion_bound = True
         logger.debug(
@@ -638,9 +670,14 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         fits_buffer = num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
         self._fusion_active = self._fusion_bound and is_decode_only and fits_buffer
         use_fusion = self._fusion_active
-        # Phase D MLP fusion: reset per-forward lifecycle. Re-evaluated
-        # AFTER the attention kernel succeeds (below, before output copy).
-        self._mlp_fusion_active = False
+        # --- PHASE D2 DISABLED (commented, not deleted — Phase B/C debug may
+        # need this reset back) ---
+        # Pre-D2, the MLP fusion launch was an attention-side side effect
+        # (see the disabled block after the attention kernel below), and
+        # this line reset the per-step flag. Phase D2 moves the launch
+        # into `torch.ops.vllm.cute_mlp_forward`, so no reset is needed.
+        # self._mlp_fusion_active = False
+        # --- END PHASE D2 DISABLED ---
         if _DEBUG_FUSION:
             logger.info(
                 "[CUTE_DEBUG_FUSION] layer=%s bound=%s active=%s use_fusion=%s",
@@ -713,47 +750,58 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             )
         # --- END DEBUG ---
 
-        # Phase D MLP fusion: launch after attention uber-kernel has written
-        # rmsnorm_output. Consumes rmsnorm_output, produces mlp_output (BF16
-        # MLP delta). Qwen3_5MLP.forward reads mlp_output[:nat] when
-        # _mlp_fusion_active is True. Fails closed on any exception.
-        if (
-            getattr(self, "_mlp_fusion_bound", False)
-            and use_fusion  # attention fusion succeeded (rmsnorm_output valid)
-            and fits_buffer
-        ):
-            try:
-                # Zero per-step mutable buffers. Must precede kernel launch
-                # (Python-side zero_ is stream-ordered before kernel).
-                self.mlp_partial_fp32[:num_actual_tokens, :].zero_()
-                self.mlp_arrival_count[:num_actual_tokens].zero_()
-
-                # Pass stream=None so Phase_D_MLP_Kernel wraps the current
-                # torch stream as a CUstream internally; passing a
-                # torch.cuda.Stream directly fails an internal CuTe DSL
-                # `isinstance(arg, _cext.ir.Value)` assertion.
-                self._mlp_kernel(
-                    self.rmsnorm_output[:num_actual_tokens],
-                    self._mlp_gate_w,
-                    self._mlp_gate_s,
-                    self._mlp_up_w,
-                    self._mlp_up_s,
-                    self._mlp_down_w,
-                    self._mlp_down_s,
-                    self.mlp_partial_fp32[:num_actual_tokens],
-                    self.mlp_arrival_count[:num_actual_tokens],
-                    self.mlp_output[:num_actual_tokens],
-                    num_actual_tokens,
-                )
-                self._mlp_fusion_active = True
-                self._mlp_fusion_nat = num_actual_tokens
-            except Exception as e:  # noqa: BLE001 — fail closed, log and fall back
-                logger.warning(
-                    "CuTe MLP fusion launch failed (fallback to unfused) "
-                    "nat=%d %s: %r",
-                    num_actual_tokens, type(e).__name__, e,
-                )
-                self._mlp_fusion_active = False
+        # --- PHASE D2 DISABLED (commented, not deleted — Phase B/C debug may
+        # need this attention-side launch path back) ---
+        # Pre-D2 design: launch the Phase D MLP kernel as a side effect AFTER
+        # the attention uber-kernel wrote rmsnorm_output, set _mlp_fusion_active
+        # + _mlp_fusion_nat, and let Qwen3_5MLP.forward read impl.mlp_output.
+        #
+        # Verdict (see benchmarks/nvllm/traces/cute_paged_mlp_fusion/
+        # 2026-04-18-phase-d1-custom-op/summary.md): this produced dual-firing.
+        # The compiled graph also contained the fallback unfused GEMMs because
+        # the fallback was reachable from traced Python. Phase D2 moves this
+        # launch inside torch.ops.vllm.cute_mlp_forward (_mlp_op.py) — single
+        # call site, single path visible to Inductor. Kept commented so the
+        # Phase B/C kernel-math debug harness can swap back easily.
+        #
+        # if (
+        #     getattr(self, "_mlp_fusion_bound", False)
+        #     and use_fusion  # attention fusion succeeded (rmsnorm_output valid)
+        #     and fits_buffer
+        # ):
+        #     try:
+        #         # Zero per-step mutable buffers. Must precede kernel launch
+        #         # (Python-side zero_ is stream-ordered before kernel).
+        #         self.mlp_partial_fp32[:num_actual_tokens, :].zero_()
+        #         self.mlp_arrival_count[:num_actual_tokens].zero_()
+        #
+        #         # Pass stream=None so Phase_D_MLP_Kernel wraps the current
+        #         # torch stream as a CUstream internally; passing a
+        #         # torch.cuda.Stream directly fails an internal CuTe DSL
+        #         # `isinstance(arg, _cext.ir.Value)` assertion.
+        #         self._mlp_kernel(
+        #             self.rmsnorm_output[:num_actual_tokens],
+        #             self._mlp_gate_w,
+        #             self._mlp_gate_s,
+        #             self._mlp_up_w,
+        #             self._mlp_up_s,
+        #             self._mlp_down_w,
+        #             self._mlp_down_s,
+        #             self.mlp_partial_fp32[:num_actual_tokens],
+        #             self.mlp_arrival_count[:num_actual_tokens],
+        #             self.mlp_output[:num_actual_tokens],
+        #             num_actual_tokens,
+        #         )
+        #         self._mlp_fusion_active = True
+        #         self._mlp_fusion_nat = num_actual_tokens
+        #     except Exception as e:  # noqa: BLE001 — fail closed, log and fall back
+        #         logger.warning(
+        #             "CuTe MLP fusion launch failed (fallback to unfused) "
+        #             "nat=%d %s: %r",
+        #             num_actual_tokens, type(e).__name__, e,
+        #         )
+        #         self._mlp_fusion_active = False
+        # --- END PHASE D2 DISABLED ---
 
         output[:num_actual_tokens].copy_(result)
         return output

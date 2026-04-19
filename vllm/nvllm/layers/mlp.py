@@ -62,12 +62,14 @@ class Qwen3_5MLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
-        # Phase D1 custom-op dispatch. torch.compile treats
-        # `torch.ops.vllm.cute_mlp_forward` as opaque; the per-step
-        # `_mlp_fusion_active` decision moves inside the op body where
-        # Dynamo cannot specialize on it. `_cute_layer_name` is set by
-        # `CutePagedImpl.attach_mlp_fusion` iff fusion is wired up.
-        # When unset (env var off, MTP layer, shape mismatch), fall
+        # Phase D2 custom-op dispatch. torch.compile treats
+        # `torch.ops.vllm.cute_mlp_forward` as opaque — the op body owns
+        # both the per-step fuse/fallback gate AND the kernel launch, so
+        # the compiled graph sees only one opaque call (no dual-firing,
+        # no unfused GEMMs leaking into Inductor). `_cute_layer_name` is
+        # set by `CutePagedImpl.attach_mlp_fusion` iff fusion is wired up
+        # (env var on, dense MLP, NVFP4 weights, shape match). When unset
+        # (env var off, MTP layer, shape mismatch, non-NVFP4), fall
         # through to the original unfused body — identical to upstream.
         layer_name = getattr(self, "_cute_layer_name", None)
         if layer_name is None:
