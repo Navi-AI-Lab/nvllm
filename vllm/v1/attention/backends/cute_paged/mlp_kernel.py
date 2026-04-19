@@ -302,10 +302,19 @@ class Phase_D_MLP_Kernel:
         self,
         hidden_size: int,
         intermediate_size: int,
-        tile_s: int = TILE_S_DEFAULT,
-        tile_k: int = TILE_K_DEFAULT,
-        slice_ctas: int = SLICE_CTAS_DEFAULT,
+        tile_s: Optional[int] = None,
+        tile_k: Optional[int] = None,
+        slice_ctas: Optional[int] = None,
     ):
+        # Resolve tile constants from CUTE_MLP_TILE env var, with per-kwarg
+        # override. Passing all three explicitly bypasses the env read (tests
+        # and microbenches). Passing a subset fills remaining from the preset.
+        preset_s, preset_k, preset_c = _resolve_tile_preset(
+            os.environ.get("CUTE_MLP_TILE")
+        )
+        tile_s = tile_s if tile_s is not None else preset_s
+        tile_k = tile_k if tile_k is not None else preset_k
+        slice_ctas = slice_ctas if slice_ctas is not None else preset_c
         self.hidden_size = hidden_size
         self.intermediate_size = intermediate_size
         self.tile_s = tile_s
