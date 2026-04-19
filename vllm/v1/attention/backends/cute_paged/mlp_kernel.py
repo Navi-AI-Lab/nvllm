@@ -322,15 +322,25 @@ class Phase_D_MLP_Kernel:
         self.slice_ctas = slice_ctas
         self.num_slices = intermediate_size // tile_s
         self.num_k_tiles = max(hidden_size // tile_k, 1)
+        # Preset name for error-message context (captured from env here so
+        # a bad entry in _TILE_PRESETS points operators at the right key).
+        _preset_name = os.environ.get("CUTE_MLP_TILE") or _DEFAULT_PRESET_NAME
         assert intermediate_size % tile_s == 0, (
-            f"intermediate_size={intermediate_size} not multiple of "
-            f"tile_s={tile_s}"
+            f"preset={_preset_name!r}: intermediate_size={intermediate_size} "
+            f"not multiple of tile_s={tile_s}"
         )
         assert hidden_size % tile_k == 0, (
-            f"hidden_size={hidden_size} not multiple of tile_k={tile_k}"
+            f"preset={_preset_name!r}: hidden_size={hidden_size} "
+            f"not multiple of tile_k={tile_k}"
         )
-        assert tile_s % FP4_BLOCK_SIZE == 0
-        assert hidden_size % FP4_BLOCK_SIZE == 0
+        assert tile_s % FP4_BLOCK_SIZE == 0, (
+            f"preset={_preset_name!r}: tile_s={tile_s} not multiple of "
+            f"FP4_BLOCK_SIZE={FP4_BLOCK_SIZE}"
+        )
+        assert hidden_size % FP4_BLOCK_SIZE == 0, (
+            f"preset={_preset_name!r}: hidden_size={hidden_size} not "
+            f"multiple of FP4_BLOCK_SIZE={FP4_BLOCK_SIZE}"
+        )
         # Each CTA owns a contiguous chunk of slices.
         self.slices_per_cta = (self.num_slices + slice_ctas - 1) // slice_ctas
         self._num_threads = 128  # 4 warps
