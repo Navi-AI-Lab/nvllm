@@ -355,15 +355,10 @@ class Phase_D_MLP_Kernel:
         mlp_arrival_count: torch.Tensor,   # [nat, num_k_tiles] u32 (zeroed)
         mlp_output: torch.Tensor,          # [nat, hidden] BF16
         nat: int,
-        # Phase D2e fix: NVFP4 dequantization requires multiplication by
-        # `weight_global_scale` (= 1/input_global_scale stored at quant
-        # time). The per-block UE4M3 scale alone gives values in the
-        # quantizer's rescaled space; without this factor the kernel's
-        # output is off by `prod(weight_global_scale)` per-matmul,
-        # producing gibberish once its output is actually consumed (D2).
-        # `gate_up_global_scale` is shared — gate and up projections come
-        # from one MergedColumnParallelLinear with one weight_global_scale.
-        # Default 1.0 → legacy behavior (kernel-math smoke tests).
+        # NVFP4 dequantization = fp4 × per_block_scale × weight_global_scale.
+        # Without these factors kernel output is off by prod(1/wgs). gate
+        # and up share one scale (MergedColumnParallelLinear). Default 1.0
+        # → kernel-math smoke tests.
         gate_up_global_scale: float = 1.0,
         down_global_scale: float = 1.0,
         stream: Optional[object] = None,
@@ -650,9 +645,7 @@ class Phase_D_MLP_Kernel:
                         scale_gate = _decode_ue4m3_u8_to_f32(scale_byte_gate)
                         scale_up = _decode_ue4m3_u8_to_f32(scale_byte_up)
 
-                        # Phase D2e fix: apply weight_global_scale factor
-                        # that vLLM's NVFP4 path uses as `alpha` post-matmul.
-                        # Without it, kernel output = true_output × (1/wgs).
+                        # NVFP4 dequant: fp4 × block_scale × weight_global_scale.
                         gw_f32 = (
                             _fp4_nibble_to_f32(nib_gate) * scale_gate
                             * gate_up_gs
@@ -945,8 +938,6 @@ class Phase_D_MLP_Kernel:
                             dw_scale_f32 = _decode_ue4m3_u8_to_f32(
                                 dw_scale_u8
                             )
-                            # Phase D2e fix: apply down weight_global_scale
-                            # (see gate_up_gs rationale above).
                             dw_val = (
                                 _fp4_nibble_to_f32(dw_nib) * dw_scale_f32
                                 * down_gs
@@ -1026,8 +1017,6 @@ class Phase_D_MLP_Kernel:
                         )
                         dw_scale_u8 = _ld_global_u8(dw_scale_addr)
                         dw_scale_f32 = _decode_ue4m3_u8_to_f32(dw_scale_u8)
-                        # Phase D2e fix: apply down weight_global_scale
-                        # (see gate_up_gs rationale above).
                         dw_val = (
                             _fp4_nibble_to_f32(dw_nib) * dw_scale_f32
                             * down_gs

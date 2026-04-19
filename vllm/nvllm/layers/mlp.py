@@ -62,15 +62,11 @@ class Qwen3_5MLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
-        # Phase D2 custom-op dispatch. torch.compile treats
-        # `torch.ops.vllm.cute_mlp_forward` as opaque — the op body owns
-        # both the per-step fuse/fallback gate AND the kernel launch, so
-        # the compiled graph sees only one opaque call (no dual-firing,
-        # no unfused GEMMs leaking into Inductor). `_cute_layer_name` is
-        # set by `CutePagedImpl.attach_mlp_fusion` iff fusion is wired up
-        # (env var on, dense MLP, NVFP4 weights, shape match). When unset
-        # (env var off, MTP layer, shape mismatch, non-NVFP4), fall
-        # through to the original unfused body — identical to upstream.
+        # When `_cute_layer_name` is set by `attach_mlp_fusion`, dispatch
+        # through the opaque `cute_mlp_forward` op — op body owns the
+        # per-step gate and kernel launch, so the compiled graph sees
+        # one opaque call (no dual-firing). Otherwise fall through to
+        # the unfused body (identical to upstream).
         layer_name = getattr(self, "_cute_layer_name", None)
         if layer_name is None:
             gate_up, _ = self.gate_up_proj(x)

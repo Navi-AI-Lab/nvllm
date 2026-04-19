@@ -582,14 +582,10 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._mlp_up_s = gate_up_s[interm : 2 * interm].view(torch.uint8)
         self._mlp_down_w = down.weight
         self._mlp_down_s = down.weight_scale.view(torch.uint8)
-        # Phase D2e fix: NVFP4 dequantization = fp4 × block_scale ×
-        # weight_global_scale. `process_weights_after_loading` on the
-        # compressed_tensors NVFP4 scheme stores weight_global_scale as
-        # `1 / input_global_scale_from_quant_time` — i.e., exactly the
-        # factor the kernel must multiply into the dequant step. gate and
-        # up share a single MergedColumnParallelLinear so one gs covers
-        # both. `.item()` sync happens once at attach — subsequent per-
-        # step calls pass the cached Python floats (no device sync).
+        # NVFP4 dequant = fp4 × block_scale × weight_global_scale.
+        # `.item()` sync happens once at attach; forwards pass the
+        # cached Python floats (no per-step device sync). gate and up
+        # share one scale via MergedColumnParallelLinear.
         self._mlp_gate_up_gs = float(
             gate_up.weight_global_scale.to(torch.float32).item()
         )

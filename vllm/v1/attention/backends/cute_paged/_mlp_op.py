@@ -1,32 +1,16 @@
 # Copyright 2026 Navi Ai Labs
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""Phase D2 custom-op wrap for CuTe paged fused MLP.
+"""Opaque custom-op wrap for CuTe paged fused MLP.
 
-Owns the full MLP dispatch decision inside an opaque
-`torch.ops.vllm.cute_mlp_forward`: the per-step gate, the kernel launch,
-the fallback unfused GEMMs. torch.compile treats the op body as a black
-box, so neither the fused path nor the unfused fallback leaks into the
-compiled graph.
+`torch.ops.vllm.cute_mlp_forward` owns the full MLP dispatch decision
+— per-step fuse/fallback gate, kernel launch, fallback unfused GEMMs —
+inside an Inductor-opaque op body. Single call site, single path
+visible in the compiled graph: no dual-firing.
 
-Design rationale (verified in
-`benchmarks/nvllm/traces/cute_paged_mlp_fusion/2026-04-18-phase-d1-custom-op/summary.md`):
-
-- Phase D1 moved the gate into this op but still launched the kernel as
-  a side effect from `_backend.py::forward`. Dynamo still lifted the
-  fallback GEMMs into the compiled graph because the fallback's
-  `_mlp_gate_up_proj / _mlp_down_proj` calls were reachable from traced
-  Python.
-- Phase D2 moves the launch inside this op and deletes the attention-side
-  side effect. Single call site → single path visible to Inductor.
-- `direct_register_custom_op(..., mutates_args=["output"])` produces an
-  opaque op that Inductor cannot decompose. Precondition verified in
-  `/tmp/phase_d2_opaque_test.py` (compiled graph contains only the op
-  call; no addmm / extern_kernels.mm / linear).
-
-The outer env var `CUTE_MLP_FUSION` still gates whether
-`attach_mlp_fusion` runs at all; when unset, `_cute_layer_name` stays
-unset on the MLP module and `Qwen3_5MLP.forward` never dispatches here.
+Outer env var `CUTE_MLP_FUSION` gates whether `attach_mlp_fusion` runs
+at all. When unset, `_cute_layer_name` stays unset on the MLP module
+and `Qwen3_5MLP.forward` never dispatches here.
 """
 
 from __future__ import annotations
@@ -97,18 +81,11 @@ def _cute_mlp_forward_impl(
     b_mlp  = getattr(impl, "_mlp_fusion_bound", False)
     b_attn = getattr(impl, "_fusion_active", False)
     max_n  = getattr(impl, "_fusion_max_num_seqs", 0)
-    # Phase D2b: removed `impl._fusion_active` from the gate. The attribute
-    # is set per-step inside attention.forward, but under PIECEWISE CUDA
-    # graphs the op body Python runs only at *capture* time; at capture,
-    # `_fusion_active` is False (warmup uses prefill-shaped metadata), so
-    # the captured graph bakes in the fallback's unfused GEMMs and never
-    # fires the kernel at replay. The `_fusion_active` bit was only needed
-    # when the pre-D2 kernel read `impl.rmsnorm_output`; in D2 we pass `x`
-    # directly, and `x` is post-RMSNorm in both fused (`attn uber-kernel
-    # wrote rmsnorm_output`) and unfused (`post_attention_layernorm` ran
-    # eagerly) paths — the kernel doesn't care which. Buffer-safety gate
-    # (`nat <= max_n`) remains; `_mlp_fusion_bound` catches quant/shape
-    # mismatches at resolve time.
+    # Gate on bound + buffer-safety only. `_fusion_active` is NOT part
+    # of the gate because under PIECEWISE CUDA graphs it's False at
+    # capture (prefill shape) and the captured graph would bake in the
+    # fallback path. `x` is post-RMSNorm regardless of attn fusion, so
+    # the kernel doesn't need to know which path produced it.
     can_fuse = b_mlp and nat <= max_n
 
     if _DEBUG_MLP:
@@ -124,46 +101,32 @@ def _cute_mlp_forward_impl(
 
     if can_fuse:
         try:
-            # Input-source selection (Phase D2c correctness fix):
-            # When attention fusion is active at *runtime*, the attention
-            # uber-kernel writes a known-good post-RMSNorm buffer at
-            # `impl.rmsnorm_output[:nat]`. Reading from it directly matches
-            # D1's working behavior and is immune to the
-            # capture-vs-replay mismatch in the decoder's
-            # `if _fusion_active:` Python branch (see investigation notes in
-            # `benchmarks/nvllm/traces/cute_paged_mlp_fusion/2026-04-18-phase-d2-op-body-move/`).
-            # When attention fusion is inactive, `x` is the Python-computed
-            # post-`post_attention_layernorm` hidden states — also post-norm,
-            # also correct.
+            # When attention fusion ran, `impl.rmsnorm_output[:nat]` holds
+            # the attn uber-kernel's post-RMSNorm buffer — use it directly
+            # (avoids capture-vs-replay mismatch in the decoder's
+            # `if _fusion_active:` branch). Otherwise `x` is the
+            # Python-computed `post_attention_layernorm` output. Both are
+            # post-norm BF16; the kernel doesn't distinguish.
             if b_attn:
                 x_src = impl.rmsnorm_output[:nat]
             else:
                 x_src = x
-            # Zero per-step mutable buffers. Python-side zero_() is
-            # stream-ordered before the kernel launch (same guarantee as
-            # the pre-D2 attention-side launch relied on).
             impl.mlp_partial_fp32[:nat, :].zero_()
             impl.mlp_arrival_count[:nat].zero_()
 
-            # Phase D2e: kernel writes directly into the op's `output`
-            # argument (`output[:nat]`) instead of into the persistent
-            # `impl.mlp_output` buffer followed by a copy. Two reasons:
-            # (1) eliminates a same-size redundant BF16 copy per layer
-            # per step — small but measurable over 16 × 127 steps;
-            # (2) `output` is the tensor Inductor's downstream piece
-            # reads from, so writing to it directly removes one layer
-            # of indirection that could interact with CUDA-graph capture
-            # (the suspected D2d gibberish root cause). `impl.mlp_output`
-            # is now unused on the fused path — kept allocated for
-            # potential debug/ref use but not read by anyone.
+            # Kernel writes directly into `output[:nat]` (the op's
+            # mutates_args target, which Inductor's downstream piece
+            # reads from). `impl.mlp_output` is unused on the fused path
+            # but kept allocated for potential debug use.
             #
-            # Pass stream=None → Phase_D_MLP_Kernel wraps the current
-            # torch stream internally. Passing a torch.cuda.Stream
-            # directly fails an internal CuTe DSL isinstance check.
-            # Phase D2e fix: pass weight_global_scale factors. Without
-            # these the kernel returns `true_output × (1/wgs)`, producing
-            # the D2 gibberish that D1 accidentally hid via dead-branching.
-            # Cached on `impl` at attach time — no per-step device sync.
+            # stream=None → Phase_D_MLP_Kernel wraps the current torch
+            # stream internally. Passing a torch.cuda.Stream directly
+            # fails an internal CuTe DSL isinstance check.
+            #
+            # `_mlp_gate_up_gs` / `_mlp_down_gs` are NVFP4 weight_global_
+            # scale factors cached at attach time (Python floats, no
+            # per-step device sync). Without them the kernel output is
+            # off by prod(1/wgs); see Phase D2e trace summary.
             impl._mlp_kernel(
                 x_src,
                 impl._mlp_gate_w,
