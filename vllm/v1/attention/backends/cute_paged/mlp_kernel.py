@@ -61,12 +61,45 @@ import torch
 logger = logging.getLogger(__name__)
 
 # Kernel tile constants (see spec §Target Dimensions).
-TILE_S_DEFAULT = 256
-TILE_K_DEFAULT = 640
 H_CHUNK = 128
-SLICE_CTAS_DEFAULT = 8
 FP4_BLOCK_SIZE = 16
 LOG2_E = 1.4426950408889634
+
+# ---------------------------------------------------------------------------
+# Phase D3a tile-preset registry.
+# See docs/superpowers/specs/2026-04-19-phase-d3a-mlp-decode-retune-design.md
+# for rationale per preset. `CUTE_MLP_TILE` env var picks one at kernel
+# construct time; unset/empty → `_DEFAULT_PRESET_NAME`. Unknown name →
+# ValueError at construct time (intentional: sweep runs must never silently
+# use the wrong preset).
+# ---------------------------------------------------------------------------
+_TILE_PRESETS: dict[str, tuple[int, int, int]] = {
+    # name              : (tile_s, tile_k, slice_ctas)
+    "prefill-legacy":     (256, 640, 8),     # baseline; preserved verbatim
+    "decode-balanced":    (128, 640, 16),    # half tile_s, 2× CTAs
+    "decode-small":       (64,  640, 32),    # quarter tile_s, 4× CTAs
+    "decode-narrow-grid": (256, 1280, 8),    # same tile_s, 2× tile_k → halve num_k_tiles
+}
+
+_DEFAULT_PRESET_NAME: str = "prefill-legacy"
+
+
+def _resolve_tile_preset(name: Optional[str]) -> tuple[int, int, int]:
+    """Return (tile_s, tile_k, slice_ctas) for the given preset name.
+
+    `None` or empty → the default preset. Unknown name → ValueError with
+    the full list of valid preset names in the message.
+    """
+    key = name if name else _DEFAULT_PRESET_NAME
+    if key not in _TILE_PRESETS:
+        valid = sorted(_TILE_PRESETS)
+        raise ValueError(
+            f"Unknown CUTE_MLP_TILE={name!r}; valid: {valid}"
+        )
+    return _TILE_PRESETS[key]
+
+
+TILE_S_DEFAULT, TILE_K_DEFAULT, SLICE_CTAS_DEFAULT = _TILE_PRESETS[_DEFAULT_PRESET_NAME]
 
 # Phase 3b debug switch: when set, host-side code may construct a kernel
 # where the intermediate is passed BF16 (not FP4) and the quant stage is
