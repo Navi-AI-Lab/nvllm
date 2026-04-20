@@ -469,16 +469,30 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             )
             return
 
+        # Phase D3a: tile values come from _tile_presets (sibling module).
+        # The presets and resolver live OUTSIDE mlp_kernel.py because adding
+        # runtime Python to that file perturbs CuTe DSL JIT compilation
+        # enough to break FP4 decode numerics. See _tile_presets.py module
+        # docstring for the investigation evidence.
+        from vllm.v1.attention.backends.cute_paged._tile_presets import (
+            resolve_tile_preset_from_env,
+        )
+        tile_s, tile_k, slice_ctas = resolve_tile_preset_from_env()
+
         try:
             self._mlp_kernel = Phase_D_MLP_Kernel(
                 hidden_size=hidden_size,
                 intermediate_size=intermediate_size,
+                tile_s=tile_s,
+                tile_k=tile_k,
+                slice_ctas=slice_ctas,
             )
-        except AssertionError as e:
+        except (AssertionError, ValueError) as e:
             logger.warning(
                 "CuTe MLP fusion: kernel shape mismatch "
-                "(hidden=%d, intermediate=%d): %s. Fusion disabled.",
-                hidden_size, intermediate_size, e,
+                "(hidden=%d, intermediate=%d, tile_s=%d, tile_k=%d, "
+                "slice_ctas=%d): %s. Fusion disabled.",
+                hidden_size, intermediate_size, tile_s, tile_k, slice_ctas, e,
             )
             return
 

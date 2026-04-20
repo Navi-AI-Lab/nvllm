@@ -1,0 +1,345 @@
+WARNING 04-19 21:03:12 [argparse_utils.py:191] With `vllm serve`, you should provide the model as a positional argument or in a config file instead of via the `--model` option. The `--model` option will be removed in v0.13.
+(APIServer pid=1) INFO 04-19 21:03:12 [utils.py:299] 
+(APIServer pid=1) INFO 04-19 21:03:12 [utils.py:299]        █     █     █▄   ▄█
+(APIServer pid=1) INFO 04-19 21:03:12 [utils.py:299]  ▄▄ ▄█ █     █     █ ▀▄▀ █  version 0.2.1.dev47+gadad1b0f2
+(APIServer pid=1) INFO 04-19 21:03:12 [utils.py:299]   █▄█▀ █     █     █     █  model   natfii/Qwen3.5-27B-NVFP4-Opus-GB10
+(APIServer pid=1) INFO 04-19 21:03:12 [utils.py:299]    ▀▀  ▀▀▀▀▀ ▀▀▀▀▀ ▀     ▀
+(APIServer pid=1) INFO 04-19 21:03:12 [utils.py:299] 
+(APIServer pid=1) INFO 04-19 21:03:12 [utils.py:233] non-default args: {'model_tag': 'natfii/Qwen3.5-27B-NVFP4-Opus-GB10', 'host': '0.0.0.0', 'model': 'natfii/Qwen3.5-27B-NVFP4-Opus-GB10', 'trust_remote_code': True, 'max_model_len': 65536, 'served_model_name': ['default'], 'attention_backend': 'CUTE_PAGED', 'gpu_memory_utilization': 0.8, 'kv_cache_dtype': 'fp8_e4m3', 'mamba_cache_mode': 'align', 'language_model_only': True, 'max_num_batched_tokens': 65536, 'max_num_seqs': 4, 'compilation_config': {'mode': None, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': [], 'ir_enable_torch_wrap': None, 'splitting_ops': None, 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_images_per_batch': 0, 'compile_sizes': None, 'compile_ranges_endpoints': None, 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.PIECEWISE: 1>, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': None, 'pass_config': {}, 'max_cudagraph_capture_size': None, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': None, 'static_all_moe_layers': []}, 'profiler_config': ProfilerConfig(profiler='torch', torch_profiler_dir='/tmp/profiles', torch_profiler_with_stack=False, torch_profiler_with_flops=False, torch_profiler_use_gzip=True, torch_profiler_dump_cuda_time_total=True, torch_profiler_record_shapes=False, torch_profiler_with_memory=False, ignore_frontend=True, delay_iterations=3, max_iterations=0, warmup_iterations=0, active_iterations=30, wait_iterations=0)}
+(APIServer pid=1) INFO 04-19 21:03:17 [model.py:554] Resolved architecture: Qwen3_5ForCausalLM
+(APIServer pid=1) INFO 04-19 21:03:17 [model.py:1684] Using max model len 65536
+(APIServer pid=1) INFO 04-19 21:03:17 [cache.py:260] Using fp8_e4m3 data type to store kv cache. It reduces the GPU memory footprint and boosts the performance. Meanwhile, it may cause accuracy drop without a proper scaling factor
+(APIServer pid=1) INFO 04-19 21:03:17 [scheduler.py:238] Chunked prefill is enabled with max_num_batched_tokens=65536.
+(APIServer pid=1) WARNING 04-19 21:03:17 [config.py:341] Mamba cache mode is set to 'none' when prefix caching is disabled
+(APIServer pid=1) INFO 04-19 21:03:17 [vllm.py:799] Asynchronous scheduling is enabled.
+(APIServer pid=1) INFO 04-19 21:03:17 [kernel.py:199] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'])
+(APIServer pid=1) INFO 04-19 21:03:17 [compilation.py:290] Enabled custom fusions: act_quant
+(EngineCore pid=145) INFO 04-19 21:03:22 [core.py:105] Initializing a V1 LLM engine (v0.2.1.dev47+gadad1b0f2) with config: model='natfii/Qwen3.5-27B-NVFP4-Opus-GB10', speculative_config=None, tokenizer='natfii/Qwen3.5-27B-NVFP4-Opus-GB10', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=True, dtype=torch.bfloat16, max_seq_len=65536, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=compressed-tensors, quantization_config=None, enforce_eager=False, enable_return_routed_experts=False, kv_cache_dtype=fp8_e4m3, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False), seed=0, served_model_name=default, enable_prefix_caching=False, enable_chunked_prefill=True, pooler_config=None, compilation_config={'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'ir_enable_torch_wrap': True, 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::olmo_hybrid_gdn_full_forward', 'vllm::kda_attention', 'vllm::sparse_attn_indexer', 'vllm::rocm_aiter_sparse_attn_indexer', 'vllm::unified_kv_cache_update', 'vllm::unified_mla_kv_cache_update'], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_images_per_batch': 0, 'compile_sizes': [], 'compile_ranges_endpoints': [65536], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.PIECEWISE: 1>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 8, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['native']), enable_flashinfer_autotune=True, moe_backend='auto')
+(EngineCore pid=145) INFO 04-19 21:03:22 [parallel_state.py:1400] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://192.168.1.214:55917 backend=nccl
+(EngineCore pid=145) INFO 04-19 21:03:22 [parallel_state.py:1712] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank N/A, EPLB rank N/A
+(EngineCore pid=145) [transformers] `Qwen2VLImageProcessorFast` is deprecated. The `Fast` suffix for image processors has been removed; use `Qwen2VLImageProcessor` instead.
+(EngineCore pid=145) INFO 04-19 21:03:23 [gpu_model_runner.py:4735] Starting to load model natfii/Qwen3.5-27B-NVFP4-Opus-GB10...
+(EngineCore pid=145) INFO 04-19 21:03:23 [__init__.py:504] Using CutlassNvFp4LinearKernel for NVFP4 GEMM
+(EngineCore pid=145) INFO 04-19 21:03:23 [gdn_linear_attn.py:150] Using Triton/FLA GDN prefill kernel
+(EngineCore pid=145) INFO 04-19 21:03:23 [cuda.py:311] Using AttentionBackendEnum.CUTE_PAGED backend.
+(EngineCore pid=145) INFO 04-19 21:03:23 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:23 [_backend.py:321] CuTe fusion attached: layer=model.layers.3 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.3 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.3.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.7 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.7 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.7.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.11 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.11 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.11.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.15 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.15 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.15.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.19 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.19 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.19.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.23 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.23 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.23.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.27 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.27 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.27.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.31 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.31 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.31.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.35 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.35 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.35.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.39 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.39 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.39.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.43 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.43 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.43.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.47 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.47 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.47.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.51 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.51 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.51.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.55 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.55 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.55.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.59 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.59 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.59.mlp
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:199] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:321] CuTe fusion attached: layer=model.layers.63 max_num_seqs=4 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=145) INFO 04-19 21:03:24 [_backend.py:522] CuTe MLP fusion attached: layer=model.layers.63 hidden=5120 interm=17408 num_k_tiles=8 tile_s=128 tile_k=640 slice_ctas=16 op_key=model.layers.63.mlp
+(EngineCore pid=145) INFO 04-19 21:03:25 [weight_utils.py:659] No model.safetensors.index.json found in remote.
+(EngineCore pid=145) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore pid=145) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:08<00:00,  8.71s/it]
+(EngineCore pid=145) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:08<00:00,  8.71s/it]
+(EngineCore pid=145) 
+(EngineCore pid=145) INFO 04-19 21:03:33 [default_loader.py:384] Loading weights took 8.78 seconds
+(EngineCore pid=145) WARNING 04-19 21:03:33 [compressed_tensors_w4a4_nvfp4.py:97] In NVFP4 linear, the global scale for input or weight are different for parallel layers (e.g. q_proj, k_proj, v_proj). This  will likely result in reduced accuracy. Please verify the model accuracy. Consider using a checkpoint with a shared global NVFP4 scale for fused layers.
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.3 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.7 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.11 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.15 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.19 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.23 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.27 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.31 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.35 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.39 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.43 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.47 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.51 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.55 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.59 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:33 [_backend.py:385] CuTe fusion resolved: layer=model.layers.63 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=145) INFO 04-19 21:03:34 [gpu_model_runner.py:4820] Model loading took 17.54 GiB memory and 10.177732 seconds
+(EngineCore pid=145) INFO 04-19 21:03:34 [interface.py:484] Setting kv cache block size to 64 for CUTE_PAGED backend.
+(EngineCore pid=145) INFO 04-19 21:03:34 [interface.py:601] Setting attention block size to 832 tokens to ensure that attention page size is >= mamba page size.
+(EngineCore pid=145) INFO 04-19 21:03:34 [interface.py:625] Padding mamba page size by 4.26% to ensure that mamba page size and attention page size are exactly equal.
+(EngineCore pid=145) INFO 04-19 21:03:42 [backends.py:1051] Using cache directory: /root/.cache/vllm/torch_compile_cache/20d062b70a/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore pid=145) INFO 04-19 21:03:42 [backends.py:1111] Dynamo bytecode transform time: 7.67 s
+(EngineCore pid=145) INFO 04-19 21:05:50 [backends.py:390] Compiling a graph for compile range (1, 65536) takes 127.62 s
+(EngineCore pid=145) INFO 04-19 21:05:55 [backends.py:895] collected artifacts: 65 entries, 35 artifacts, 88724968 bytes total
+(EngineCore pid=145) INFO 04-19 21:05:55 [decorators.py:655] saved AOT compiled function to /root/.cache/vllm/torch_compile_cache/torch_aot_compile/e8965cbf613f60bd43c683a640537f47d74fcecc8861ba889ec1a623e4a99019/rank_0_0/model
+(EngineCore pid=145) INFO 04-19 21:05:55 [monitor.py:48] torch.compile took 140.88 s in total
+(EngineCore pid=145) /opt/venv/lib/python3.12/site-packages/triton/language/core.py:2284: UserWarning: tl.make_block_ptr is deprecated. Use TensorDescriptor or tl.make_tensor_descriptor instead.
+(EngineCore pid=145)   warn("tl.make_block_ptr is deprecated. Use TensorDescriptor or tl.make_tensor_descriptor instead.")
+(EngineCore pid=145) INFO 04-19 21:07:16 [monitor.py:76] Initial profiling/warmup run took 80.43 s
+(EngineCore pid=145) INFO 04-19 21:07:17 [kv_cache_utils.py:833] Overriding num_gpu_blocks=0 with num_gpu_blocks_override=8
+(EngineCore pid=145) INFO 04-19 21:07:17 [_backend.py:989] CutePagedMetadataBuilder: block_size=64, layers=16
+(EngineCore pid=145) INFO 04-19 21:07:17 [gpu_model_runner.py:5883] Profiling CUDA graph memory: PIECEWISE=4 (largest=8)
+(EngineCore pid=145) INFO 04-19 21:07:17 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:18 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:18 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:18 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:19 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:19 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:19 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:20 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:20 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:20 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:21 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:21 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:21 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:22 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:22 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:22 [mlp_kernel.py:482] Compiling CuTe Phase D MLP kernel (first call)...
+(EngineCore pid=145) INFO 04-19 21:07:24 [gpu_model_runner.py:5962] Estimated CUDA graph memory: 0.21 GiB total
+(EngineCore pid=145) INFO 04-19 21:07:24 [gpu_worker.py:436] Available KV cache memory: 62.75 GiB
+(EngineCore pid=145) INFO 04-19 21:07:24 [gpu_worker.py:470] In v0.19, CUDA graph memory profiling will be enabled by default (VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1), which more accurately accounts for CUDA graph memory during KV cache allocation. To try it now, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1 and increase --gpu-memory-utilization from 0.8000 to 0.8018 to maintain the same effective KV cache size.
+(EngineCore pid=145) INFO 04-19 21:07:24 [kv_cache_utils.py:1431] GPU KV cache size: 513,344 tokens
+(EngineCore pid=145) INFO 04-19 21:07:24 [kv_cache_utils.py:1436] Maximum concurrency for 65,536 tokens per request: 30.13x
+(EngineCore pid=145) INFO 04-19 21:07:24 [_backend.py:989] CutePagedMetadataBuilder: block_size=64, layers=16
+(EngineCore pid=145) 2026-04-19 21:07:26,244 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore pid=145) 2026-04-19 21:07:48,501 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore pid=145) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/4 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  50%|█████     | 2/4 [00:00<00:00,  2.18it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  75%|███████▌  | 3/4 [00:01<00:00,  1.92it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 4/4 [00:01<00:00,  2.24it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 4/4 [00:01<00:00,  2.16it/s]
+(EngineCore pid=145) INFO 04-19 21:08:16 [gpu_model_runner.py:6053] Graph capturing finished in 28 secs, took 0.15 GiB
+(EngineCore pid=145) INFO 04-19 21:08:16 [gpu_worker.py:597] CUDA graph pool memory: 0.15 GiB (actual), 0.21 GiB (estimated), difference: 0.06 GiB (42.9%).
+(EngineCore pid=145) INFO 04-19 21:08:17 [core.py:285] init engine (profile, create kv cache, warmup model) took 282.91 seconds
+(EngineCore pid=145) INFO 04-19 21:08:19 [vllm.py:799] Asynchronous scheduling is enabled.
+(EngineCore pid=145) INFO 04-19 21:08:19 [kernel.py:199] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'])
+(EngineCore pid=145) INFO 04-19 21:08:19 [compilation.py:290] Enabled custom fusions: act_quant
+(APIServer pid=1) INFO 04-19 21:08:19 [api_server.py:606] Supported tasks: ['generate']
+(APIServer pid=1) WARNING 04-19 21:08:19 [api_router.py:41] Profiler with mode 'torch' is enabled in the API server. This should ONLY be used for local development!
+(APIServer pid=1) WARNING 04-19 21:08:19 [model.py:1441] Default vLLM sampling parameters have been overridden by the model's `generation_config.json`: `{'temperature': 0.6, 'top_k': 20, 'top_p': 0.95}`. If this is not intended, please relaunch vLLM instance with `--generation-config vllm`.
+(APIServer pid=1) INFO 04-19 21:08:21 [hf.py:314] Detected the chat template content format to be 'string'. You can set `--chat-template-content-format` to override this.
+(APIServer pid=1) INFO 04-19 21:08:21 [api_server.py:610] Starting vLLM server on http://0.0.0.0:8000
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:37] Available routes are:
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /openapi.json, Methods: HEAD, GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /docs, Methods: HEAD, GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /docs/oauth2-redirect, Methods: HEAD, GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /redoc, Methods: HEAD, GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /start_profile, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /stop_profile, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /tokenize, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /detokenize, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /load, Methods: GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /version, Methods: GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /health, Methods: GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /metrics, Methods: GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/models, Methods: GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /ping, Methods: GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /ping, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /invocations, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/chat/completions, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/chat/completions/batch, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/responses, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/responses/{response_id}, Methods: GET
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/responses/{response_id}/cancel, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/completions, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/messages, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/messages/count_tokens, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /inference/v1/generate, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /scale_elastic_ep, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /is_scaling_elastic_ep, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/chat/completions/render, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /v1/completions/render, Methods: POST
+(APIServer pid=1) INFO 04-19 21:08:21 [launcher.py:46] Route: /generative_scoring, Methods: POST
+(APIServer pid=1) INFO:     Started server process [1]
+(APIServer pid=1) INFO:     Waiting for application startup.
+(APIServer pid=1) INFO:     Application startup complete.
+(APIServer pid=1) INFO:     127.0.0.1:40530 - "GET /v1/models HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:40534 - "GET /v1/models HTTP/1.1" 200 OK
+(EngineCore pid=145) /opt/venv/lib/python3.12/site-packages/triton/language/core.py:2284: UserWarning: tl.make_block_ptr is deprecated. Use TensorDescriptor or tl.make_tensor_descriptor instead.
+(EngineCore pid=145)   warn("tl.make_block_ptr is deprecated. Use TensorDescriptor or tl.make_tensor_descriptor instead.")
+(EngineCore pid=145) INFO 04-19 21:08:36 [kernel.py:1990] Compiling CuTe decode kernel (first call)...
+(APIServer pid=1) INFO 04-19 21:09:01 [loggers.py:259] Engine 000: Avg prompt throughput: 0.3 tokens/s, Avg generation throughput: 1.2 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:40542 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:09:11 [loggers.py:259] Engine 000: Avg prompt throughput: 0.3 tokens/s, Avg generation throughput: 1.6 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:49258 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:09:14 [api_router.py:23] Starting profiler...
+(EngineCore pid=145) INFO 04-19 21:09:14 [wrapper.py:23] GPU profiling will start 3 steps after start_profile.
+(EngineCore pid=145) INFO 04-19 21:09:14 [wrapper.py:176] Torch profiling enabled. Traces will be saved to: /tmp/profiles
+(APIServer pid=1) INFO 04-19 21:09:14 [api_router.py:25] Profiler started.
+(APIServer pid=1) INFO:     127.0.0.1:42104 - "POST /start_profile HTTP/1.1" 200 OK
+(EngineCore pid=145) INFO 04-19 21:09:15 [wrapper.py:96] Starting profiler after delay...
+(EngineCore pid=145) /opt/venv/lib/python3.12/site-packages/torch/profiler/profiler.py:272: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+(EngineCore pid=145)   _warn_once(
+(APIServer pid=1) INFO 04-19 21:09:21 [loggers.py:259] Engine 000: Avg prompt throughput: 4.4 tokens/s, Avg generation throughput: 2.9 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:09:31 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:09:41 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:09:51 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:10:01 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:10:11 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:10:21 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:10:31 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:10:41 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:10:51 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:11:01 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.2 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:11:11 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:11:21 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:11:31 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 3.6 tokens/s, Running: 4 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.6%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:42108 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:42124 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:42130 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:42132 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:11:37 [api_router.py:31] Stopping profiler...
+(APIServer pid=1) INFO 04-19 21:11:41 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 2.3 tokens/s, Running: 0 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.0%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO 04-19 21:11:51 [loggers.py:259] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 0.0 tokens/s, Running: 0 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.0%, Prefix cache hit rate: 0.0%
+(EngineCore pid=145) -------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+(EngineCore pid=145)                                                    Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+(EngineCore pid=145) -------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+(EngineCore pid=145)                    execute_context_0(0)_generation_4(4)         0.00%       0.000us         0.00%       0.000us       0.000us      140.875s        99.37%      140.875s        1.118s           126  
+(EngineCore pid=145) kernel_cutlass__kernel_vllmv1attentionbackendscute_p...         0.00%       0.000us         0.00%       0.000us       0.000us       98.769s        69.67%       98.769s      48.607ms          2032  
+(EngineCore pid=145)                     vllm::unified_attention_with_output         0.44%     624.234ms         0.56%     789.594ms     388.580us       34.606s        24.41%       34.697s      17.075ms          2032  
+(EngineCore pid=145) kernel_cutlass__kernel_vllmv1attentionbackendscute_p...         0.00%       0.000us         0.00%       0.000us       0.000us       34.606s        24.41%       34.606s      17.030ms          2032  
+(EngineCore pid=145) _ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniv...         0.00%       0.000us         0.00%       0.000us       0.000us        6.625s         4.67%        6.625s     191.780us         34544  
+(EngineCore pid=145)                                                aten::mm         0.01%       8.473ms         0.01%       9.825ms      77.360us        1.374s         0.97%        1.374s      10.821ms           127  
+(EngineCore pid=145) void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_...         0.00%       0.000us         0.00%       0.000us       0.000us        1.374s         0.97%        1.374s      10.821ms           127  
+(EngineCore pid=145)                    execute_context_0(0)_generation_3(3)         0.00%       0.000us         0.00%       0.000us       0.000us        1.087s         0.77%        1.087s        1.087s             1  
+(EngineCore pid=145)                                         cudaGraphLaunch         0.23%     321.267ms         0.23%     324.103ms      39.261us     537.569ms         0.38%     537.569ms      65.120us          8255  
+(EngineCore pid=145)                                   cudaStreamIsCapturing         0.01%       7.167ms         0.01%       7.167ms       0.714us     514.984ms         0.36%     514.984ms      51.309us         10037  
+(EngineCore pid=145)                                vllm::gdn_attention_core         0.81%        1.152s         1.00%        1.414s     232.024us     202.028ms         0.14%     202.195ms      33.168us          6096  
+(EngineCore pid=145) fused_recurrent_gated_delta_rule_packed_decode_kerne...         0.00%       0.000us         0.00%       0.000us       0.000us     180.425ms         0.13%     180.425ms      29.597us          6096  
+(EngineCore pid=145)                                            Buffer Flush         0.00%     813.752us         0.00%     852.169us      65.551us      85.483ms         0.06%      85.483ms       6.576ms            13  
+(EngineCore pid=145) void vllm::cvt_fp16_to_fp4<__nv_bfloat16, false>(int...         0.00%       0.000us         0.00%       0.000us       0.000us      60.487ms         0.04%      60.487ms       2.126us         28448  
+(EngineCore pid=145)                                         cudaEventRecord         0.00%     580.104us         0.00%     580.104us       2.266us      34.222ms         0.02%      34.222ms     133.678us           256  
+(EngineCore pid=145)                            _causal_conv1d_update_kernel         0.00%       0.000us         0.00%       0.000us       0.000us      21.603ms         0.02%      21.603ms       3.544us          6096  
+(EngineCore pid=145)                                 Activity Buffer Request         0.00%       5.973ms         0.00%       6.716ms     447.716us      17.275ms         0.01%      33.993ms       2.266ms            15  
+(EngineCore pid=145)                                        cuLaunchKernelEx         0.07%      98.689ms         0.07%      98.802ms       7.780us      17.223ms         0.01%      17.290ms       1.361us         12700  
+(EngineCore pid=145)                                cudaEventRecordWithFlags         0.00%     399.924us         0.00%     399.924us       1.562us      16.863ms         0.01%      16.863ms      65.870us           256  
+(EngineCore pid=145) triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_sca...         0.00%       0.000us         0.00%       0.000us       0.000us      13.541ms         0.01%      13.541ms       2.221us          6096  
+(EngineCore pid=145) void vllm::silu_mul_cvt_fp16_to_fp4<__nv_bfloat16, f...         0.00%       0.000us         0.00%       0.000us       0.000us      11.066ms         0.01%      11.066ms       1.815us          6096  
+(EngineCore pid=145) triton_red_fused__to_copy_add_copy__mean_mul_pow_rsq...         0.00%       0.000us         0.00%       0.000us       0.000us      10.154ms         0.01%      10.154ms       2.499us          4064  
+(EngineCore pid=145) triton_poi_fused__to_copy__unsafe_view_add_clone_mea...         0.00%       0.000us         0.00%       0.000us       0.000us       7.549ms         0.01%       7.549ms       1.238us          6096  
+(EngineCore pid=145)                                      triton_poi_fused_0         0.00%       0.000us         0.00%       0.000us       0.000us       7.114ms         0.01%       7.114ms       0.875us          8128  
+(EngineCore pid=145)                                         Memset (Device)         0.00%       0.000us         0.00%       0.000us       0.000us       6.530ms         0.00%       6.530ms       0.402us         16255  
+(EngineCore pid=145)                                      triton_poi_fused_4         0.00%       0.000us         0.00%       0.000us       0.000us       6.333ms         0.00%       6.333ms       1.039us          6096  
+(EngineCore pid=145) triton_red_fused__to_copy_add_copy__mean_mul_pow_rsq...         0.00%       0.000us         0.00%       0.000us       0.000us       5.942ms         0.00%       5.942ms       2.924us          2032  
+(EngineCore pid=145)                   _C_cache_ops::reshape_and_cache_flash         0.01%      13.944ms         0.02%      32.680ms      16.083us       5.587ms         0.00%       5.587ms       2.750us          2032  
+(EngineCore pid=145) void vllm::reshape_and_cache_flash_kernel<__nv_bfloa...         0.00%       0.000us         0.00%       0.000us       0.000us       5.587ms         0.00%       5.587ms       2.750us          2032  
+(EngineCore pid=145)                                      triton_per_fused_1         0.00%       0.000us         0.00%       0.000us       0.000us       5.511ms         0.00%       5.511ms       0.904us          6096  
+(EngineCore pid=145)                                             aten::copy_         0.03%      39.876ms         0.07%     100.026ms      21.873us       5.443ms         0.00%       5.443ms       1.190us          4573  
+(EngineCore pid=145) triton_red_fused__to_copy_add_copy__mean_mul_pow_rsq...         0.00%       0.000us         0.00%       0.000us       0.000us       5.049ms         0.00%       5.049ms       2.485us          2032  
+(EngineCore pid=145)                                      triton_poi_fused_6         0.00%       0.000us         0.00%       0.000us       0.000us       4.780ms         0.00%       4.780ms       0.784us          6096  
+(EngineCore pid=145) triton_poi_fused__to_copy_add_cat_clone_index_select...         0.00%       0.000us         0.00%       0.000us       0.000us       4.430ms         0.00%       4.430ms       2.180us          2032  
+(EngineCore pid=145) triton_red_fused__to_copy_add_cute_mlp_forward_mean_...         0.00%       0.000us         0.00%       0.000us       0.000us       3.816ms         0.00%       3.816ms       1.878us          2032  
+(EngineCore pid=145)                            _compute_slot_mapping_kernel         0.00%       0.000us         0.00%       0.000us       0.000us       3.728ms         0.00%       3.728ms       7.339us           508  
+(EngineCore pid=145)                                             aten::fill_         0.02%      32.481ms         0.05%      74.231ms      13.282us       3.657ms         0.00%       3.657ms       0.654us          5589  
+(EngineCore pid=145) triton_poi_fused__to_copy_add_cat_index_select_mean_...         0.00%       0.000us         0.00%       0.000us       0.000us       3.532ms         0.00%       3.532ms       1.738us          2032  
+(EngineCore pid=145) void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us       3.264ms         0.00%       3.264ms       0.779us          4191  
+(EngineCore pid=145) void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us       3.231ms         0.00%       3.231ms       0.795us          4064  
+(EngineCore pid=145)                                triton_poi_fused_zeros_7         0.00%       0.000us         0.00%       0.000us       0.000us       2.927ms         0.00%       2.927ms       0.720us          4064  
+(EngineCore pid=145) triton_poi_fused__to_copy_add_cat_mean_mul_pow_rsqrt...         0.00%       0.000us         0.00%       0.000us       0.000us       2.703ms         0.00%       2.703ms       1.330us          2032  
+(EngineCore pid=145) triton_poi_fused__to_copy_add_cat_clone_mean_mul_pow...         0.00%       0.000us         0.00%       0.000us       0.000us       2.354ms         0.00%       2.354ms       1.159us          2032  
+(EngineCore pid=145)                                      triton_red_fused_7         0.00%       0.000us         0.00%       0.000us       0.000us       2.205ms         0.00%       2.205ms       1.085us          2032  
+(EngineCore pid=145)                          Memcpy DtoD (Device -> Device)         0.00%       0.000us         0.00%       0.000us       0.000us       2.153ms         0.00%       2.153ms       0.893us          2412  
+(EngineCore pid=145)               triton_poi_fused_scaled_fp4_quant_zeros_4         0.00%       0.000us         0.00%       0.000us       0.000us       1.666ms         0.00%       1.666ms       0.875us          1905  
+(EngineCore pid=145) void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us       1.536ms         0.00%       1.536ms      12.095us           127  
+(EngineCore pid=145)                                      triton_poi_fused_5         0.00%       0.000us         0.00%       0.000us       0.000us       1.525ms         0.00%       1.525ms       0.800us          1905  
+(EngineCore pid=145)                                triton_poi_fused_zeros_6         0.00%       0.000us         0.00%       0.000us       0.000us       1.374ms         0.00%       1.374ms       0.721us          1905  
+(EngineCore pid=145)                                      triton_poi_fused_1         0.00%       0.000us         0.00%       0.000us       0.000us       1.335ms         0.00%       1.335ms       0.657us          2032  
+(EngineCore pid=145)                          Memcpy HtoD (Pinned -> Device)         0.00%       0.000us         0.00%       0.000us       0.000us       1.080ms         0.00%       1.080ms       0.849us          1272  
+(EngineCore pid=145)                                            aten::argmax         0.00%       3.753ms         0.00%       6.826ms      53.746us       1.033ms         0.00%       1.033ms       8.135us           127  
+(EngineCore pid=145)                                               aten::sub         0.01%      11.207ms         0.01%      19.423ms      19.118us       1.012ms         0.00%       1.012ms       0.996us          1016  
+(EngineCore pid=145) void at::native::reduce_kernel<512, 1, at::native::R...         0.00%       0.000us         0.00%       0.000us       0.000us     977.226us         0.00%     977.226us       7.695us           127  
+(EngineCore pid=145)                                      triton_red_fused_2         0.00%       0.000us         0.00%       0.000us       0.000us     743.879us         0.00%     743.879us       5.857us           127  
+(EngineCore pid=145) void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     630.632us         0.00%     630.632us       1.241us           508  
+(EngineCore pid=145)                                             aten::index         0.01%      11.090ms         0.02%      21.395ms      83.900us     492.837us         0.00%     767.624us       3.010us           255  
+(EngineCore pid=145) void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us     449.988us         0.00%     449.988us       1.772us           254  
+(EngineCore pid=145) void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us     397.188us         0.00%     397.188us       1.042us           381  
+(EngineCore pid=145) void at::native::index_elementwise_kernel<128, 4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     344.548us         0.00%     344.548us       2.692us           128  
+(EngineCore pid=145)                                               aten::add         0.00%       6.025ms         0.01%       9.649ms      25.325us     305.635us         0.00%     305.635us       0.802us           381  
+(EngineCore pid=145)                                    cudaEventSynchronize        97.47%      138.404s        99.90%      141.855s     554.119ms     206.401us         0.00%       37.091s     144.889ms           256  
+(EngineCore pid=145) void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us     158.275us         0.00%     158.275us       1.246us           127  
+(EngineCore pid=145) void at::native::vectorized_gather_kernel<16, long>(...         0.00%       0.000us         0.00%       0.000us       0.000us     148.289us         0.00%     148.289us       1.168us           127  
+(EngineCore pid=145) void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us     145.282us         0.00%     145.282us       1.144us           127  
+(EngineCore pid=145) void at::native::vectorized_elementwise_kernel<2, at...         0.00%       0.000us         0.00%       0.000us       0.000us     131.585us         0.00%     131.585us       1.036us           127  
+(EngineCore pid=145) triton_poi_fused_mul_scaled_fp4_quant_sigmoid_view_z...         0.00%       0.000us         0.00%       0.000us       0.000us     121.345us         0.00%     121.345us       0.955us           127  
+(EngineCore pid=145)                                      triton_poi_fused_3         0.00%       0.000us         0.00%       0.000us       0.000us     100.320us         0.00%     100.320us       0.790us           127  
+(EngineCore pid=145)                          Memcpy DtoH (Device -> Pinned)         0.00%       0.000us         0.00%       0.000us       0.000us      78.176us         0.00%      78.176us       0.616us           127  
+(EngineCore pid=145) triton_poi_fused_mul_scaled_fp4_quant_sigmoid_view_z...         0.00%       0.000us         0.00%       0.000us       0.000us      72.704us         0.00%      72.704us       0.572us           127  
+(EngineCore pid=145)                                     cudaStreamWaitEvent         0.00%     286.528us         0.00%     286.528us       2.256us      68.321us         0.00%      68.321us       0.538us           127  
+(EngineCore pid=145)                                        Memset (Unknown)         0.00%       0.000us         0.00%       0.000us       0.000us      52.992us         0.00%      52.992us       0.414us           128  
+(EngineCore pid=145)                                   Lazy Function Loading         0.00%      42.704us         0.00%      42.704us      42.704us      34.400us         0.00%      34.400us      34.400us             1  
+(EngineCore pid=145) void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us       4.033us         0.00%       4.033us       0.807us             5  
+(EngineCore pid=145)                                          aten::scatter_         0.00%       1.870ms         0.00%       1.892ms       1.892ms       1.760us         0.00%       1.760us       1.760us             1  
+(EngineCore pid=145) void at::native::_scatter_gather_elementwise_kernel<...         0.00%       0.000us         0.00%       0.000us       0.000us       1.760us         0.00%       1.760us       1.760us             1  
+(EngineCore pid=145) void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us       0.736us         0.00%       0.736us       0.736us             1  
+(EngineCore pid=145)                    execute_context_0(0)_generation_4(4)         0.45%     642.500ms         2.46%        3.496s      27.745ms       0.000us         0.00%       36.179s     287.135ms           126  
+(EngineCore pid=145)                                             aten::slice         0.07%      95.267ms         0.09%     125.236ms       2.548us       0.000us         0.00%       0.000us       0.000us         49156  
+(EngineCore pid=145)                                        aten::as_strided         0.04%      57.199ms         0.04%      57.199ms       0.725us       0.000us         0.00%       0.000us       0.000us         78877  
+(EngineCore pid=145)                                         cudaMemcpyAsync         0.04%      52.784ms         0.04%      52.784ms      13.850us       0.000us         0.00%       0.000us       0.000us          3811  
+(EngineCore pid=145)                                        aten::lift_fresh         0.00%     245.410us         0.00%     245.410us       0.959us       0.000us         0.00%       0.000us       0.000us           256  
+(EngineCore pid=145)                                           aten::flatten         0.00%       1.085ms         0.00%       1.810ms      14.252us       0.000us         0.00%       0.000us       0.000us           127  
+(EngineCore pid=145)                                              aten::view         0.01%      19.410ms         0.01%      19.410ms       1.819us       0.000us         0.00%       0.000us       0.000us         10669  
+(EngineCore pid=145)                                      aten::index_select         0.00%       1.517ms         0.00%       1.517ms      11.946us       0.000us         0.00%       0.000us       0.000us           127  
+(EngineCore pid=145)                                            aten::detach         0.00%     938.136us         0.00%     938.136us       3.693us       0.000us         0.00%       0.000us       0.000us           254  
+(EngineCore pid=145)                                                aten::to         0.01%       9.723ms         0.03%      36.115ms       2.682us       0.000us         0.00%       2.211ms       0.164us         13466  
+(EngineCore pid=145)                                      aten::resolve_conj         0.00%      69.408us         0.00%      69.408us       0.273us       0.000us         0.00%       0.000us       0.000us           254  
+(EngineCore pid=145)                                       aten::resolve_neg         0.00%      32.832us         0.00%      32.832us       0.129us       0.000us         0.00%       0.000us       0.000us           254  
+(EngineCore pid=145)                                        cudaLaunchKernel         0.06%      84.124ms         0.06%      84.124ms      10.181us       0.000us         0.00%       0.000us       0.000us          8263  
+(EngineCore pid=145)                                           aten::reshape         0.00%     390.577us         0.00%       1.021ms       4.002us       0.000us         0.00%       0.000us       0.000us           255  
+(EngineCore pid=145)                                          aten::_to_copy         0.00%       4.194ms         0.02%      26.393ms      29.622us       0.000us         0.00%       2.211ms       2.482us           891  
+(EngineCore pid=145)                                     aten::empty_strided         0.01%      20.295ms         0.01%      21.117ms       7.225us       0.000us         0.00%       0.000us       0.000us          2923  
+(EngineCore pid=145)                                            aten::select         0.01%      16.319ms         0.01%      20.562ms       4.497us       0.000us         0.00%       0.000us       0.000us          4572  
+(EngineCore pid=145)                                                aten::lt         0.00%       1.072ms         0.00%       1.072ms       8.441us       0.000us         0.00%       0.000us       0.000us           127  
+(EngineCore pid=145)                                                aten::eq         0.00%       1.155ms         0.00%       2.775ms      21.848us       0.000us         0.00%       0.000us       0.000us           127  
+(EngineCore pid=145)                                               aten::sum         0.00%       1.752ms         0.00%       2.896ms      22.800us       0.000us         0.00%       0.000us       0.000us           127  
+(EngineCore pid=145)                                              aten::item         0.00%     341.282us         0.00%     521.140us       4.103us       0.000us         0.00%       0.000us       0.000us           127  
+(EngineCore pid=145)                               aten::_local_scalar_dense         0.00%     179.858us         0.00%     179.858us       1.416us       0.000us         0.00%       0.000us       0.000us           127  
+(EngineCore pid=145)                                       Pregraph bytecode         0.04%      53.233ms         0.04%      53.233ms     419.156us       0.000us         0.00%       0.000us       0.000us           127  
+(EngineCore pid=145) -------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+(EngineCore pid=145) Self CPU time total: 142.001s
+(EngineCore pid=145) Self CUDA time total: 141.773s
+(EngineCore pid=145) 
+(EngineCore pid=145) INFO 04-19 21:11:57 [wrapper.py:66] Profiler stopped successfully.
+(APIServer pid=1) INFO 04-19 21:11:57 [api_router.py:33] Profiler stopped.
+(APIServer pid=1) INFO:     127.0.0.1:33622 - "POST /stop_profile HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:12:01 [loggers.py:259] Engine 000: Avg prompt throughput: 6.9 tokens/s, Avg generation throughput: 0.1 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:35666 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:12:11 [loggers.py:259] Engine 000: Avg prompt throughput: 6.0 tokens/s, Avg generation throughput: 1.7 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:41850 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:12:21 [loggers.py:259] Engine 000: Avg prompt throughput: 11.9 tokens/s, Avg generation throughput: 1.6 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:47652 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:12:31 [loggers.py:259] Engine 000: Avg prompt throughput: 10.1 tokens/s, Avg generation throughput: 1.6 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:36732 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:12:41 [loggers.py:259] Engine 000: Avg prompt throughput: 5.7 tokens/s, Avg generation throughput: 1.6 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:54312 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:12:51 [loggers.py:259] Engine 000: Avg prompt throughput: 12.1 tokens/s, Avg generation throughput: 1.6 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:44370 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:13:01 [loggers.py:259] Engine 000: Avg prompt throughput: 9.4 tokens/s, Avg generation throughput: 1.6 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:53770 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO 04-19 21:13:11 [loggers.py:259] Engine 000: Avg prompt throughput: 8.4 tokens/s, Avg generation throughput: 1.6 tokens/s, Running: 1 reqs, Waiting: 0 reqs, GPU KV cache usage: 0.2%, Prefix cache hit rate: 0.0%
+(APIServer pid=1) INFO:     127.0.0.1:42258 - "POST /v1/completions HTTP/1.1" 200 OK

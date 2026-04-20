@@ -12,9 +12,18 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="${NVLLM_IMAGE:-nvllm:gb10-phaseD3a}"
 PORT=8000
-PRESETS=(prefill-legacy decode-balanced decode-small decode-narrow-grid)
+# NVLLM_PRESETS override: space-separated preset names; defaults to all 4.
+# Used by Phase A to run a single preset (gate 2) before the full sweep.
+if [ -n "${NVLLM_PRESETS:-}" ]; then
+  read -r -a PRESETS <<< "$NVLLM_PRESETS"
+else
+  PRESETS=(prefill-legacy decode-balanced decode-small decode-narrow-grid)
+fi
 
-SWEEP_DIR="$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_mlp_fusion/2026-04-19-phase-d3a-sweep"
+# NVLLM_SWEEP_DIR override: absolute path to the sweep output directory.
+# Phase A retargets this to a new date-stamped dir; the D3a default is
+# preserved for existing D3a reproduction.
+SWEEP_DIR="${NVLLM_SWEEP_DIR:-$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_mlp_fusion/2026-04-19-phase-d3a-sweep}"
 mkdir -p "$SWEEP_DIR"
 
 # Port preflight: catch an already-occupied port now rather than burning
@@ -160,8 +169,12 @@ run_preset() {
 }
 
 for preset in "${PRESETS[@]}"; do
-  if [ "$preset" = "prefill-legacy" ] && [ -d "$SWEEP_DIR/prefill-legacy" ] && [ -n "$(ls -A "$SWEEP_DIR/prefill-legacy" 2>/dev/null)" ]; then
-    echo "=== Skipping prefill-legacy (already captured) ==="
+  # NVLLM_SKIP_EXISTING=1 preserves existing preset dirs (D3a reuse); unset
+  # means always re-run (Phase A fresh sweep).
+  if [ "${NVLLM_SKIP_EXISTING:-0}" = "1" ] \
+      && [ -d "$SWEEP_DIR/$preset" ] \
+      && [ -n "$(ls -A "$SWEEP_DIR/$preset" 2>/dev/null)" ]; then
+    echo "=== Skipping $preset (already captured; NVLLM_SKIP_EXISTING=1) ==="
     continue
   fi
   run_preset "$preset"

@@ -1,0 +1,16 @@
+/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/torch/cuda/__init__.py:435: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  queued_call()
+============================================================
+Gate 0 — Phase D cute.compile+Constexpr pre-flight
+============================================================
+[0a] OK: Phase_D_MLP_Kernel imported (<class 'vllm.v1.attention.backends.cute_paged.mlp_kernel.Phase_D_MLP_Kernel'>)
+[0b] OK: constructed + eagerly compiled in 0.41s; self._compiled is populated
+[0c] OK: distinct module hashes per Constexpr tuple. k1=1 hash(es), k2 added 1 new hash(es). sample k1=<f8e1086ac4a11840...> sample k2=<629a24d2d9e8efc6...>
+[0d] OK: kernel invoked; output.isfinite().all()=True; output.abs().max()=0.0
+============================================================
+RESULT: ALL GATES PASSED
+============================================================
