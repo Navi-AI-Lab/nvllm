@@ -1,0 +1,29 @@
+[harness] torch 2.12.0.dev20260402+cu132
+[harness] cutlass-dsl 4.4.2
+[harness] CUDA device: NVIDIA GB10
+[harness] env CUTE_DSL_NO_CACHE=<unset>
+[harness] env CUTE_MLP_KEEP_PTX=<unset>
+[harness] env CUTE_MLP_TILE=<unset>
+[harness] constructing Phase_D_MLP_Kernel at Qwen3.5-27B dims
+[harness] constructed in 0.47s (D2e: lazy compile, no kernel work here; Phase A: eager compile runs inside __init__)
+[harness] _compiled state after __init__: set
+[harness] --- case zero_nat1 ---
+[harness] zero_nat1: nat=1 dt=26.5ms finite=True absmax=0 mean=0 sum=0 sumsq=0
+[harness] zero_nat1: saved /workdir/out/zero_nat1.pt (11831 B)
+[harness] --- case seed_nat1 ---
+[harness] seed_nat1: nat=1 dt=25.9ms finite=False absmax=nan mean=nan sum=nan sumsq=nan
+[harness] seed_nat1: saved /workdir/out/seed_nat1.pt (11831 B)
+[harness] --- case seed_nat8 ---
+[harness] seed_nat8: nat=8 dt=99.8ms finite=False absmax=nan mean=nan sum=nan sumsq=nan
+[harness] seed_nat8: saved /workdir/out/seed_nat8.pt (83511 B)
+[harness] --- case seed_nat1_repeat ---
+[harness] seed_nat1_repeat: nat=1 dt=25.8ms finite=False absmax=nan mean=nan sum=nan sumsq=nan
+[harness] seed_nat1_repeat: saved /workdir/out/seed_nat1_repeat.pt (11880 B)
+[harness] OK — all cases completed
+[harness] listing /workdir/out
+[harness]   env.txt  354
+[harness]   harness_stdout.txt  1028
+[harness]   seed_nat1.pt  11831
+[harness]   seed_nat1_repeat.pt  11880
+[harness]   seed_nat8.pt  83511
+[harness]   zero_nat1.pt  11831
