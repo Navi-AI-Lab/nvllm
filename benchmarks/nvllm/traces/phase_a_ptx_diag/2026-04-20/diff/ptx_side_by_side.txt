@@ -1,0 +1,5 @@
+# PTX diff: cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16_______________________CUstream_0x0.sm_121a.ptx vs cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__.sm_121a.ptx
+# d2e lines:     1905
+# phaseA lines:  1905
+# category counts (changed lines, D2e->Phase A):
+

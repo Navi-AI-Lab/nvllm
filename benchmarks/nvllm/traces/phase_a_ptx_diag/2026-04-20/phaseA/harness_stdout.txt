@@ -1,0 +1,133 @@
+[harness] torch 2.12.0.dev20260402+cu132
+[harness] nvidia_cutlass_dsl 4.4.2
+[harness] CUDA available: True
+[harness] device: NVIDIA GB10
+[harness] env CUTE_DSL_KEEP_PTX=1
+[harness] env CUTE_DSL_KEEP_IR=1
+[harness] env CUTE_DSL_KEEP_CUBIN=1
+[harness] env CUTE_DSL_DUMP_DIR=/workdir/ir_dump
+[harness] env CUTE_DSL_NO_CACHE=1
+[harness] env CUTE_DSL_ARCH=<unset>
+[harness] env CUTE_MLP_TILE=<unset>
+[harness] env CUTE_MLP_FUSION=1
+2026-04-20 14:26:42,630 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,630 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,630 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,639 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,640 - CUTE_DSL - INFO - [__init__] - Initializing CUTE_DSL DSL
+2026-04-20 14:26:42,640 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,641 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,641 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,642 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,642 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,642 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,642 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,642 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,642 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,642 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,644 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,647 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,647 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,648 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,649 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+[harness] constructing kernel at production dims
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,650 - CUTE_DSL - INFO - [jit_runner] - jit_runner
+2026-04-20 14:26:42,693 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,693 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,693 - CUTE_DSL - INFO - [run_preprocessor] - Started preprocessing [_jit_launch]
+2026-04-20 14:26:42,694 - CUTE_DSL - INFO - [transform_function] - ASTPreprocessor Transforming function [_jit_launch]
+2026-04-20 14:26:42,698 - CUTE_DSL - INFO - [exec] - ASTPreprocessor Executing transformed code for function [_jit_launch]
+2026-04-20 14:26:42,740 - CUTE_DSL - INFO - [mangle_name] - Final mangled function name: cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__
+2026-04-20 14:26:42,741 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,741 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,751 - CUTE_DSL - INFO - [_build_gpu_module] - self : <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>
+2026-04-20 14:26:42,751 - CUTE_DSL - INFO - [_build_gpu_module] - Building GPU module for CUTE_DSL
+2026-04-20 14:26:42,751 - CUTE_DSL - INFO - [_build_gpu_module] - GPU module: "gpu.module"() <{sym_name = "kernels"}> ({
+}) : () -> ()
+2026-04-20 14:26:42,753 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,753 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,754 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,754 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,754 - CUTE_DSL - INFO - [run_preprocessor] - Started preprocessing [_kernel]
+2026-04-20 14:26:42,760 - CUTE_DSL - INFO - [transform_function] - ASTPreprocessor Transforming function [_kernel]
+2026-04-20 14:26:42,778 - CUTE_DSL - INFO - [exec] - ASTPreprocessor Executing transformed code for function [_kernel]
+2026-04-20 14:26:42,779 - CUTE_DSL - INFO - [mangle_name] - Final mangled function name: cutlass__kernel_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensorptrbf16_gmem_o_1___________________
+2026-04-20 14:26:42,780 - CUTE_DSL - INFO - [_enter_gpu_module] - self: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>
+2026-04-20 14:26:42,780 - CUTE_DSL - INFO - [_enter_gpu_module] - Entering GPU module for CUTE_DSL
+2026-04-20 14:26:42,781 - CUTE_DSL - INFO - [_enter_gpu_module] - GPU module: "gpu.module"() <{sym_name = "kernels"}> ({
+^bb0:
+}) : () -> ()
+2026-04-20 14:26:42,797 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,797 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,797 - CUTE_DSL - INFO - [run_preprocessor] - Started preprocessing [_decode_ue4m3_u8_to_f32]
+2026-04-20 14:26:42,797 - CUTE_DSL - INFO - [transform_function] - ASTPreprocessor Transforming function [_decode_ue4m3_u8_to_f32]
+2026-04-20 14:26:42,797 - CUTE_DSL - INFO - [exec] - ASTPreprocessor Executing transformed code for function [_decode_ue4m3_u8_to_f32]
+2026-04-20 14:26:42,801 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,801 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,801 - CUTE_DSL - INFO - [run_preprocessor] - Started preprocessing [_fp4_nibble_to_f32]
+2026-04-20 14:26:42,802 - CUTE_DSL - INFO - [transform_function] - ASTPreprocessor Transforming function [_fp4_nibble_to_f32]
+2026-04-20 14:26:42,810 - CUTE_DSL - INFO - [exec] - ASTPreprocessor Executing transformed code for function [_fp4_nibble_to_f32]
+2026-04-20 14:26:42,817 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,817 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,817 - CUTE_DSL - INFO - [run_preprocessor] - Started preprocessing [shfl_xor_sync]
+2026-04-20 14:26:42,817 - CUTE_DSL - INFO - [transform_function] - ASTPreprocessor Transforming function [shfl_xor_sync]
+2026-04-20 14:26:42,817 - CUTE_DSL - INFO - [exec] - ASTPreprocessor Executing transformed code for function [shfl_xor_sync]
+2026-04-20 14:26:42,829 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:42,829 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:42,829 - CUTE_DSL - INFO - [run_preprocessor] - Started preprocessing [exp2_approx_ftz_f32]
+2026-04-20 14:26:42,829 - CUTE_DSL - INFO - [transform_function] - ASTPreprocessor Transforming function [exp2_approx_ftz_f32]
+2026-04-20 14:26:42,829 - CUTE_DSL - INFO - [exec] - ASTPreprocessor Executing transformed code for function [exp2_approx_ftz_f32]
+2026-04-20 14:26:42,920 - CUTE_DSL - INFO - [func_wrapper] - [JIT-TIMER] Function: build_ir_module | Execution Time: 168596.03 µs
+2026-04-20 14:26:42,920 - CUTE_DSL - INFO - [to_str] - `cute.compile` CompileOptions: options=opt-level=3  enable-assertions=false preserve-line-info=false dump-cubin-path='/workdir/ir_dump/cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__' dump-ptx-path='/workdir/ir_dump/cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__'     
+2026-04-20 14:26:42,922 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+2026-04-20 14:26:42,974 - CUTE_DSL - INFO - [get_module_hash] - Function=[cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__] Computed module_hash=[36ce9f217beacedc4c8d2bc9ee68f580751c97925c2e1fe1ff27a388dc48bade]
+2026-04-20 14:26:42,978 - CUTE_DSL - INFO - [to_str] - `cute.compile` CompileOptions: options=opt-level=3  enable-assertions=false preserve-line-info=false dump-cubin-path='/workdir/ir_dump/cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__' dump-ptx-path='/workdir/ir_dump/cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__'     
+2026-04-20 14:26:42,978 - CUTE_DSL - INFO - [compile_and_cache] - Jit cache hit rate=[0.000000%]
+2026-04-20 14:26:42,978 - CUTE_DSL - INFO - [compile_and_cache] - JIT cache miss function=[cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__] module_hash=[36ce9f217beacedc4c8d2bc9ee68f580751c97925c2e1fe1ff27a388dc48bade]
+2026-04-20 14:26:43,103 - CUTE_DSL - INFO - [func_wrapper] - [JIT-TIMER] Function: compile_and_jit | Execution Time: 124626.64 µs
+2026-04-20 14:26:43,122 - CUTE_DSL - INFO - [func_wrapper] - [JIT-TIMER] Function: lookup | Execution Time: 18771.41 µs
+[harness] constructed in 0.47s; _compiled=set
+[harness] allocated 143.5 MB on GPU
+[harness] invoking kernel (triggers compile on first call for D2e, noop-compile-already-done for Phase A)
+2026-04-20 14:26:43,129 - CUTE_DSL - INFO - [__call__] - DSLSingletonMeta __call__ for <class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>
+2026-04-20 14:26:43,130 - CUTE_DSL - INFO - [__call__] - Active DSL singleton instances: {<class 'cutlass.cutlass_dsl.cutlass.CuTeDSL'>: <cutlass.cutlass_dsl.cutlass.CuTeDSL object at 0xfeab14dddbe0>}
+2026-04-20 14:26:43,130 - CUTE_DSL - INFO - [func_wrapper] - [JIT-TIMER] Function: _get_invoke_packed_args | Execution Time: 18.12 µs
+2026-04-20 14:26:43,130 - CUTE_DSL - INFO - [func_wrapper] - [JIT-TIMER] C API Function: <CFunctionType object at 0xfeab15162690> | Execution Time: 16.21 µs
+[harness] compile+launch completed in 0.03s
+[harness] listing /workdir/ir_dump
+[harness]   cute_dsl_cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__.mlir  93680
+[harness]   cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__.sm_121a.cubin  47408
+[harness]   cutlass__jit_launch_vllmv1attentionbackendscute_pagedmlp_kernelPhase_D_MLP_Kernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16__________5120_17408_68_9_256_640_8_8__.sm_121a.ptx  59080
+[harness]   env.txt  316
+[harness]   harness_stdout.txt  13601
+[harness] OK
