@@ -40,9 +40,6 @@ from vllm.distributed import (
 from vllm.logger import init_logger
 from vllm.model_executor.layers.attention import Attention
 from vllm.model_executor.layers.fused_moe import SharedFusedMoE
-from vllm.model_executor.layers.layernorm import (
-    GemmaRMSNorm as Qwen3_5RMSNorm,
-)
 from vllm.model_executor.layers.linear import (
     QKVParallelLinear,
     RowParallelLinear,
@@ -75,9 +72,7 @@ from vllm.model_executor.models.interfaces import (
     SupportsPP,
     _require_is_multimodal,
 )
-from vllm.model_executor.models.qwen2_moe import Qwen2MoeMLP as Qwen3NextMLP
 from vllm.model_executor.models.qwen3_next import (
-    Qwen3NextRMSNorm,  # GemmaRMSNorm alias; used for q_norm/k_norm in Qwen3_5Attention
     Qwen3NextSparseMoeBlock,
     QwenNextMixtureOfExperts,
 )
@@ -99,6 +94,8 @@ from vllm.model_executor.models.utils import (
     maybe_prefix,
 )
 from vllm.multimodal import MULTIMODAL_REGISTRY
+from vllm.nvllm.layers.layernorm import Qwen3_5RMSNorm
+from vllm.nvllm.layers.mlp import Qwen3_5MLP
 from vllm.sequence import IntermediateTensors
 from vllm.transformers_utils.configs.qwen3_5 import (
     Qwen3_5Config,
@@ -202,8 +199,8 @@ class Qwen3_5Attention(nn.Module):
             else {},
         )
 
-        self.q_norm = Qwen3NextRMSNorm(self.head_dim, eps=config.rms_norm_eps)
-        self.k_norm = Qwen3NextRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.q_norm = Qwen3_5RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.k_norm = Qwen3_5RMSNorm(self.head_dim, eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -325,7 +322,7 @@ class Qwen3_5DecoderLayer(nn.Module):
                 prefix=f"{prefix}.mlp",
             )
         elif config.model_type == "qwen3_5_text":
-            self.mlp = Qwen3NextMLP(
+            self.mlp = Qwen3_5MLP(
                 hidden_size=config.hidden_size,
                 intermediate_size=config.intermediate_size,
                 hidden_act=config.hidden_act,
