@@ -195,9 +195,10 @@ def test_kernel_end_to_end_vs_reference() -> None:
     up_w_dq = _dequantize_packed_weight(up_fp4, up_scale, hidden)
     down_w_dq = _dequantize_packed_weight(down_fp4, down_scale, interm)
 
-    # Kernel buffers.
+    # Kernel buffers. `mlp_partial_fp32` is now [nat, slice_ctas, hidden]
+    # — deterministic-reduction fix 2026-04-20 (audit commit 16475223f).
     num_k_tiles = hidden // tile_k
-    mlp_partial_fp32 = torch.zeros(nat, hidden, device=device,
+    mlp_partial_fp32 = torch.zeros(nat, slice_ctas, hidden, device=device,
                                     dtype=torch.float32)
     mlp_arrival_count = torch.zeros(nat, num_k_tiles, device=device,
                                      dtype=torch.uint32)
@@ -236,7 +237,7 @@ def test_kernel_end_to_end_vs_reference() -> None:
         f"mean_abs_err={mean_err:.4e}\n"
         f"expected[0,:8]={expected[0, :8].tolist()}\n"
         f"got[0,:8]     ={mlp_output[0, :8].tolist()}\n"
-        f"partial[0,:8] ={mlp_partial_fp32[0, :8].tolist()}\n"
+        f"partial[0,0,:8]={mlp_partial_fp32[0, 0, :8].tolist()}\n"
         f"arrival_count ={mlp_arrival_count.tolist()}"
     )
     print(f"test_kernel_end_to_end_vs_reference PASSED "
@@ -302,7 +303,7 @@ def _run_e2e_kernel(
     down_w_dq = _dequantize_packed_weight(down_fp4, down_scale, interm)
 
     num_k_tiles = hidden // tile_k
-    mlp_partial_fp32 = torch.zeros(nat, hidden, device=device,
+    mlp_partial_fp32 = torch.zeros(nat, slice_ctas, hidden, device=device,
                                     dtype=torch.float32)
     mlp_arrival_count = torch.zeros(nat, num_k_tiles, device=device,
                                      dtype=torch.uint32)

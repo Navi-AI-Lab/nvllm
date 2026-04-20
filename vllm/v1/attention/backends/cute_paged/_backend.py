@@ -227,16 +227,31 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         max_num_seqs: int,
         hidden_dim: int,
         q_size: int,
+        total_ctas_per_seq: int,
         device: str | torch.device,
     ) -> None:
         """Allocate persistent fusion I/O buffers.
 
         Called during __init__ (before forward) so allocations don't
         interfere with vLLM V1's pre-allocated memory pool.
+
+        `total_ctas_per_seq` sizes the new per-CTA-slot staging axis in
+        `wo_output` — each attention CTA writes its Phase-B partial into
+        its own slot, and the last-arriving CTA per seq sums the slots
+        in fixed (cta_idx) order before Phase C reads the collapsed
+        row. This replaces the pre-2026-04-20 cross-CTA `atomicAdd_f32`
+        into a 2-D buffer, whose arrival-order non-determinism flipped
+        knife-edge argmax tokens on the Opus-distilled model (audit
+        commit 16475223f).
         """
+        # wo_output layout: [max_num_seqs, total_ctas_per_seq, hidden_dim].
+        # Slot 0 holds the final summed value after the last-CTA gather
+        # (Phase B.5 — see kernel.py); Phase C reads from slot 0.
         self.wo_output = torch.zeros(
-            max_num_seqs, hidden_dim, dtype=torch.float32, device=device
+            max_num_seqs, total_ctas_per_seq, hidden_dim,
+            dtype=torch.float32, device=device,
         )
+        self._fusion_total_ctas_per_seq = total_ctas_per_seq
         self.rmsnorm_output = torch.empty(
             max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
         )
@@ -251,14 +266,15 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
         )
 
-        # Phase D MLP fusion buffers. mlp_arrival_count is allocated lazily
-        # in attach_mlp_fusion once num_k_tiles is known from the kernel shape.
+        # Phase D MLP fusion buffers. Shape-defining axes (`slice_ctas`
+        # for `mlp_partial_fp32`, `num_k_tiles` for `mlp_arrival_count`)
+        # are both kernel-side constants resolved inside
+        # `attach_mlp_fusion` once the `Phase_D_MLP_Kernel` instance is
+        # constructed — so both are allocated lazily there, not here.
         self.mlp_output = torch.empty(
             max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
         )
-        self.mlp_partial_fp32 = torch.zeros(
-            max_num_seqs, hidden_dim, dtype=torch.float32, device=device
-        )
+        self.mlp_partial_fp32 = None
         self.mlp_arrival_count = None
 
     def attach_fusion(self, parent_layer: torch.nn.Module) -> None:
@@ -287,6 +303,9 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self_attn = parent_layer.self_attn
         q_size = self_attn.num_heads * self_attn.head_dim
         hidden_dim = self_attn.hidden_size
+        num_q_heads = self_attn.num_heads
+        num_kv_heads = self_attn.num_kv_heads
+        group_size = max(num_q_heads // max(num_kv_heads, 1), 1)
 
         try:
             from vllm.config import get_current_vllm_config
@@ -302,6 +321,20 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             )
             return
 
+        # Total CTAs per seq = num_q_tiles * num_kv_heads. The attention
+        # grid is (num_q_tiles, num_kv_heads, num_seqs); for our CuTe
+        # paged backend both the decode (cta_q=16) and prefill (cta_q=64)
+        # kernels launch with num_q_tiles = ceil(group_size / cta_q). The
+        # decode kernel has the smaller cta_q, so it produces the larger
+        # num_q_tiles; we use decode-cta_q=16 here as an upper-bound on
+        # the per-CTA staging slot count. 2026-04-20 deterministic-
+        # reduction fix — see audit commit 16475223f.
+        _CTA_Q_DECODE = 16
+        num_q_tiles_max = max(
+            (group_size + _CTA_Q_DECODE - 1) // _CTA_Q_DECODE, 1
+        )
+        total_ctas_per_seq = num_q_tiles_max * max(num_kv_heads, 1)
+
         # Store module refs, NOT tensor refs.
         self._o_proj_module = self_attn.o_proj
         self._post_norm_module = parent_layer.post_attention_layernorm
@@ -310,12 +343,18 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._fusion_max_num_seqs = max_num_seqs
         self._fusion_hidden_dim = hidden_dim
         self._fusion_q_size = q_size
+        self._fusion_num_q_heads = num_q_heads
+        self._fusion_num_kv_heads = num_kv_heads
+        self._fusion_total_ctas_per_seq = total_ctas_per_seq
 
         # Allocate buffers ONCE. Subsequent attach calls (should not happen
         # under single-instantiation, but defensive) are no-ops for
         # buffer allocation so CUDA-graph pointers stay stable (H3).
         if not hasattr(self, "wo_output"):
-            self._preallocate_fusion_buffers(max_num_seqs, hidden_dim, q_size, "cuda")
+            self._preallocate_fusion_buffers(
+                max_num_seqs, hidden_dim, q_size,
+                total_ctas_per_seq, "cuda",
+            )
 
         self._fusion_attached = True
         logger.info(
@@ -372,25 +411,24 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # isolate MLP-fusion correctness from attention-fusion state
         # handoff under CUDA-graph capture/replay.
         #
-        # Default flipped 2026-04-20 from "1" (fusion on) to "0" (fusion
-        # off): the fused-path kernels have per-request non-determinism
-        # from atomicAdd-style cross-CTA reductions, amplified to
-        # token-level output flips by the Opus-distilled model's
-        # knife-edge argmax margins. Q2 x5 in same server session at
-        # temperature=0 produced 4 different raw outputs with fusion on;
-        # 5x byte-identical correct "10" with fusion off. Evidence:
-        #   benchmarks/nvllm/traces/phase_a_gsm8k_repro/2026-04-20/summary.md
-        # Re-enable with CUTE_ATTN_FUSION=1 only for diagnostic / perf
-        # benchmarking; production serving must keep it off until the
-        # deterministic-reduction kernel fix lands. This entire fused
-        # codepath is kept as-is — do NOT delete it — so the kernel fix
-        # can re-enable it by flipping the default back.
-        if os.environ.get("CUTE_ATTN_FUSION", "0") != "1":
+        # Default re-flipped 2026-04-20 back to "1" (fusion on): the
+        # deterministic-reduction kernel fix (per-CTA slot + fixed-order
+        # gather — see audit commit 16475223f and Phase B diff-vs-ref
+        # evidence at benchmarks/nvllm/traces/phase_a_fused_reduction_fix/
+        # 2026-04-20/debug_fusion/) replaces the cross-CTA atomicAdd_f32
+        # that produced per-request non-determinism. Phase B kernel
+        # output now matches a Python `attn @ W_O.T` reference to BF16
+        # cast precision (1200/1200 close=True, diff max <= 0.0002).
+        # Set CUTE_ATTN_FUSION=0 only for isolation diagnostics; the
+        # entire fused codepath is intentionally kept inline (do not
+        # delete) so future diag flips are a one-env-var toggle.
+        if os.environ.get("CUTE_ATTN_FUSION", "1") != "1":
             logger.info(
-                "CuTe fusion: CUTE_ATTN_FUSION=%s (default 0 since "
-                "2026-04-20 due to fused-path non-determinism); "
+                "CuTe fusion: CUTE_ATTN_FUSION=%s (set 0 to isolate "
+                "attention; default 1 since 2026-04-20 after the "
+                "deterministic-reduction kernel fix); "
                 "layer=%s stays unbound (Python handles post-attn math).",
-                os.environ.get("CUTE_ATTN_FUSION", "0"),
+                os.environ.get("CUTE_ATTN_FUSION", "1"),
                 self._fusion_prefix,
             )
             self._fusion_bound = False
@@ -512,12 +550,21 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             return
 
         self._mlp_num_k_tiles = self._mlp_kernel.num_k_tiles
+        self._mlp_slice_ctas = self._mlp_kernel.slice_ctas
 
-        # Allocate arrival counter now that num_k_tiles is known. 2-D layout
-        # [max_num_seqs, num_k_tiles] matches the kernel-side assertion; the
-        # kernel consumes via data_ptr so the byte layout is unchanged
-        # (`token_idx * num_k_tiles + k_tile_id`).
+        # Allocate fusion buffers now that the kernel's shape-defining
+        # axes are known. 3-D `mlp_partial_fp32` layout [max_num_seqs,
+        # slice_ctas, hidden_dim]: each slice-CTA writes into its own
+        # `bx` slot (2026-04-20 deterministic-reduction fix — see
+        # audit commit 16475223f). 2-D arrival counter layout
+        # [max_num_seqs, num_k_tiles]; kernel consumes via data_ptr so
+        # the byte layout is (`token_idx * num_k_tiles + k_tile_id`).
         max_num_seqs = self._fusion_max_num_seqs
+        hidden_dim = self._fusion_hidden_dim
+        self.mlp_partial_fp32 = torch.zeros(
+            max_num_seqs, self._mlp_slice_ctas, hidden_dim,
+            dtype=torch.float32, device="cuda",
+        )
         self.mlp_arrival_count = torch.zeros(
             max_num_seqs, self._mlp_num_k_tiles,
             dtype=torch.int32, device="cuda",
@@ -724,9 +771,17 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         gate_buf = self.gate_buf if use_fusion else None
 
         # Zero accumulation buffers before kernel launch.
-        # Must happen before any CTA's atomicAdd — Python-side zero_()
-        # is ordered before the kernel by CUDA stream semantics.
-        # (Self-zero inside the kernel races across KV-head CTAs.)
+        # Python-side zero_() is ordered before the kernel by CUDA
+        # stream semantics; self-zero inside the kernel races across
+        # CTAs that all launch concurrently.
+        # 2026-04-20 deterministic-reduction fix: wo_output is now
+        # shape [max_num_seqs, total_ctas_per_seq, hidden_dim]. Each
+        # CTA writes its Phase-B partial into its own `cta_idx` slot
+        # (plain FP32 store). Zero-init keeps unused slots (beyond the
+        # runtime total_ctas for this launch) at 0 so the Phase B.5
+        # gather can sum up to the allocation bound without reading
+        # garbage. arrival_count still tracks "all CTAs arrived" for
+        # the last-CTA gather gate (audit commit 16475223f).
         if use_fusion:
             self.wo_output.zero_()
             self.arrival_count.zero_()
@@ -910,7 +965,10 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         attn = result[:nat].reshape(nat, -1).float()  # [nat, K]
         ref = attn @ W_dq.T  # [nat, N]
 
-        kernel_out = self.wo_output[:nat].float()
+        # 2026-04-20 deterministic-reduction fix: wo_output is now
+        # [max_num_seqs, total_ctas_per_seq, hidden_dim]; the summed
+        # value lives in slot 0 after Phase B.5 gather (audit 16475223f).
+        kernel_out = self.wo_output[:nat, 0].float()
         diff = (kernel_out - ref).abs()
         logger.info(
             "[CUTE_DEBUG_FUSION] layer=%s nat=%d phaseB  "

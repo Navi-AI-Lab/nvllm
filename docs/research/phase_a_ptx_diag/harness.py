@@ -78,7 +78,7 @@ def main() -> int:
     up_w_scale = alloc_zero((INTERM, HIDDEN // FP4_BLOCK_SIZE), torch.uint8)
     down_w_fp4 = alloc_zero((HIDDEN, INTERM // 2), torch.uint8)
     down_w_scale = alloc_zero((HIDDEN, INTERM // FP4_BLOCK_SIZE), torch.uint8)
-    mlp_partial_fp32 = alloc_zero((NAT, HIDDEN), torch.float32)
+    mlp_partial_fp32 = alloc_zero((NAT, SLICE_CTAS, HIDDEN), torch.float32)
     num_k_tiles = max(HIDDEN // TILE_K, 1)
     mlp_arrival_count = alloc_zero((NAT, num_k_tiles), torch.int32)
     mlp_output = alloc_zero((NAT, HIDDEN), torch.bfloat16)

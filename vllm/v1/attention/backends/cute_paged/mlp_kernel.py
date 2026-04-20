@@ -11,7 +11,7 @@ PHASE 3b SCOPE: end-to-end fused MLP for nat<=1.
         up_w_fp4, up_w_scale    (same layout as gate_w_*),
         down_w_fp4  [hidden, interm/2] u8,
         down_w_scale [hidden, interm/FP4_BLOCK_SIZE] u8,
-        mlp_partial_fp32 [nat, hidden] FP32 (zeroed by caller),
+        mlp_partial_fp32 [nat, slice_ctas, hidden] FP32 (zeroed by caller),
         mlp_arrival_count [nat, num_k_tiles] u32 (zeroed by caller),
         mlp_output [nat, hidden] BF16 (written by the last CTA only).
 
@@ -27,11 +27,19 @@ PHASE 3b SCOPE: end-to-end fused MLP for nat<=1.
               c. FC2 (for this CTA's k_tile=by, k rows [by*tile_k,
                  (by+1)*tile_k)): compute partial_k = dot(intermediate_slice,
                  down_w[k, s_start + :tile_s]) and atomicAdd into
-                 mlp_partial_fp32[token, k].
+                 mlp_partial_fp32[token, bx, k] — per-CTA slot keyed by
+                 the slice-group index `bx`, so cross-CTA reduction is
+                 deferred to the last-CTA gather (step 4). Within a CTA
+                 the atomicAdd target is unique per thread, so per-s
+                 accumulation is deterministic (program order).
         3. __threadfence(); thread 0 atomicInc(arrival_count[token, by]).
         4. If this was the last-arriving CTA (old == slice_ctas-1),
-           cooperatively read mlp_partial_fp32[token, k:k+tile_k],
-           cast to BF16, write to mlp_output.
+           cooperatively read mlp_partial_fp32[token, bx, k:k+tile_k]
+           for all bx in [0, slice_ctas), sum in constexpr bx order,
+           cast to BF16, write to mlp_output. Gather order is fixed
+           so the reduction is bit-identical across runs (fix for the
+           pre-2026-04-20 non-deterministic cross-CTA atomicAdd — see
+           audit commit 16475223f).
 
 Spec: docs/superpowers/specs/2026-04-17-unreal-kernel-phase-d-mlp-fusion-design.md
 
@@ -293,7 +301,10 @@ class Phase_D_MLP_Kernel:
       - gate_w_scale / up_w_scale: [interm, hidden // FP4_BLOCK_SIZE] u8
       - down_w_fp4: [hidden, interm // 2] u8
       - down_w_scale: [hidden, interm // FP4_BLOCK_SIZE] u8
-      - mlp_partial_fp32: [nat, hidden] FP32, zeroed by caller
+      - mlp_partial_fp32: [nat, slice_ctas, hidden] FP32, zeroed by caller
+        (slice_ctas-wide staging; each CTA atomic-adds into its own
+         `bx` slot; last-CTA epilogue gathers slots in constexpr order
+         for deterministic reduction — audit 16475223f)
       - mlp_arrival_count: [nat, num_k_tiles] u32, zeroed by caller
       - mlp_output: [nat, hidden] BF16, written by last CTA only
     """
@@ -403,7 +414,7 @@ class Phase_D_MLP_Kernel:
         up_w_scale: torch.Tensor,
         down_w_fp4: torch.Tensor,          # [hidden, interm//2] u8
         down_w_scale: torch.Tensor,        # [hidden, interm//16] u8 UE4M3
-        mlp_partial_fp32: torch.Tensor,    # [nat, hidden] FP32 (zeroed)
+        mlp_partial_fp32: torch.Tensor,    # [nat, slice_ctas, hidden] FP32 (zeroed)
         mlp_arrival_count: torch.Tensor,   # [nat, num_k_tiles] u32 (zeroed)
         mlp_output: torch.Tensor,          # [nat, hidden] BF16
         nat: int,
@@ -450,7 +461,13 @@ class Phase_D_MLP_Kernel:
         assert down_w_scale.shape == (
             self.hidden_size,
             self.intermediate_size // FP4_BLOCK_SIZE)
-        assert mlp_partial_fp32.shape == (nat, self.hidden_size)
+        assert mlp_partial_fp32.shape == (
+            nat, self.slice_ctas, self.hidden_size,
+        ), (
+            f"mlp_partial_fp32 expects [nat, slice_ctas, hidden]; "
+            f"got {tuple(mlp_partial_fp32.shape)} (nat={nat}, "
+            f"slice_ctas={self.slice_ctas}, hidden={self.hidden_size})"
+        )
         assert mlp_arrival_count.shape == (nat, self.num_k_tiles)
         assert mlp_output.shape == (nat, self.hidden_size)
 
@@ -1001,11 +1018,22 @@ class Phase_D_MLP_Kernel:
 
                     # Each thread atomic-adds its owned rows. Rows are
                     # disjoint across threads, so there's no race.
+                    # 2026-04-20: partial buffer is now [nat, slice_ctas,
+                    # hidden] — each CTA writes to its own `bx` slot so
+                    # the cross-CTA reduction becomes a deterministic
+                    # gather in the last-CTA epilogue (see audit commit
+                    # 16475223f / Option 1). Intra-CTA atomicAdd stays
+                    # for the per-s accumulation (same thread, same
+                    # address, program order → deterministic).
                     for r in cutlass.range_constexpr(rpt):
                         k_row_global = (
                             by * tile_k + row_base_local + Int32(r)
                         )
-                        partial_idx = bz * hidden + k_row_global
+                        partial_idx = (
+                            bz * slice_ctas * hidden
+                            + bx * hidden
+                            + k_row_global
+                        )
                         _atomic_add_f32(
                             partial_ptr + Int64(partial_idx) * Int64(4),
                             acc_list[r],
@@ -1095,7 +1123,12 @@ class Phase_D_MLP_Kernel:
                     # MLIR if-region for the first time, especially when
                     # a `const_expr` outer-branch has already defined
                     # the name in an alternate Python branch.
-                    partial_idx = bz * hidden + k_row_global
+                    # 2026-04-20: per-bx slot indexing — see Site M-A.
+                    partial_idx = (
+                        bz * slice_ctas * hidden
+                        + bx * hidden
+                        + k_row_global
+                    )
                     if thread_in_row == Int32(0):
                         _atomic_add_f32(
                             partial_ptr + Int64(partial_idx) * Int64(4),
@@ -1138,6 +1171,9 @@ class Phase_D_MLP_Kernel:
                 #     simply iterate.
                 #   Path B (tile_k < num_threads): only first tile_k
                 #     threads write one row each.
+                # 2026-04-20: deterministic reduction — gather each
+                # `bx` slot in constexpr index order and sum. Sum order
+                # is fixed, so output is bit-identical across runs.
                 if cutlass.const_expr(self._threads_per_row == 1):
                     rpt = self._rows_per_thread
                     rows_per_thread = Int32(rpt)
@@ -1146,28 +1182,45 @@ class Phase_D_MLP_Kernel:
                         k_row_global = (
                             by * tile_k + row_base_local + Int32(r)
                         )
-                        partial_idx = bz * hidden + k_row_global
-                        val_f32 = _ld_global_f32(
-                            partial_ptr + Int64(partial_idx) * Int64(4)
-                        )
+                        output_idx = bz * hidden + k_row_global
+                        val_f32 = Float32(0.0)
+                        for bx_i in cutlass.range_constexpr(
+                            self.slice_ctas
+                        ):
+                            slot_idx = (
+                                bz * slice_ctas * hidden
+                                + Int32(bx_i) * hidden
+                                + k_row_global
+                            )
+                            val_f32 = val_f32 + _ld_global_f32(
+                                partial_ptr + Int64(slot_idx) * Int64(4)
+                            )
                         _st_global_bf16_from_f32(
-                            output_ptr + Int64(partial_idx) * Int64(2),
+                            output_ptr + Int64(output_idx) * Int64(2),
                             val_f32,
                         )
                 else:
                     # Path B: only first tile_k threads write. Pre-
-                    # declare val_f32/partial_idx outside the dynamic
+                    # declare val_f32/output_idx outside the dynamic
                     # if-region so CuTe's typed-if tracking sees the
                     # types before the inner body.
                     k_row_global = by * tile_k + tid
-                    partial_idx = bz * hidden + k_row_global
+                    output_idx = bz * hidden + k_row_global
                     val_f32 = Float32(0.0)
                     if tid < tile_k:
-                        val_f32 = _ld_global_f32(
-                            partial_ptr + Int64(partial_idx) * Int64(4)
-                        )
+                        for bx_i in cutlass.range_constexpr(
+                            self.slice_ctas
+                        ):
+                            slot_idx = (
+                                bz * slice_ctas * hidden
+                                + Int32(bx_i) * hidden
+                                + k_row_global
+                            )
+                            val_f32 = val_f32 + _ld_global_f32(
+                                partial_ptr + Int64(slot_idx) * Int64(4)
+                            )
                         _st_global_bf16_from_f32(
-                            output_ptr + Int64(partial_idx) * Int64(2),
+                            output_ptr + Int64(output_idx) * Int64(2),
                             val_f32,
                         )
 

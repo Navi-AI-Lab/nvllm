@@ -1552,9 +1552,17 @@ if _CUTE_AVAILABLE:
                 # wo_output is zeroed by Python (impl.wo_output.zero_())
                 # before kernel launch — CUDA stream ordering guarantees
                 # the memset completes before any CTA runs.
-                # Self-zero inside the kernel is NOT safe: multiple
-                # KV-head CTAs (grid.y) write the same rows, and plain
-                # stores race with other CTAs' atomicAdd.
+                # Self-zero inside the kernel is NOT safe: CTAs launch
+                # in indeterminate order and a CTA's own slot must be
+                # the zero baseline before it writes, not some other
+                # CTA's slot mid-write.
+                # 2026-04-20 deterministic-reduction fix: wo_output is
+                # [num_seqs, total_ctas_per_seq, hd_wo] — each CTA
+                # writes into its own `(bx, by)`-indexed slot (plain
+                # FP32 stores, no atomicAdd). The cross-CTA reduction
+                # becomes a deterministic gather inside the Phase C
+                # last-CTA branch (Phase B.5 below) — see audit commit
+                # 16475223f.
 
                 # Attention output: [num_seqs, num_q_heads, head_dim] BF16
                 # This CTA covers heads [q_head_start .. q_head_start+group_size-1]
@@ -1650,51 +1658,64 @@ if _CUTE_AVAILABLE:
 
                         k_idx = k_idx + Int32(1)
 
-                    # atomicAdd accumulators to global FP32 output buffer
-                    wo_out_base = wo_output_ptr + Int64(
-                        seq_idx * hd_wo * Int32(4))
+                    # Plain FP32 stores into this CTA's per-slot slice of
+                    # wo_output. 2026-04-20 deterministic-reduction fix:
+                    # wo_output is now shaped [num_seqs, total_ctas_per_seq,
+                    # hd_wo] so every CTA owns a distinct slot keyed by
+                    # `cta_idx = bx * num_kv_heads + by` (the flattened
+                    # (num_q_tiles, num_kv_heads) grid index). Within a
+                    # CTA all (tid, _out_group, _oi) rows are disjoint,
+                    # so plain stores are race-free. The cross-CTA
+                    # reduction is deferred to Phase B.5 (last-CTA
+                    # gather) — see audit commit 16475223f.
+                    cta_idx = bx * num_kv_heads + by
+                    wo_slot_base = wo_output_ptr + Int64(
+                        (seq_idx * total_ctas_per_seq + cta_idx)
+                        * hd_wo * Int32(4))
                     for _oi in cutlass.range_constexpr(8):
                         out_row = out_base + Int32(_oi)
                         if out_row < hd_wo:
                             if _oi == 0:
-                                _atomic_add_f32(
-                                    wo_out_base + Int64(
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
                                         out_row * Int32(4)), a0)
                             if _oi == 1:
-                                _atomic_add_f32(
-                                    wo_out_base + Int64(
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
                                         out_row * Int32(4)), a1)
                             if _oi == 2:
-                                _atomic_add_f32(
-                                    wo_out_base + Int64(
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
                                         out_row * Int32(4)), a2)
                             if _oi == 3:
-                                _atomic_add_f32(
-                                    wo_out_base + Int64(
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
                                         out_row * Int32(4)), a3)
                             if _oi == 4:
-                                _atomic_add_f32(
-                                    wo_out_base + Int64(
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
                                         out_row * Int32(4)), a4)
                             if _oi == 5:
-                                _atomic_add_f32(
-                                    wo_out_base + Int64(
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
                                         out_row * Int32(4)), a5)
                             if _oi == 6:
-                                _atomic_add_f32(
-                                    wo_out_base + Int64(
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
                                         out_row * Int32(4)), a6)
                             if _oi == 7:
-                                _atomic_add_f32(
-                                    wo_out_base + Int64(
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
                                         out_row * Int32(4)), a7)
 
             # ═══════════════════════════════════════════════════
-            # Phase C: Residual Add + RMSNorm (last CTA only)
+            # Phase B.5 + C: Gather + Residual Add + RMSNorm (last CTA only)
             # ═══════════════════════════════════════════════════
-            # After Phase B's atomicAdd accumulates partial W_O sums from
-            # all CTAs, the last CTA to arrive runs the fused residual add
-            # + RMSNorm. Other CTAs return early.
+            # After Phase B's per-CTA plain stores, the last CTA to
+            # arrive runs (a) a deterministic gather-collapse of all
+            # slots into slot 0 — Phase B.5 — and (b) the fused residual
+            # add + RMSNorm over slot 0 — Phase C. Other CTAs return
+            # early.
             #
             # Game engine parallel: "deferred shading resolve" — after
             # tile-local light accumulation, one tile does the final
@@ -1705,8 +1726,8 @@ if _CUTE_AVAILABLE:
             # Qwen3.5-27B (hidden_dim=5120). Models with different
             # hidden_dim would need this adjusted.
             if rmsnorm_fused != Int32(0):
-                # Fence: ensure all Phase B atomicAdd writes are
-                # globally visible before any CTA reads them
+                # Fence: ensure all Phase B per-CTA slot writes are
+                # globally visible before the gather reads them.
                 _threadfence()
 
                 # Arrival counter: only thread 0 of each CTA bumps it,
@@ -1733,11 +1754,17 @@ if _CUTE_AVAILABLE:
                     hd_c = hidden_dim
                     n_per_thr_c = hd_c // Int32(128)  # 40 for 5120
 
-                    # Base pointers for this sequence
+                    # Base pointers for this sequence.
+                    # 2026-04-20 deterministic-reduction fix: wo_output
+                    # is now [num_seqs, total_ctas_per_seq, hd_c]. Slot
+                    # 0 holds the collapsed sum produced by Phase B.5
+                    # (the gather loop below); Phase C reads from slot
+                    # 0 — see audit commit 16475223f.
                     res_base = rmsnorm_residual_ptr + Int64(
                         seq_idx * hd_c * Int32(2))  # BF16 = 2 bytes
                     wo_base_c = wo_output_ptr + Int64(
-                        seq_idx * hd_c * Int32(4))  # FP32 = 4 bytes
+                        seq_idx * total_ctas_per_seq
+                        * hd_c * Int32(4))  # FP32 = 4 bytes; slot 0
                     gamma_base = rmsnorm_gamma_ptr  # [hidden_dim] BF16
                     out_base_c = rmsnorm_output_ptr + Int64(
                         seq_idx * hd_c * Int32(2))  # BF16 output
@@ -1745,6 +1772,41 @@ if _CUTE_AVAILABLE:
                         seq_idx * hd_c * Int32(2))  # BF16 output
 
                     my_start_c = tid * n_per_thr_c
+
+                    # ── Phase B.5: gather per-CTA slots into slot 0 ──
+                    # All 128 threads participate; each owns 40 rows
+                    # (n_per_thr_c). For each row, sum across CTA slots
+                    # (`cta_i = 0 .. total_ctas_per_seq - 1`) in index
+                    # order and write back to slot 0. Sum order is
+                    # fixed, so the reduction is bit-identical across
+                    # runs (fixes the pre-2026-04-20 cross-CTA
+                    # atomicAdd_f32 non-determinism). Subsequent Phase
+                    # C passes 1 and 3 read wo_base_c (= slot 0) as
+                    # before.
+                    for _grp in cutlass.range_constexpr(5):
+                        for _ei in cutlass.range_constexpr(8):
+                            idx_c = my_start_c + Int32(_grp * 8 + _ei)
+                            # my_start_c <= 127*40 = 5080, _grp*8+_ei
+                            # <= 39, idx_c <= 5119 < hd_c=5120 — no
+                            # bounds check needed for Qwen3.5-27B.
+                            gather_acc = Float32(0.0)
+                            cta_i = Int32(0)
+                            while cta_i < total_ctas_per_seq:
+                                slot_addr = wo_output_ptr + Int64(
+                                    (seq_idx * total_ctas_per_seq + cta_i)
+                                    * hd_c * Int32(4)
+                                    + idx_c * Int32(4))
+                                gather_acc = gather_acc + _ld_global_f32(
+                                    slot_addr)
+                                cta_i = cta_i + Int32(1)
+                            _st_global_f32(
+                                wo_base_c + Int64(idx_c * Int32(4)),
+                                gather_acc,
+                            )
+                    # Fence so Phase C's reads see the collapsed slot-0
+                    # writes (cross-warp within this CTA).
+                    _threadfence()
+                    cute.arch.sync_threads()
 
                     # ── Pass 1: Residual add + sum-of-squares ──
                     # Re-reads from global in Pass 3 — NO SMEM staging.
@@ -1856,7 +1918,7 @@ if _CUTE_AVAILABLE:
             wo_weight = kwargs.get("wo_weight", None)       # [N, K/2] uint8
             wo_scales = kwargs.get("wo_scales", None)        # [N, K_sf] fp8
             wo_global_scale = kwargs.get("wo_global_scale", None)  # scalar
-            wo_output = kwargs.get("wo_output", None)        # [num_seqs, N]
+            wo_output = kwargs.get("wo_output", None)        # [num_seqs, total_ctas_per_seq, N] f32 (deterministic stage + gather; slot 0 holds final sum)
 
             # Phase C: RMSNorm fusion params (optional)
             rmsnorm_gamma = kwargs.get("rmsnorm_gamma", None)       # [hidden_dim] BF16
@@ -2159,7 +2221,7 @@ def paged_attention_forward(
     wo_weight: torch.Tensor | None = None,       # [N, K/2] uint8
     wo_scales: torch.Tensor | None = None,        # [N, K_sf] fp8_e4m3fn
     wo_global_scale: torch.Tensor | None = None,  # scalar f32
-    wo_output: torch.Tensor | None = None,        # [num_seqs, N] f32
+    wo_output: torch.Tensor | None = None,        # [num_seqs, total_ctas_per_seq, N] f32 (deterministic stage + gather; slot 0 holds final sum)
     # Phase C: RMSNorm fusion (optional)
     rmsnorm_gamma: torch.Tensor | None = None,       # [hidden_dim] BF16
     rmsnorm_residual: torch.Tensor | None = None,    # [num_seqs, hidden_dim] BF16
