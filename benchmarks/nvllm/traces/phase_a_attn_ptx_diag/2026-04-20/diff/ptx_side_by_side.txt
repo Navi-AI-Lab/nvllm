@@ -1,0 +1,5 @@
+# PTX diff: cutlass__jit_launch_vllmv1attentionbackendscute_pagedkernelDecodeKernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16___tensor0_0_0_0_devicecuda0_dtypetorchint32_tens.sm_121a.ptx vs cutlass__jit_launch_vllmv1attentionbackendscute_pagedkernelDecodeKernel_object_at__tensor0_0_0_0_0_0_devicecuda0_dtypetorchbfloat16___tensor0_0_0_0_devicecuda0_dtypetorchint32_tens.sm_121a.ptx
+# d2e lines:     68520
+# phaseA lines:  68520
+# category counts (changed lines, D2e->Phase A):
+
