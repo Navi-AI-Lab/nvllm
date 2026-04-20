@@ -370,12 +370,27 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # attention kernel takes its non-fused path, and Python handles
         # gate+o_proj + post_attention_layernorm for every step. Used to
         # isolate MLP-fusion correctness from attention-fusion state
-        # handoff under CUDA-graph capture/replay. Default: attention
-        # fusion stays on.
-        if os.environ.get("CUTE_ATTN_FUSION", "1") == "0":
+        # handoff under CUDA-graph capture/replay.
+        #
+        # Default flipped 2026-04-20 from "1" (fusion on) to "0" (fusion
+        # off): the fused-path kernels have per-request non-determinism
+        # from atomicAdd-style cross-CTA reductions, amplified to
+        # token-level output flips by the Opus-distilled model's
+        # knife-edge argmax margins. Q2 x5 in same server session at
+        # temperature=0 produced 4 different raw outputs with fusion on;
+        # 5x byte-identical correct "10" with fusion off. Evidence:
+        #   benchmarks/nvllm/traces/phase_a_gsm8k_repro/2026-04-20/summary.md
+        # Re-enable with CUTE_ATTN_FUSION=1 only for diagnostic / perf
+        # benchmarking; production serving must keep it off until the
+        # deterministic-reduction kernel fix lands. This entire fused
+        # codepath is kept as-is — do NOT delete it — so the kernel fix
+        # can re-enable it by flipping the default back.
+        if os.environ.get("CUTE_ATTN_FUSION", "0") != "1":
             logger.info(
-                "CuTe fusion: CUTE_ATTN_FUSION=0 diagnostic override; "
+                "CuTe fusion: CUTE_ATTN_FUSION=%s (default 0 since "
+                "2026-04-20 due to fused-path non-determinism); "
                 "layer=%s stays unbound (Python handles post-attn math).",
+                os.environ.get("CUTE_ATTN_FUSION", "0"),
                 self._fusion_prefix,
             )
             self._fusion_bound = False

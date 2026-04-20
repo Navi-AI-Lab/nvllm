@@ -70,6 +70,7 @@ docker run -d \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -e CUTE_DEBUG_FUSION="${CUTE_DEBUG_FUSION:-0}" \
   -e CUTE_MLP_FUSION="${CUTE_MLP_FUSION:-0}" \
+  -e CUTE_ATTN_FUSION="${CUTE_ATTN_FUSION:-0}" \
   -e CUTE_DEBUG_MLP_FUSION="${CUTE_DEBUG_MLP_FUSION:-0}" \
   "$NVLLM_IMAGE" \
   serve \
