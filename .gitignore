@@ -267,3 +267,8 @@ __pycache__/
 ab_results/
 training/
 scripts/local/
+
+# Local-only archive: orphan Phase D1/D2 iteration traces (450 MB) parked
+# here while waiting for the "final clean" after the fused-MLP kernel is
+# shipping cleanly. Not traced by git. See .archive/README.md.
+.archive/
