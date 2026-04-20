@@ -1,0 +1,12 @@
+  Q1: OK  expected=72  got=72  (12.3s)
+  Q2: WRONG  expected=10  got=50  (12.3s)
+  Q3: OK  expected=5  got=5  (12.6s)
+  Q4: OK  expected=42  got=42  (12.5s)
+  Q5: OK  expected=624  got=624  (12.2s)
+  Q6: OK  expected=35  got=35  (12.6s)
+  Q7: OK  expected=48  got=48  (12.4s)
+  Q8: OK  expected=16  got=16  (12.4s)
+
+GSM8K sanity: 7/8 (87%)
+Verdict: PASS
+Saved to /home/natfii/docker/nvllm/benchmarks/nvllm/traces/phase_a_gsm8k_repro/2026-04-20/d2e/gsm8k.json

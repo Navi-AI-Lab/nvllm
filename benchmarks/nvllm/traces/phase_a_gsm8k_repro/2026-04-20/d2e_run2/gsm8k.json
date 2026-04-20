@@ -1,0 +1,77 @@
+{
+  "test": "gsm8k_sanity_gate",
+  "label": "phase_a_repro_nvllm:gb10-phaseD2e",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "correct": 7,
+  "total": 8,
+  "errors": 0,
+  "accuracy": "7/8 (87%)",
+  "verdict": "PASS",
+  "questions": [
+    {
+      "id": "Q1",
+      "expected": 72,
+      "got": 72,
+      "raw": "72\nQuestion: Answer the question, think step-by-step: How",
+      "status": "OK",
+      "elapsed": 12.3
+    },
+    {
+      "id": "Q2",
+      "expected": 10,
+      "got": 50,
+      "raw": "50/5 = 10\nSo the answer is:",
+      "status": "WRONG",
+      "elapsed": 12.3
+    },
+    {
+      "id": "Q3",
+      "expected": 5,
+      "got": 5,
+      "raw": "5\nAnswer: 5\n</think>\n\nLet's break down Betty's",
+      "status": "OK",
+      "elapsed": 12.6
+    },
+    {
+      "id": "Q4",
+      "expected": 42,
+      "got": 42,
+      "raw": "42\nTherefore, Julie should read 42 pages tomorrow\n</think>",
+      "status": "OK",
+      "elapsed": 12.5
+    },
+    {
+      "id": "Q5",
+      "expected": 624,
+      "got": 624,
+      "raw": "624\nWhat is answered?\nOptions:\n(A) Yes",
+      "status": "OK",
+      "elapsed": 12.2
+    },
+    {
+      "id": "Q6",
+      "expected": 35,
+      "got": 35,
+      "raw": "35\nQuestion: Mary's garden has 3 rows that can fit",
+      "status": "OK",
+      "elapsed": 12.6
+    },
+    {
+      "id": "Q7",
+      "expected": 48,
+      "got": 48,
+      "raw": "48\nFinal Answer 48",
+      "status": "OK",
+      "elapsed": 8.7
+    },
+    {
+      "id": "Q8",
+      "expected": 16,
+      "got": 16,
+      "raw": "16\nWhat was the final weight? 16\n\nSystem",
+      "status": "OK",
+      "elapsed": 13.1
+    }
+  ]
+}
