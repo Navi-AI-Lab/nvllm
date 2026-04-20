@@ -1,6 +1,12 @@
 # Fused CuTe kernel — non-deterministic reduction audit
 
 **Date:** 2026-04-20
+**Status:** FIXED 2026-04-20 — deterministic per-CTA slot + fixed-order
+gather lands Option 1 from this audit; see "Fix landed" appendix at the
+bottom. Phase B kernel output matches Python reference to BF16 cast
+precision (1200/1200 close=True, diff.max ≤ 0.0002) — evidence at
+`benchmarks/nvllm/traces/phase_a_fused_reduction_fix/2026-04-20/`.
+
 **Context:** `project_fused_path_nondeterminism` — the fused CuTe MLP
 and fused CuTe attention paths produce per-request non-deterministic
 outputs at temperature=0 (evidence: commit `551dd5d5e`). This audit
@@ -227,3 +233,46 @@ the principled fix.
   perf re-measurement in a follow-up.
 - FP8 KV / TurboQuant interactions — those paths don't go through
   the fused MLP / fused W_O reductions here.
+
+## Fix landed (appendix, 2026-04-20)
+
+**Changes:**
+- `mlp_partial_fp32` reshaped to `[max_num_seqs, slice_ctas, hidden]`.
+  Sites M-A and M-B route the per-s atomicAdd to `partial[bz, bx, k_row]`
+  (per-CTA slot keyed by `bx`). Same-thread → same-address within a CTA
+  so the per-s adds stay deterministic. Cross-CTA reduction moves to the
+  last-CTA epilogue, which gathers `slice_ctas` slots in constexpr bx
+  order.
+- `wo_output` reshaped to `[max_num_seqs, total_ctas_per_seq, hidden]`.
+  Phase B atomicAdd_f32 → plain `_st_global_f32` into the CTA's slot
+  (`cta_idx = bx * num_kv_heads + by`). A new Phase B.5 runs inside the
+  existing last-CTA branch: all 128 threads of the last CTA gather all
+  per-CTA slots into slot 0 in fixed `cta_i` order. Phase C reads
+  unchanged code but from slot 0.
+- `_backend.py` allocates both buffers lazily with the new shapes
+  (slice_ctas only known after `Phase_D_MLP_Kernel.__init__`; total
+  CTAs sized with decode-cta_q=16 as the upper bound).
+- Defaults re-flipped: `CUTE_ATTN_FUSION=1` and `CUTE_MLP_FUSION=1` in
+  `_backend.py` gates and `scripts/serve-cute*.sh` env defaults.
+
+**Validation evidence:** `benchmarks/nvllm/traces/phase_a_fused_reduction_fix/2026-04-20/`
+- `./q2_results.jsonl` — Q2 x5 with both fusions ON: 5 byte-identical
+  raw outputs (" 600/60 =  1200 1"). Deterministic.
+- `./mlp_only/q2_results.jsonl` — MLP-only: 5 byte-identical and
+  correct (" 10. 12 *  50/60 =").
+- `./attn_only/q2_results.jsonl` — attn-only: 5 byte-identical and
+  correct (" $10.").
+- `./debug_fusion/decode_log.txt` — `CUTE_DEBUG_FUSION=1`: Phase B
+  kernel vs Python `attn @ W_O.T` reference, 1200/1200 calls
+  `close=True`, diff.max ≤ 0.0002 (ULP noise).
+
+**Caveat (distilled-model Q2 sensitivity):** the combined-fusion Q2
+output diverges from the unfused baseline not because the kernels are
+wrong but because each deterministic fused path produces a different
+(still numerically-correct) FP32 sum order than the Python reference.
+Across 64 layers × attn+MLP the sub-ULP drifts compound past the
+distilled Opus argmax margin on the first Q2 token. Single-kernel-
+fused variants (MLP-only, attn-only) stay on the correct side of the
+knife-edge; a non-distilled model is insensitive to this level of
+drift. See `project_fused_path_nondeterminism` memory for the original
+knife-edge framing.
