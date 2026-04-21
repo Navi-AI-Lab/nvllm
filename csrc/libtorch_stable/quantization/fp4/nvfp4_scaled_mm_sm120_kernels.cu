@@ -34,6 +34,17 @@
 
 using namespace cute;
 
+// NVTX tagging for nsys trace correlation (best-effort — if nvtx3 is unavailable
+// at compile time, fall back to no-op so production builds don't break).
+#if __has_include(<nvtx3/nvToolsExt.h>)
+  #include <nvtx3/nvToolsExt.h>
+  #define NVLLM_NVTX_RANGE(name_cstr) nvtxRangePushA(name_cstr)
+  #define NVLLM_NVTX_RANGE_POP() nvtxRangePop()
+#else
+  #define NVLLM_NVTX_RANGE(name_cstr) ((void)0)
+  #define NVLLM_NVTX_RANGE_POP() ((void)0)
+#endif
+
 #define CHECK_TYPE(x, st, m)             \
   STD_TORCH_CHECK(x.scalar_type() == st, \
                   ": Inconsistency of torch::stable::Tensor type:", m)
@@ -246,6 +257,9 @@ void cutlass_fp4_bf16_gemm_dispatch(torch::stable::Tensor& D,
                                     torch::stable::Tensor const& B_sf,
                                     torch::stable::Tensor const& alpha, int m,
                                     int n, int k, cudaStream_t stream) {
+  char nvtx_name[64];
+  snprintf(nvtx_name, sizeof(nvtx_name), "fp4_gemm_bf16 M=%d N=%d K=%d", m, n, k);
+  NVLLM_NVTX_RANGE(nvtx_name);
   uint32_t const mp2 = next_pow_2(m);
   if (mp2 <= 16) {
     // Stream-K for small-M decode: better SM utilization at M=1-4
@@ -258,6 +272,7 @@ void cutlass_fp4_bf16_gemm_dispatch(torch::stable::Tensor& D,
     runGemm<Fp4GemmSm120<sm120_fp4_config_default, cutlass::bfloat16_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   }
+  NVLLM_NVTX_RANGE_POP();
 }
 
 void cutlass_fp4_f16_gemm_dispatch(torch::stable::Tensor& D,
@@ -267,6 +282,9 @@ void cutlass_fp4_f16_gemm_dispatch(torch::stable::Tensor& D,
                                    torch::stable::Tensor const& B_sf,
                                    torch::stable::Tensor const& alpha, int m,
                                    int n, int k, cudaStream_t stream) {
+  char nvtx_name[64];
+  snprintf(nvtx_name, sizeof(nvtx_name), "fp4_gemm_f16 M=%d N=%d K=%d", m, n, k);
+  NVLLM_NVTX_RANGE(nvtx_name);
   uint32_t const mp2 = next_pow_2(m);
   if (mp2 <= 16) {
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::half_t>::Gemm>(
@@ -278,6 +296,7 @@ void cutlass_fp4_f16_gemm_dispatch(torch::stable::Tensor& D,
     runGemm<Fp4GemmSm120<sm120_fp4_config_default, cutlass::half_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   }
+  NVLLM_NVTX_RANGE_POP();
 }
 
 void cutlass_scaled_fp4_mm_sm120a(torch::stable::Tensor& D,
