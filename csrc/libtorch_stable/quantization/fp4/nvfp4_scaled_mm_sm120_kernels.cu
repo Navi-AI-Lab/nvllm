@@ -45,6 +45,18 @@ using namespace cute;
   #define NVLLM_NVTX_RANGE_POP() ((void)0)
 #endif
 
+#include <cstdlib>  // std::getenv
+
+// Runtime disable of the Stream-K small-M dispatch, for Phase A baseline
+// capture without a full source-edit rebuild. Unset env var (or "0") = use
+// Stream-K as current production; any non-"0" value = skip Stream-K, fall
+// through to the M256 config for M<=16 (the pre-Stream-K behavior).
+// Checked once per dispatch call — cheap enough, not hot enough to cache.
+static inline bool nvllm_fp4_disable_streamk() {
+  const char* v = std::getenv("NVLLM_FP4_GEMM_DISABLE_STREAMK");
+  return v && v[0] != '\0' && v[0] != '0';
+}
+
 #define CHECK_TYPE(x, st, m)             \
   STD_TORCH_CHECK(x.scalar_type() == st, \
                   ": Inconsistency of torch::stable::Tensor type:", m)
@@ -261,7 +273,7 @@ void cutlass_fp4_bf16_gemm_dispatch(torch::stable::Tensor& D,
   snprintf(nvtx_name, sizeof(nvtx_name), "fp4_gemm_bf16 M=%d N=%d K=%d", m, n, k);
   NVLLM_NVTX_RANGE(nvtx_name);
   uint32_t const mp2 = next_pow_2(m);
-  if (mp2 <= 16) {
+  if (mp2 <= 16 && !nvllm_fp4_disable_streamk()) {
     // Stream-K for small-M decode: better SM utilization at M=1-4
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::bfloat16_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
@@ -286,7 +298,7 @@ void cutlass_fp4_f16_gemm_dispatch(torch::stable::Tensor& D,
   snprintf(nvtx_name, sizeof(nvtx_name), "fp4_gemm_f16 M=%d N=%d K=%d", m, n, k);
   NVLLM_NVTX_RANGE(nvtx_name);
   uint32_t const mp2 = next_pow_2(m);
-  if (mp2 <= 16) {
+  if (mp2 <= 16 && !nvllm_fp4_disable_streamk()) {
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::half_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else if (mp2 <= 256) {
