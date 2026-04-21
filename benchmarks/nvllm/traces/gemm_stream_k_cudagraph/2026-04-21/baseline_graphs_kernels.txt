@@ -1,0 +1,98 @@
+# Pre-Stream-K baseline + CUDA graphs trace kernel extraction
+# Source: baseline_graphs.pt.trace.json.gz (170.5 MB gzipped, local-only)
+# Model: ig1/Qwen3.5-27B-NVFP4, triton_attn, PIECEWISE CUDA graphs
+# Gate: NVLLM_FP4_GEMM_DISABLE_STREAMK=1 (M<=16 falls through to M256 config)
+# Workload: 30 warmup + 30 timed requests at concurrency 4, max_tokens 256, ignore_eos=True
+# Profiler: torch + CUPTI, active_iterations=600
+
+Total trace events: 10,445,600
+Distinct GPU kernels: 80
+FP4/CUTLASS-related kernels: 10
+
+==================================================================================================================================
+TOP 30 GPU KERNELS BY TOTAL MS
+==================================================================================================================================
+_ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniversalIN4cute5tupleIJiiiiEEENS1_10collective13CollectiveMmaINS1_42...
+    n= 328,800 mean=   326.542us  p50=   278.529us  p95=   497.123us  total=   107366.99ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_...
+    n=  97,584 mean=   675.299us  p50=   669.028us  p95=   711.301us  total=    65898.40ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_...
+    n= 197,216 mean=   270.448us  p50=   280.450us  p95=   324.386us  total=    53336.58ms
+fused_recurrent_gated_delta_rule_packed_decode_kernel
+    n=  97,920 mean=    61.792us  p50=    66.080us  p95=    68.609us  total=     6050.69ms
+kernel_unified_attention_3d
+    n=  32,640 mean=    14.083us  p50=    13.536us  p95=    22.272us  total=      459.67ms
+void vllm::cvt_fp16_to_fp4<__nv_bfloat16, false>(int, int, int, __nv_bfloat16 const*, float const*, unsigned int*, un...
+    n= 197,280 mean=     2.065us  p50=     2.048us  p95=     2.272us  total=      407.45ms
+std::enable_if<!(false), void>::type internal::gemvx::kernel<int, int, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, f...
+    n=   1,015 mean=   395.869us  p50=   245.250us  p95=   659.300us  total=      401.81ms
+_causal_conv1d_update_kernel
+    n=  97,920 mean=     3.630us  p50=     3.616us  p95=     4.032us  total=      355.43ms
+nvjet_sm121_tst_mma_192x64x64_3_192x8x64_tmaAB_bz_TNNN
+    n=     336 mean=   806.195us  p50=   803.717us  p95=   844.229us  total=      270.88ms
+void vllm::silu_mul_cvt_fp16_to_fp4<__nv_bfloat16, false>(int, int, int, __nv_bfloat16 const*, float const*, unsigned...
+    n= 131,520 mean=     1.985us  p50=     1.952us  p95=     2.176us  total=      261.09ms
+nvjet_sm121_tst_mma_128x96x64_3_64x24x64_tmaAB_bz_TNNN
+    n=     336 mean=   737.873us  p50=   734.213us  p95=   779.940us  total=      247.93ms
+triton_red_fused__to_copy_add_copy__mean_mul_pow_rsqrt_4
+    n=  98,640 mean=     2.499us  p50=     2.464us  p95=     2.656us  total=      246.52ms
+triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_3
+    n=  98,640 mean=     2.278us  p50=     2.240us  p95=     2.464us  total=      224.72ms
+triton_poi_fused_5
+    n= 129,465 mean=     1.346us  p50=     0.800us  p95=     3.328us  total=      174.24ms
+triton_per_fused_1
+    n=  98,640 mean=     1.700us  p50=     1.632us  p95=     2.240us  total=      167.71ms
+triton_poi_fused_0
+    n= 131,520 mean=     0.944us  p50=     0.928us  p95=     1.088us  total=      124.12ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_...
+    n=     336 mean=   313.549us  p50=   312.577us  p95=   325.474us  total=      105.35ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_...
+    n=     336 mean=   299.350us  p50=   295.553us  p95=   322.338us  total=      100.58ms
+triton_poi_fused__to_copy__unsafe_view_add_clone_mean_mm_mul_pow_rsqrt_silu_t_view_2
+    n=  98,640 mean=     0.909us  p50=     0.864us  p95=     1.056us  total=       89.67ms
+triton_red_fused__to_copy_add_copy__mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_4
+    n=  32,880 mean=     2.490us  p50=     2.464us  p95=     2.656us  total=       81.88ms
+reduce_segments
+    n=  32,640 mean=     2.368us  p50=     2.368us  p95=     2.688us  total=       77.30ms
+triton_poi_fused_zeros_6
+    n=  96,585 mean=     0.726us  p50=     0.672us  p95=     1.024us  total=       70.13ms
+triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_2
+    n=  32,880 mean=     2.021us  p50=     1.984us  p95=     2.176us  total=       66.44ms
+chunk_gated_delta_rule_fwd_kernel_h_blockdim64
+    n=     720 mean=    86.426us  p50=    76.449us  p95=   105.441us  total=       62.23ms
+_compute_slot_mapping_kernel
+    n=   8,220 mean=     7.425us  p50=     7.296us  p95=     8.480us  total=       61.03ms
+triton_poi_fused__to_copy_add_cat_clone_mean_mul_pow_rsqrt_slice_split_split_with_sizes_sub_unsqueeze_view_8
+    n=  32,880 mean=     1.747us  p50=     1.728us  p95=     1.920us  total=       57.43ms
+reshape_and_cache_kernel_flash
+    n=  32,880 mean=     1.717us  p50=     1.600us  p95=     2.240us  total=       56.46ms
+void at::native::vectorized_gather_kernel<16, long>(char*, char*, long*, int, long, long, long, long, bool)
+    n=   2,768 mean=    18.686us  p50=     1.184us  p95=    78.528us  total=       51.72ms
+void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_put_kernel_impl<at::...
+    n=     720 mean=    71.073us  p50=    54.720us  p95=    98.753us  total=       51.17ms
+triton_poi_fused__to_copy_add_cat_mean_mul_pow_rsqrt_slice_split_split_with_sizes_sub_unsqueeze_view_10
+    n=  32,880 mean=     1.536us  p50=     1.536us  p95=     1.664us  total=       50.50ms
+
+==================================================================================================================================
+FP4/CUTLASS GEMM KERNELS ONLY
+==================================================================================================================================
+_ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniversalIN4cute5tupleIJiiiiEEENS1_10collective13CollectiveMmaINS1_42...
+    n= 328,800 mean=   326.542us  p50=   278.529us  p95=   497.123us  total=   107366.99ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_...
+    n=  97,584 mean=   675.299us  p50=   669.028us  p95=   711.301us  total=    65898.40ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_...
+    n= 197,216 mean=   270.448us  p50=   280.450us  p95=   324.386us  total=    53336.58ms
+void vllm::cvt_fp16_to_fp4<__nv_bfloat16, false>(int, int, int, __nv_bfloat16 const*, float const*, unsigned int*, un...
+    n= 197,280 mean=     2.065us  p50=     2.048us  p95=     2.272us  total=      407.45ms
+void vllm::silu_mul_cvt_fp16_to_fp4<__nv_bfloat16, false>(int, int, int, __nv_bfloat16 const*, float const*, unsigned...
+    n= 131,520 mean=     1.985us  p50=     1.952us  p95=     2.176us  total=      261.09ms
+triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_3
+    n=  98,640 mean=     2.278us  p50=     2.240us  p95=     2.464us  total=      224.72ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_...
+    n=     336 mean=   313.549us  p50=   312.577us  p95=   325.474us  total=      105.35ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_...
+    n=     336 mean=   299.350us  p50=   295.553us  p95=   322.338us  total=      100.58ms
+triton_red_fused__to_copy_add_copy__mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_4
+    n=  32,880 mean=     2.490us  p50=     2.464us  p95=     2.656us  total=       81.88ms
+triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_2
+    n=  32,880 mean=     2.021us  p50=     1.984us  p95=     2.176us  total=       66.44ms

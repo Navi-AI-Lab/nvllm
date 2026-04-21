@@ -33,6 +33,17 @@ echo "  Image:     $IMAGE"
 echo "  Container: $CONTAINER (port $PORT)"
 echo "  Output:    $OUT_DIR"
 
+# Mode-specific env: baseline disables Stream-K via the runtime gate so we
+# can capture the pre-Stream-K dispatcher behavior (M<=16 falls through to
+# M256 config) in the same image as streamk.
+EXTRA_ENV_ARGS=()
+if [ "$MODE" = "baseline" ]; then
+  EXTRA_ENV_ARGS+=(-e NVLLM_FP4_GEMM_DISABLE_STREAMK=1)
+  echo "  Gate:      NVLLM_FP4_GEMM_DISABLE_STREAMK=1 (Stream-K DISABLED for baseline)"
+else
+  echo "  Gate:      (none — Stream-K active per production default)"
+fi
+
 # Bounded profiler window — /start_profile kicks it off, then after
 # active_iterations model steps the profiler auto-finalizes and flushes.
 # This avoids /stop_profile hanging on a huge trace serialization.
@@ -52,6 +63,7 @@ docker run -d \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  "${EXTRA_ENV_ARGS[@]}" \
   "$IMAGE" \
   serve \
   --model ig1/Qwen3.5-27B-NVFP4 \
