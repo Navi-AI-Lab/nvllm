@@ -128,3 +128,10 @@ def test_check_mode_matches_committed_header():
         "--check",
     ])
     assert proc.returncode == 0, f"Committed header is stale. stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    # Paranoid second gate: the committed winners.json should also be up-to-date
+    # (regenerated every time the header is).
+    assert WINNERS_JSON.exists(), f"winners.json missing: {WINNERS_JSON}"
+    data = json.loads(WINNERS_JSON.read_text())
+    assert data["model_tag"] == "qwen35_27b"
+    for shape in ("qkv_proj", "o_proj", "gate_up_proj", "down_proj"):
+        assert shape in data["by_shape"], f"winners.json missing shape: {shape}"
