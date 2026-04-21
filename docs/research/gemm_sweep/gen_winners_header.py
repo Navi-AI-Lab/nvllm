@@ -25,8 +25,6 @@ from pathlib import Path
 BUCKETS = ["16-32", "64-128", "192-256"]  # 1-8 is the Stream-K band — skipped.
 SHAPE_ORDER = ["qkv_proj", "o_proj", "gate_up_proj", "down_proj"]  # stable emission order
 
-STRUCT_IDX_RE = re.compile(r"struct ShortlistCfg_(\d+)\b")
-
 
 def _load_shortlist(p: Path) -> dict:
     data = json.loads(p.read_text())
