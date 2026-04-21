@@ -1,0 +1,108 @@
+# Stream-K + CUDA graphs trace kernel extraction
+# Source: streamk_graphs.pt.trace.json.gz (174.4 MB gzipped, local-only)
+# Model: ig1/Qwen3.5-27B-NVFP4, triton_attn, PIECEWISE CUDA graphs
+# Workload: 30 warmup + 30 timed requests at concurrency 4, max_tokens 256, ignore_eos=True
+# Profiler: torch + CUPTI, active_iterations=600
+
+Total trace events: 10,487,780
+Distinct GPU kernels: 82
+FP4/CUTLASS-related kernels: 11
+NVTX user_annotation fp4_gemm tags: 0
+GPU user_annotation entries: 7
+
+==================================================================================================================================
+TOP 30 GPU KERNELS BY TOTAL MS
+==================================================================================================================================
+_ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniversalIN4cute5tupleIJiiiiEEENS1_10collective13CollectiveMmaINS1_42...
+    n= 326,400 mean=   289.560us  p50=   233.587us  p95=   440.221us  total=    94512.48ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_...
+    n=  97,632 mean=   669.796us  p50=   662.546us  p95=   703.157us  total=    65393.53ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_...
+    n= 197,312 mean=   268.157us  p50=   281.267us  p95=   313.531us  total=    52910.56ms
+fused_recurrent_gated_delta_rule_packed_decode_kernel
+    n=  97,920 mean=    61.515us  p50=    65.862us  p95=    67.749us  total=     6023.52ms
+_ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniversalIN4cute5tupleIJiiiiEEENS1_10collective13CollectiveMmaINS1_42...
+    n=   2,240 mean=   346.362us  p50=   289.688us  p95=   542.789us  total=      775.85ms
+kernel_unified_attention_3d
+    n=  32,640 mean=    14.243us  p50=    13.633us  p95=    22.658us  total=      464.89ms
+void vllm::cvt_fp16_to_fp4<__nv_bfloat16, false>(int, int, int, __nv_bfloat16 const*, float const*, unsigned int*, un...
+    n= 197,184 mean=     2.074us  p50=     2.048us  p95=     2.304us  total=      408.92ms
+_causal_conv1d_update_kernel
+    n=  97,920 mean=     3.632us  p50=     3.616us  p95=     4.033us  total=      355.67ms
+std::enable_if<!(false), void>::type internal::gemvx::kernel<int, int, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, f...
+    n=     870 mean=   393.953us  p50=   243.604us  p95=   653.684us  total=      342.74ms
+nvjet_sm121_tst_mma_192x64x64_3_192x8x64_tmaAB_bz_TNNN
+    n=     336 mean=   795.130us  p50=   792.970us  p95=   828.941us  total=      267.16ms
+void vllm::silu_mul_cvt_fp16_to_fp4<__nv_bfloat16, false>(int, int, int, __nv_bfloat16 const*, float const*, unsigned...
+    n= 131,456 mean=     1.984us  p50=     1.952us  p95=     2.208us  total=      260.79ms
+triton_red_fused__to_copy_add_copy__mean_mul_pow_rsqrt_4
+    n=  98,592 mean=     2.505us  p50=     2.464us  p95=     2.688us  total=      246.96ms
+triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_3
+    n=  98,592 mean=     2.286us  p50=     2.240us  p95=     2.464us  total=      225.40ms
+nvjet_sm121_tst_mma_128x96x64_3_64x24x64_tmaAB_bz_TNNN
+    n=     288 mean=   724.565us  p50=   719.421us  p95=   767.844us  total=      208.67ms
+triton_poi_fused_5
+    n= 129,402 mean=     1.350us  p50=     0.800us  p95=     3.329us  total=      174.65ms
+triton_per_fused_1
+    n=  98,592 mean=     1.710us  p50=     1.664us  p95=     2.208us  total=      168.56ms
+triton_poi_fused_0
+    n= 131,456 mean=     0.950us  p50=     0.928us  p95=     1.120us  total=      124.91ms
+triton_poi_fused__to_copy__unsafe_view_add_clone_mean_mm_mul_pow_rsqrt_silu_t_view_2
+    n=  98,592 mean=     0.912us  p50=     0.864us  p95=     1.056us  total=       89.93ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_...
+    n=     288 mean=   307.577us  p50=   306.745us  p95=   320.955us  total=       88.58ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_...
+    n=     288 mean=   293.181us  p50=   291.766us  p95=   309.851us  total=       84.44ms
+triton_red_fused__to_copy_add_copy__mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_4
+    n=  32,864 mean=     2.489us  p50=     2.464us  p95=     2.624us  total=       81.81ms
+reduce_segments
+    n=  32,640 mean=     2.415us  p50=     2.432us  p95=     2.785us  total=       78.83ms
+triton_poi_fused_zeros_6
+    n=  96,538 mean=     0.721us  p50=     0.672us  p95=     0.992us  total=       69.61ms
+triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_2
+    n=  32,864 mean=     2.027us  p50=     1.984us  p95=     2.177us  total=       66.61ms
+_compute_slot_mapping_kernel
+    n=   8,216 mean=     7.443us  p50=     7.329us  p95=     8.480us  total=       61.15ms
+chunk_gated_delta_rule_fwd_kernel_h_blockdim64
+    n=     672 mean=    86.632us  p50=    94.280us  p95=   127.564us  total=       58.22ms
+reshape_and_cache_kernel_flash
+    n=  32,864 mean=     1.610us  p50=     1.505us  p95=     2.144us  total=       52.92ms
+void at::native::vectorized_gather_kernel<16, long>(char*, char*, long*, int, long, long, long, long, bool)
+    n=   2,720 mean=    17.707us  p50=     1.217us  p95=    75.846us  total=       48.16ms
+void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_put_kernel_impl<at::...
+    n=     672 mean=    69.135us  p50=    73.190us  p95=   104.041us  total=       46.46ms
+triton_poi_fused_10
+    n=  32,864 mean=     1.341us  p50=     1.280us  p95=     1.632us  total=       44.06ms
+
+==================================================================================================================================
+FP4/CUTLASS GEMM KERNELS ONLY
+==================================================================================================================================
+_ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniversalIN4cute5tupleIJiiiiEEENS1_10collective13CollectiveMmaINS1_42...
+    n= 326,400 mean=   289.560us  p50=   233.587us  p95=   440.221us  total=    94512.48ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_...
+    n=  97,632 mean=   669.796us  p50=   662.546us  p95=   703.157us  total=    65393.53ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_...
+    n= 197,312 mean=   268.157us  p50=   281.267us  p95=   313.531us  total=    52910.56ms
+_ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniversalIN4cute5tupleIJiiiiEEENS1_10collective13CollectiveMmaINS1_42...
+    n=   2,240 mean=   346.362us  p50=   289.688us  p95=   542.789us  total=      775.85ms
+void vllm::cvt_fp16_to_fp4<__nv_bfloat16, false>(int, int, int, __nv_bfloat16 const*, float const*, unsigned int*, un...
+    n= 197,184 mean=     2.074us  p50=     2.048us  p95=     2.304us  total=      408.92ms
+void vllm::silu_mul_cvt_fp16_to_fp4<__nv_bfloat16, false>(int, int, int, __nv_bfloat16 const*, float const*, unsigned...
+    n= 131,456 mean=     1.984us  p50=     1.952us  p95=     2.208us  total=      260.79ms
+triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_3
+    n=  98,592 mean=     2.286us  p50=     2.240us  p95=     2.464us  total=      225.40ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_...
+    n=     288 mean=   307.577us  p50=   306.745us  p95=   320.955us  total=       88.58ms
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_...
+    n=     288 mean=   293.181us  p50=   291.766us  p95=   309.851us  total=       84.44ms
+triton_red_fused__to_copy_add_copy__mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_4
+    n=  32,864 mean=     2.489us  p50=     2.464us  p95=     2.624us  total=       81.81ms
+triton_red_fused__to_copy_add_mean_mul_pow_rsqrt_scaled_fp4_quant_zeros_2
+    n=  32,864 mean=     2.027us  p50=     1.984us  p95=     2.177us  total=       66.61ms
+
+==================================================================================================================================
+NVTX fp4_gemm M-TAG DETECTION (lives in cat=user_annotation; GPU propagation in gpu_user_annotation)
+==================================================================================================================================
+NO fp4_gemm NVTX ranges found. NVTX __has_include probably fell back to no-op in the container.
+This is SURVIVABLE — kernel μs are still usable via the kernel-name symbol approach; M-bucketing
+will rely on shape-implied M in downstream analysis.

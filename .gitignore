@@ -272,3 +272,10 @@ scripts/local/
 # here while waiting for the "final clean" after the fused-MLP kernel is
 # shipping cleanly. Not traced by git. See .archive/README.md.
 .archive/
+
+# GEMM sweep raw profiler traces — local-only due to size (>100 MB each, vs
+# AGENTS.md §4 typical 5-20 MB). Per-kernel μs summaries are committed as
+# *_kernels.txt alongside; raw traces are reproducible via
+# docs/research/gemm_sweep/capture_phase_a_trace.sh and the B.2.3 orchestrator.
+benchmarks/nvllm/traces/gemm_stream_k_cudagraph/**/*.pt.trace.json.gz
+benchmarks/nvllm/traces/gemm_sweep_sm120/**/*.pt.trace.json.gz
