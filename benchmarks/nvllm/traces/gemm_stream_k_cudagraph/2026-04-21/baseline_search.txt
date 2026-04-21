@@ -1,0 +1,39 @@
+Phase A baseline trace search — 2026-04-21
+============================================
+
+STREAM_K_BASELINE_FOUND: no
+
+If yes, path(s):
+  (none)
+
+If no, Task A.4 is required to regenerate.
+
+Searched paths:
+  - benchmarks/nvllm/traces/**/*.md
+
+Keywords: stream.?k, streamk, baseline
+
+Reasoning / notes:
+  - Only one hit on "stream-k" in all committed trace summaries:
+      benchmarks/nvllm/traces/cute_fusion/2026-04-17-phase-bc-fused/summary.md:40
+    That line is forward-looking ("target of all future perf work (stream-K
+    tuning, persistent kernel, better tile schedulers)"). It is NOT a
+    pre-Stream-K CUDA-graphs GEMM baseline — it simply cites NVFP4 CUTLASS
+    GEMM as the dominant decode-time consumer and names stream-K as future
+    work. No μs numbers for a non-Stream-K GEMM variant appear.
+  - All other "baseline" hits refer to unrelated baselines:
+      * FlashInfer / triton_attn vs CuTe paged attention
+        (cute_paged_attn/, flashinfer_baseline/)
+      * CuTe fusion Phase B/C baseline (cute_fusion/2026-04-17-*)
+      * Phase D MLP-fusion baselines (cute_paged_mlp_fusion/, phase_a_*)
+      * Determinism/unfused baselines (cute_fusion_determinism/)
+    None of these are a Qwen3.5-27B-NVFP4 NVFP4-GEMM graphs-on capture
+    with the pre-Stream-K CUTLASS config loaded.
+  - The +12.7% Stream-K decode-GEMM result referenced in memory
+    (project_cutlass_tuning) was measured in eager mode and was not
+    committed as an nsys trace under benchmarks/nvllm/traces/, so it does
+    not qualify as a CUDA-graphs baseline either.
+
+Conclusion: Task A.4 must regenerate a pre-Stream-K CUDA-graphs baseline
+trace on Qwen3.5-27B-NVFP4 before Phase B tile/schedule sweeps can be
+compared against the current Stream-K config under graphs.
