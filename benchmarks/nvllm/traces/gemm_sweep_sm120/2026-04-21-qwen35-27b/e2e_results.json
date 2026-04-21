@@ -1,0 +1,88 @@
+{
+  "results": [
+    {
+      "idx": 0,
+      "config_id": "Cfg_128x128x128_TmaWSCoop_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 920.664103269577
+    },
+    {
+      "idx": 1,
+      "config_id": "Cfg_128x128x128_TmaWSPing_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 926.9749600887299
+    },
+    {
+      "idx": 2,
+      "config_id": "Cfg_128x128x256_Auto_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 936.5899729728699
+    },
+    {
+      "idx": 3,
+      "config_id": "Cfg_128x128x256_TmaWSCoop_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 931.4857819080353
+    },
+    {
+      "idx": 4,
+      "config_id": "Cfg_128x128x256_TmaWSCoop_SK",
+      "status": "ok",
+      "note": "",
+      "elapsed": 944.3235383033752
+    },
+    {
+      "idx": 5,
+      "config_id": "Cfg_128x128x256_TmaWSPing_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 924.8202819824219
+    },
+    {
+      "idx": 6,
+      "config_id": "Cfg_128x256x128_Auto_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 919.4453473091125
+    },
+    {
+      "idx": 7,
+      "config_id": "Cfg_128x256x128_TmaWSCoop_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 909.5728924274445
+    },
+    {
+      "idx": 8,
+      "config_id": "Cfg_128x256x128_TmaWSCoop_SK",
+      "status": "ok",
+      "note": "",
+      "elapsed": 914.3916263580322
+    },
+    {
+      "idx": 9,
+      "config_id": "Cfg_256x128x128_Auto_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 914.0664114952087
+    },
+    {
+      "idx": 10,
+      "config_id": "Cfg_256x128x128_TmaWSCoop_Pers",
+      "status": "ok",
+      "note": "",
+      "elapsed": 908.7536013126373
+    },
+    {
+      "idx": 11,
+      "config_id": "smoke_M256",
+      "status": "ok",
+      "note": "",
+      "elapsed": 907.6956303119659
+    }
+  ]
+}

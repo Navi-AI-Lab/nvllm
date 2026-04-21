@@ -284,3 +284,7 @@ benchmarks/nvllm/traces/gemm_sweep_sm120/**/*.pt.trace.json.gz
 # deliverable per docs/superpowers/plans/2026-04-21-gemm-sweep.md success
 # criterion #2. Narrow path so repo-wide *.csv rule still applies elsewhere.
 !benchmarks/nvllm/traces/gemm_sweep_sm120/**/*.csv
+
+# Also carve out *.json under the GEMM sweep evidence dir (sibling to the
+# earlier *.csv exception).
+!benchmarks/nvllm/traces/gemm_sweep_sm120/**/*.json
