@@ -26,6 +26,7 @@
 #include "cutlass/util/packed_stride.hpp"
 
 #include "configs.hpp"
+// NOTE: main_dispatch.hpp is included AFTER run_one is defined, below.
 
 // --------------------------------------------------------------------------
 // Small CUDA error-check helper.
@@ -241,6 +242,10 @@ double run_one(int M, int N, int K, int warmup, int timed) {
   return min_us;
 }
 
+// Include generated dispatcher AFTER run_one<> is defined so its template
+// instantiations in main_dispatch.hpp see the definition.
+#include "main_dispatch.hpp"
+
 // --------------------------------------------------------------------------
 // main — parse <config_name> <M> <N> <K>, dispatch, print CSV row.
 // --------------------------------------------------------------------------
@@ -248,7 +253,8 @@ int main(int argc, char** argv) {
   if (argc != 5) {
     std::fprintf(stderr,
                  "Usage: %s <config_name> <M> <N> <K>\n"
-                 "  config_name: smoke_M256 (only one for B.1.1)\n",
+                 "  config_name: smoke_M256 or any Cfg_<TM>x<TN>x<TK>_<Sched>_<TileSched>\n"
+                 "               from configs_generated.hpp\n",
                  argv[0]);
     return 1;
   }
@@ -267,12 +273,9 @@ int main(int argc, char** argv) {
   constexpr int kWarmup = 10;
   constexpr int kTimed  = 100;
 
-  double min_us = -1.0;
-  if (cfg_name == "smoke_M256") {
-    min_us = run_one<SmokeConfig>(M, N, K, kWarmup, kTimed);
-  } else {
-    std::fprintf(stderr, "Unknown config_name: %s (B.1.1 only supports smoke_M256)\n",
-                 cfg_name.c_str());
+  double min_us = dispatch_config(cfg_name.c_str(), M, N, K, kWarmup, kTimed);
+  if (min_us == -2.0) {
+    std::fprintf(stderr, "Unknown config_name: %s\n", cfg_name.c_str());
     return 1;
   }
 

@@ -104,3 +104,10 @@ struct GemmFactory {
 // --------------------------------------------------------------------------
 
 using SmokeConfig = GemmFactory<smoke_M256_config>;
+
+// --------------------------------------------------------------------------
+// Generated configs (12 tiles x 4 schedules x 2 schedulers, illegal combos
+// pre-skipped by gen_configs.py). Regenerate with:
+//   .venv/bin/python docs/research/gemm_sweep/microbench/gen_configs.py
+// --------------------------------------------------------------------------
+#include "configs_generated.hpp"
