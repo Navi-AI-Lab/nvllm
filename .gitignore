@@ -279,3 +279,8 @@ scripts/local/
 # docs/research/gemm_sweep/capture_phase_a_trace.sh and the B.2.3 orchestrator.
 benchmarks/nvllm/traces/gemm_stream_k_cudagraph/**/*.pt.trace.json.gz
 benchmarks/nvllm/traces/gemm_sweep_sm120/**/*.pt.trace.json.gz
+
+# Exception to *.csv for GEMM sweep evidence — these CSVs ARE the committed
+# deliverable per docs/superpowers/plans/2026-04-21-gemm-sweep.md success
+# criterion #2. Narrow path so repo-wide *.csv rule still applies elsewhere.
+!benchmarks/nvllm/traces/gemm_sweep_sm120/**/*.csv
