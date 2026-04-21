@@ -147,8 +147,21 @@ def run_sanity(api_base: str, model: str, timeout: int, max_tokens: int):
             text = r.json()["choices"][0]["text"]
             # Strip any thinking tags
             clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-            nums = re.findall(r"[-+]?\d*\.?\d+", clean)
-            got = int(float(nums[0])) if nums else None
+            # Extraction priority:
+            #   1. GSM8K canonical `#### N` marker if present.
+            #   2. Strip everything after the next question boundary
+            #      (`Q:` / `Question:` / `####` on a new line), then
+            #      take the first number — the answer comes before
+            #      the model starts a follow-up question.
+            # This handles verbose arithmetic like `"600/60 = 10\n#### 10"`
+            # where the first raw number is an intermediate step.
+            marker = re.search(r"####\s*([-+]?\d+\.?\d*)", clean)
+            if marker:
+                got = int(float(marker.group(1)))
+            else:
+                cut = re.split(r"\n\s*(?:Q:|Question:|####)", clean, maxsplit=1)[0]
+                nums = re.findall(r"[-+]?\d*\.?\d+", cut)
+                got = int(float(nums[0])) if nums else None
             ok = got == q["expected"]
             results.append({
                 "id": q["id"],
