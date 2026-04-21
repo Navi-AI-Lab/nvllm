@@ -39,7 +39,7 @@ if [ ! -d "$NSYS_HOST_DIR" ]; then
 fi
 
 # ── Configuration from the current run script ──
-HF_MODEL="natfii/Qwen3.5-27B-NVFP4-Opus-GB10"
+HF_MODEL="${HF_MODEL:-ig1/Qwen3.5-27B-NVFP4}"
 CONTAINER="nvllm"
 SERVED_NAME="default"
 

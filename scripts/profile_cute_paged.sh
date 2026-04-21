@@ -56,7 +56,7 @@ NSYS_HOST_DIR="/opt/nvidia/nsight-systems/2025.6.3"
 NSYS_CONTAINER_DIR="/opt/nsight-systems"
 NSYS_BIN="${NSYS_CONTAINER_DIR}/target-linux-sbsa-armv8/nsys"
 
-HF_MODEL="natfii/Qwen3.5-27B-NVFP4-Opus-GB10"
+HF_MODEL="${HF_MODEL:-ig1/Qwen3.5-27B-NVFP4}"
 CONTAINER="nvllm"
 SERVED_NAME="default"
 

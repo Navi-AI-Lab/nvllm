@@ -1,9 +1,13 @@
 #!/bin/bash
-# nvllm -- Serve natfii/Qwen3.5-27B-NVFP4-Opus-GB10 with CuTe Paged Attention
+# nvllm -- Serve Qwen3.5-27B-NVFP4 with CuTe Paged Attention
 #
 # Custom CuTe DSL paged attention backend for SM120/SM121 (GB10).
 # Requires FP8 E4M3 KV cache (the only kv_cache_dtype CuTe backend supports).
 # This is the kernel development script — use scripts/serve.sh for production.
+#
+# Default checkpoint: ig1/Qwen3.5-27B-NVFP4 (non-distilled, official llm-compressor
+# VL recipe). Override via HF_MODEL env var
+# (e.g. HF_MODEL=natfii/Qwen3.5-27B-NVFP4-Opus-GB10 for the distilled stress-test).
 #
 # Usage:
 #   ./scripts/serve-cute.sh          # Standard launch
@@ -13,7 +17,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/common.sh"
 
-HF_MODEL="natfii/Qwen3.5-27B-NVFP4-Opus-GB10"
+HF_MODEL="${HF_MODEL:-ig1/Qwen3.5-27B-NVFP4}"
 CONTAINER="nvllm"
 SERVED_NAME="default"
 PORT=8000
@@ -46,7 +50,7 @@ else
   EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"PIECEWISE"}')
 fi
 
-echo "=== Launching Qwen3.5-27B-NVFP4-Opus-GB10 (CuTe Paged Attention) ==="
+echo "=== Launching Qwen3.5-27B-NVFP4 ($HF_MODEL) — CuTe Paged Attention ==="
 echo "  Model:       $HF_MODEL"
 echo "  Attention:   $ATTN_BACKEND"
 echo "  KV cache:    $KV_CACHE"

@@ -1,9 +1,14 @@
 #!/bin/bash
-# nvllm -- Serve natfii/Qwen3.5-27B-NVFP4-Opus-GB10 on DGX Spark (GB10)
+# nvllm -- Serve Qwen3.5-27B-NVFP4 on DGX Spark (GB10)
 #
 # Dense Qwen3.5 with hybrid attention (linear + full).
 # ~18 GB NVFP4 quantized — fits GB10's 128 GB with 64k context.
 # Uses triton_attn backend (production default).
+#
+# Default checkpoint: ig1/Qwen3.5-27B-NVFP4 (non-distilled, official llm-compressor
+# VL recipe, 1024 calibration samples). Override with HF_MODEL env var to test
+# other variants (e.g. HF_MODEL=natfii/Qwen3.5-27B-NVFP4-Opus-GB10 for the
+# Opus-distilled stress-test checkpoint).
 #
 # Usage:
 #   ./scripts/serve.sh          # Standard launch (FP8 KV)
@@ -14,7 +19,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/common.sh"
 
-HF_MODEL="natfii/Qwen3.5-27B-NVFP4-Opus-GB10"
+HF_MODEL="${HF_MODEL:-ig1/Qwen3.5-27B-NVFP4}"
 CONTAINER="nvllm"
 SERVED_NAME="default"
 PORT=8000
@@ -54,7 +59,7 @@ else
   EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"PIECEWISE"}')
 fi
 
-echo "=== Launching Qwen3.5-27B-NVFP4-Opus-GB10 ==="
+echo "=== Launching Qwen3.5-27B-NVFP4 ($HF_MODEL) ==="
 echo "  Model:       $HF_MODEL"
 echo "  Attention:   $ATTN_BACKEND"
 echo "  KV cache:    $KV_CACHE"

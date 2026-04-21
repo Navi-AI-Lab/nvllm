@@ -1,10 +1,12 @@
 #!/bin/bash
-# nvllm -- Serve natfii/Qwen3.5-27B-NVFP4-Opus-GB10 with CuTe Paged Attention
+# nvllm -- Serve Qwen3.5-27B-NVFP4 with CuTe Paged Attention
 # in FULL_AND_PIECEWISE CUDA graph mode.
 #
 # Test-only script: validates the stream-threading fix in kernel.py that makes
 # CuTe kernel launches capturable by torch CUDA graph. Before the fix, FULL mode
 # produced gibberish because CuTe launches were invisible to the captured graph.
+#
+# Default checkpoint: ig1/Qwen3.5-27B-NVFP4. Override via HF_MODEL env var.
 #
 # Usage:
 #   ./scripts/serve-cute-full.sh          # Standard launch (FULL_AND_PIECEWISE)
@@ -14,7 +16,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/common.sh"
 
-HF_MODEL="natfii/Qwen3.5-27B-NVFP4-Opus-GB10"
+HF_MODEL="${HF_MODEL:-ig1/Qwen3.5-27B-NVFP4}"
 CONTAINER="nvllm"
 SERVED_NAME="default"
 PORT=8000
@@ -47,7 +49,7 @@ else
   EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE"}')
 fi
 
-echo "=== Launching Qwen3.5-27B-NVFP4-Opus-GB10 (CuTe + FULL_AND_PIECEWISE) ==="
+echo "=== Launching Qwen3.5-27B-NVFP4 ($HF_MODEL) — CuTe + FULL_AND_PIECEWISE ==="
 echo "  Model:       $HF_MODEL"
 echo "  Attention:   $ATTN_BACKEND"
 echo "  KV cache:    $KV_CACHE"
