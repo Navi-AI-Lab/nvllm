@@ -1,0 +1,106 @@
+{
+  "by_shape": {
+    "down_proj": {
+      "1-8": [
+        "Cfg_128x128x256_TmaWSCoop_Pers",
+        "Cfg_128x128x256_Auto_Pers",
+        "Cfg_128x128x256_TmaWSPing_Pers"
+      ],
+      "16-32": [
+        "Cfg_128x128x256_Auto_Pers",
+        "Cfg_128x128x256_TmaWSPing_Pers",
+        "Cfg_128x128x256_TmaWSCoop_SK"
+      ],
+      "192-256": [
+        "Cfg_128x128x256_Auto_Pers",
+        "Cfg_128x128x256_TmaWSCoop_Pers",
+        "Cfg_128x128x256_TmaWSPing_Pers"
+      ],
+      "64-128": [
+        "Cfg_128x128x256_Auto_Pers",
+        "Cfg_128x128x256_TmaWSCoop_Pers",
+        "Cfg_128x128x256_TmaWSPing_Pers"
+      ]
+    },
+    "gate_up_proj": {
+      "1-8": [
+        "Cfg_128x128x256_Auto_Pers",
+        "Cfg_128x128x256_TmaWSCoop_Pers",
+        "Cfg_128x128x256_TmaWSCoop_SK"
+      ],
+      "16-32": [
+        "Cfg_128x128x256_Auto_Pers",
+        "Cfg_128x128x256_TmaWSCoop_SK",
+        "Cfg_128x128x256_TmaWSCoop_Pers"
+      ],
+      "192-256": [
+        "Cfg_128x128x256_Auto_Pers",
+        "Cfg_128x128x256_TmaWSCoop_Pers",
+        "Cfg_128x128x256_TmaWSCoop_SK"
+      ],
+      "64-128": [
+        "Cfg_128x128x256_TmaWSCoop_Pers",
+        "Cfg_128x128x256_Auto_Pers",
+        "Cfg_128x128x256_TmaWSCoop_SK"
+      ]
+    },
+    "o_proj": {
+      "1-8": [
+        "Cfg_128x256x128_TmaWSCoop_Pers",
+        "Cfg_128x256x128_Auto_Pers",
+        "Cfg_128x256x128_TmaWSCoop_SK"
+      ],
+      "16-32": [
+        "Cfg_128x256x128_Auto_Pers",
+        "Cfg_128x256x128_TmaWSCoop_Pers",
+        "Cfg_128x128x256_Auto_Pers"
+      ],
+      "192-256": [
+        "Cfg_256x128x128_TmaWSCoop_Pers",
+        "Cfg_256x128x128_Auto_Pers",
+        "Cfg_128x128x128_TmaWSCoop_Pers"
+      ],
+      "64-128": [
+        "Cfg_128x128x256_TmaWSPing_Pers",
+        "Cfg_128x128x256_TmaWSCoop_Pers",
+        "Cfg_128x128x256_Auto_Pers"
+      ]
+    },
+    "qkv_proj": {
+      "1-8": [
+        "Cfg_128x256x128_Auto_Pers",
+        "Cfg_128x256x128_TmaWSCoop_Pers",
+        "Cfg_128x256x128_TmaWSCoop_SK"
+      ],
+      "16-32": [
+        "Cfg_128x256x128_Auto_Pers",
+        "Cfg_128x256x128_TmaWSCoop_Pers",
+        "Cfg_128x256x128_TmaWSCoop_SK"
+      ],
+      "192-256": [
+        "Cfg_128x128x128_TmaWSPing_Pers",
+        "smoke_M256",
+        "Cfg_128x128x128_TmaWSCoop_Pers"
+      ],
+      "64-128": [
+        "smoke_M256",
+        "Cfg_128x128x128_TmaWSCoop_Pers",
+        "Cfg_128x128x256_TmaWSCoop_Pers"
+      ]
+    }
+  },
+  "all_configs": [
+    "Cfg_128x128x128_TmaWSCoop_Pers",
+    "Cfg_128x128x128_TmaWSPing_Pers",
+    "Cfg_128x128x256_Auto_Pers",
+    "Cfg_128x128x256_TmaWSCoop_Pers",
+    "Cfg_128x128x256_TmaWSCoop_SK",
+    "Cfg_128x128x256_TmaWSPing_Pers",
+    "Cfg_128x256x128_Auto_Pers",
+    "Cfg_128x256x128_TmaWSCoop_Pers",
+    "Cfg_128x256x128_TmaWSCoop_SK",
+    "Cfg_256x128x128_Auto_Pers",
+    "Cfg_256x128x128_TmaWSCoop_Pers",
+    "smoke_M256"
+  ]
+}
