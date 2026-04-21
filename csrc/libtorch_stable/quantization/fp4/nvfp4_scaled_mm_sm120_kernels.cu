@@ -190,6 +190,59 @@ struct Fp4GemmSm120StreamK {
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 };
 
+// Tuneable variant: parameterized on Config::KernelSchedule + Config::TileScheduler
+// so shortlisted configs (TmaWSCoop/TmaWSPing + Pers/StreamK combos) can be
+// instantiated via ShortlistCfg_<idx> structs. Mirrors Fp4GemmSm120StreamK's
+// OpClassBlockScaledTensorOp mainloop + OpClassTensorOp epilogue split for safety.
+template <typename Config, typename OutType>
+struct Fp4GemmSm120Tuneable {
+  using ElementA = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
+  using LayoutATag = cutlass::layout::RowMajor;
+  static constexpr int AlignmentA = 32;
+
+  using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
+  using LayoutBTag = cutlass::layout::ColumnMajor;
+  static constexpr int AlignmentB = 32;
+
+  using ElementD = OutType;
+  using ElementC = OutType;
+  using LayoutCTag = cutlass::layout::RowMajor;
+  using LayoutDTag = cutlass::layout::RowMajor;
+  static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
+  static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
+
+  using ElementAccumulator = float;
+  using ArchTag = cutlass::arch::Sm120;
+  using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
+
+  using MmaTileShape = typename Config::MmaTileShape;
+  using ClusterShape = typename Config::ClusterShape;
+  using PerSmTileShape_MNK = typename Config::PerSmTileShape_MNK;
+
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag, cutlass::arch::OpClassTensorOp, PerSmTileShape_MNK,
+          ClusterShape, cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator, ElementAccumulator, ElementC, LayoutCTag,
+          AlignmentC, ElementD, LayoutDTag, AlignmentD,
+          typename Config::EpilogueSchedule>::CollectiveOp;
+
+  using CollectiveMainloop =
+      typename cutlass::gemm::collective::CollectiveBuilder<
+          ArchTag, OperatorClass, ElementA, LayoutATag, AlignmentA, ElementB,
+          LayoutBTag, AlignmentB, ElementAccumulator, MmaTileShape,
+          ClusterShape,
+          cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+              sizeof(typename CollectiveEpilogue::SharedStorage))>,
+          typename Config::KernelSchedule>::CollectiveOp;
+
+  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+      Shape<int, int, int, int>, CollectiveMainloop, CollectiveEpilogue,
+      typename Config::TileScheduler>;
+
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+};
+
 template <typename Gemm>
 typename Gemm::Arguments args_from_options(torch::stable::Tensor& D,
                                            torch::stable::Tensor const& A,
@@ -262,6 +315,12 @@ void runGemm(torch::stable::Tensor& D, torch::stable::Tensor const& A,
   CUTLASS_CHECK(gemm.run(arguments, workspace.data_ptr(), stream));
 }
 
+// Shortlist config dispatcher (auto-generated). Defines
+// ShortlistCfg_0..11 structs + try_run_shortlist_config<OutType>() used by
+// the NVLLM_FP4_GEMM_CONFIG_M256 env-var routing below. Included here so
+// Fp4GemmSm120Tuneable and runGemm are in scope.
+#include "nvfp4_shortlist_configs.hpp"
+
 void cutlass_fp4_bf16_gemm_dispatch(torch::stable::Tensor& D,
                                     torch::stable::Tensor const& A,
                                     torch::stable::Tensor const& B,
@@ -278,6 +337,16 @@ void cutlass_fp4_bf16_gemm_dispatch(torch::stable::Tensor& D,
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::bfloat16_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else if (mp2 <= 256) {
+    const char* env = std::getenv("NVLLM_FP4_GEMM_CONFIG_M256");
+    if (env && env[0] != '\0') {
+      int idx = atoi(env);
+      if (try_run_shortlist_config<cutlass::bfloat16_t>(
+              idx, D, A, B, A_sf, B_sf, alpha, m, n, k, stream)) {
+        NVLLM_NVTX_RANGE_POP();
+        return;
+      }
+      fprintf(stderr, "[nvllm] NVLLM_FP4_GEMM_CONFIG_M256=%d unknown, using production M256 default\n", idx);
+    }
     runGemm<Fp4GemmSm120<sm120_fp4_config_M256, cutlass::bfloat16_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else {
@@ -302,6 +371,16 @@ void cutlass_fp4_f16_gemm_dispatch(torch::stable::Tensor& D,
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::half_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else if (mp2 <= 256) {
+    const char* env = std::getenv("NVLLM_FP4_GEMM_CONFIG_M256");
+    if (env && env[0] != '\0') {
+      int idx = atoi(env);
+      if (try_run_shortlist_config<cutlass::half_t>(
+              idx, D, A, B, A_sf, B_sf, alpha, m, n, k, stream)) {
+        NVLLM_NVTX_RANGE_POP();
+        return;
+      }
+      fprintf(stderr, "[nvllm] NVLLM_FP4_GEMM_CONFIG_M256=%d unknown, using production M256 default\n", idx);
+    }
     runGemm<Fp4GemmSm120<sm120_fp4_config_M256, cutlass::half_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else {
