@@ -88,3 +88,28 @@ nvllm_check_port() {
     echo "         Stop it first or choose a different port." >&2
   fi
 }
+
+# ---------------------------------------------------------------------------
+# nvllm_check_free_mem MIN_GB
+#   Abort if host MemAvailable is below MIN_GB. Guards against OOM during
+#   kernel dev (CUDA graph capture + nsys + ptxas overhead can eat 5+ GiB
+#   after load). Uses /proc/meminfo MemAvailable — counts cached-but-
+#   reclaimable memory as free. GB10 unified memory: CPU free == GPU free.
+# ---------------------------------------------------------------------------
+nvllm_check_free_mem() {
+  local min_gb="${1:-90}"
+  local free_gb
+  free_gb=$(awk '/MemAvailable/ {printf "%.0f", $2/1024/1024}' /proc/meminfo)
+  if [ "$free_gb" -lt "$min_gb" ]; then
+    echo "ERROR: only ${free_gb} GiB host memory available; need >= ${min_gb} GiB" >&2
+    echo "       for Phase E kernel dev (model + KV cache + graph capture + scratch)." >&2
+    echo "       Stop stale containers: docker ps; docker stop <name>" >&2
+    echo "       Or export NVLLM_SKIP_MEM_CHECK=1 to bypass (risky)." >&2
+    if [ "${NVLLM_SKIP_MEM_CHECK:-0}" != "1" ]; then
+      exit 1
+    fi
+    echo "       Bypassing because NVLLM_SKIP_MEM_CHECK=1." >&2
+  else
+    echo "Host memory: ${free_gb} GiB available (threshold ${min_gb} GiB) — OK"
+  fi
+}

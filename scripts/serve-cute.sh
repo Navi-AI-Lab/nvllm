@@ -35,6 +35,7 @@ done
 nvllm_check_image
 nvllm_cleanup_container "$CONTAINER"
 nvllm_check_port "$PORT"
+nvllm_check_free_mem "${NVLLM_MIN_FREE_GB:-90}"
 
 # CuTe backend requires fp8_e4m3 KV cache
 KV_CACHE="fp8_e4m3"
@@ -76,6 +77,7 @@ docker run -d \
   -e CUTE_MLP_FUSION="${CUTE_MLP_FUSION:-1}" \
   -e CUTE_ATTN_FUSION="${CUTE_ATTN_FUSION:-1}" \
   -e CUTE_DEBUG_MLP_FUSION="${CUTE_DEBUG_MLP_FUSION:-0}" \
+  -e CUTE_BETA_MIN_FREE_GB="${CUTE_BETA_MIN_FREE_GB:-8}" \
   "$NVLLM_IMAGE" \
   serve \
   --model "$HF_MODEL" \
@@ -86,9 +88,10 @@ docker run -d \
   --max-model-len "$MAX_MODEL_LEN" \
   --max-num-seqs "$MAX_NUM_SEQS" \
   --language-model-only \
+  --limit-mm-per-prompt '{"image": 0, "video": 0}' \
   --mamba-cache-mode align \
   --trust-remote-code \
-  --gpu-memory-utilization 0.80 \
+  --gpu-memory-utilization "${SERVE_GPU_UTIL:-0.70}" \
   --max-num-batched-tokens 65536 \
   "${EXTRA_ARGS[@]}"
 
