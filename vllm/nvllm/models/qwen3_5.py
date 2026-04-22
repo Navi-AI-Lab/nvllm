@@ -508,6 +508,38 @@ class Qwen3_5Model(nn.Module, EagleModelMixin):
         self.start_layer, self.end_layer, self.layers = make_layers(
             config.num_hidden_layers, get_layer, prefix=f"{prefix}.layers"
         )
+
+        # Phase E cross-layer binding: every fusion-active (full_attention)
+        # decoder layer receives a ref to the NEXT decoder layer's
+        # input_layernorm module. Last layer (idx 63) passes None so the
+        # β kernel's ε epilogue omits the next-layer norm pull.
+        # Spec: docs/superpowers/specs/2026-04-22-unreal-kernel-phase-e-d25-design.md §5.3
+        import os
+        if os.environ.get("CUTE_PHASE_E_FUSION", "0") == "1":
+            layer_types = config.layer_types
+            num_layers = config.num_hidden_layers
+            for idx, layer in enumerate(self.layers):
+                # Only fusion-active (full_attention) layers need β binding.
+                if idx < self.start_layer or idx >= self.end_layer:
+                    continue
+                if layer_types[idx] != "full_attention":
+                    continue
+                # impl lives on the inner Attention module, not on the
+                # Qwen3_5Attention wrapper: Qwen3_5Attention.attn is
+                # Attention, Attention.impl is CutePagedAttentionImpl.
+                # Existing pattern: see self_attn.attn.impl at L243, 361, 395.
+                attn = getattr(layer.self_attn, 'attn', None)
+                impl = getattr(attn, 'impl', None)
+                if impl is None or not hasattr(impl, 'attach_next_input_layernorm'):
+                    continue  # non-CuTe backend
+                # getattr tolerates PPMissingLayer (no input_layernorm attr)
+                next_norm = (
+                    getattr(self.layers[idx + 1], 'input_layernorm', None)
+                    if idx + 1 < num_layers
+                    else None
+                )
+                impl.attach_next_input_layernorm(next_norm)
+
         self.make_empty_intermediate_tensors = make_empty_intermediate_tensors_factory(
             ["hidden_states", "residual"], config.hidden_size
         )
