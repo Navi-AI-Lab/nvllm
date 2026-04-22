@@ -153,6 +153,7 @@ try:
         _ld_shared_f32,
         _ld_shared_u8,
         _rcp_approx_f32,
+        _rsqrt_approx_f32,
         _st_global_bf16_from_f32,
         _st_global_f32,
         _st_shared_b16_from_u32,
@@ -352,6 +353,13 @@ class Phase_D_MLP_Kernel:
             f"preset={_preset_name!r}: hidden_size={hidden_size} not "
             f"multiple of FP4_BLOCK_SIZE={FP4_BLOCK_SIZE}"
         )
+        # Phase E ε epilogue divides hidden across num_threads without
+        # a tail loop; Qwen3.5/3.6-27B at hidden=5120, num_threads=128 is
+        # clean (40 per thread). Assert guards future hidden sizes.
+        assert hidden_size % 128 == 0, (
+            f"hidden_size={hidden_size} must be divisible by num_threads=128 "
+            f"for Phase E ε epilogue to cover all elements without a tail loop"
+        )
         # Each CTA owns a contiguous chunk of slices.
         self.slices_per_cta = (self.num_slices + slice_ctas - 1) // slice_ctas
         self._num_threads = 128  # 4 warps
@@ -425,6 +433,23 @@ class Phase_D_MLP_Kernel:
         gate_up_global_scale: float = 1.0,
         down_global_scale: float = 1.0,
         stream: Optional[object] = None,
+        # --- NEW: Phase E ε epilogue (β-lite path 2) ---------------------
+        # When `emit_epilogue=True`, after Phase D's last-CTA-per-k-tile
+        # writes `mlp_output[nat, hidden]`, a second-level per-token barrier
+        # elects ONE globally-last CTA per token to run the ε epilogue:
+        #   residual_final = residual_post_ln + mlp_output   (BF16, FP32 acc)
+        #   next_hidden     = emit_next_layernorm
+        #                     ? RMSNorm(residual_final) * next_gamma
+        #                     : residual_final
+        # Legacy callers (emit_epilogue=False) are bit-identical to Phase D —
+        # all Phase-E pointers are passed as Int64(0) and the epilogue
+        # block is gated by `emit_ep_i32 == 0`.
+        residual_post_ln: Optional[torch.Tensor] = None,      # [nat, hidden] BF16
+        next_input_layernorm_gamma: Optional[torch.Tensor] = None,  # [hidden] BF16
+        next_hidden_output: Optional[torch.Tensor] = None,    # [nat, hidden] BF16
+        emit_epilogue: bool = False,
+        emit_next_layernorm: bool = True,
+        rms_eps: float = 1e-6,
     ) -> torch.Tensor:
         if not _CUTE_AVAILABLE:
             raise RuntimeError(
@@ -483,6 +508,72 @@ class Phase_D_MLP_Kernel:
         count_ptr = Int64(mlp_arrival_count.data_ptr())
         output_ptr = Int64(mlp_output.data_ptr())
 
+        # Phase E ε epilogue pointers (optional).
+        # `emit_epilogue=False` → all four ptrs are Int64(0) and the kernel
+        # gates the epilogue block on the emit_ep_i32 flag so the legacy
+        # call path is a byte-for-byte pass-through.
+        # `emit_epilogue=True`  → validate shapes/dtypes and lazy-allocate
+        # a kernel-owned int32[max_nat_seen] secondary arrival counter.
+        # The barrier is zeroed by the globally-last-CTA itself at the end
+        # of the ε epilogue (atomic_add(-num_k_tiles)), matching the
+        # self-reset pattern used by the Phase B/C fused kernel — so the
+        # caller never has to zero it.
+        if emit_epilogue:
+            assert residual_post_ln is not None, (
+                "emit_epilogue=True requires residual_post_ln"
+            )
+            assert next_hidden_output is not None, (
+                "emit_epilogue=True requires next_hidden_output"
+            )
+            assert residual_post_ln.shape == (nat, self.hidden_size)
+            assert next_hidden_output.shape == (nat, self.hidden_size)
+            assert residual_post_ln.dtype == torch.bfloat16
+            assert next_hidden_output.dtype == torch.bfloat16
+            assert residual_post_ln.is_contiguous()
+            assert next_hidden_output.is_contiguous()
+            if emit_next_layernorm:
+                assert next_input_layernorm_gamma is not None, (
+                    "emit_next_layernorm=True requires next_input_layernorm_gamma"
+                )
+                assert next_input_layernorm_gamma.shape == (self.hidden_size,)
+                assert next_input_layernorm_gamma.dtype == torch.bfloat16
+                assert next_input_layernorm_gamma.is_contiguous()
+            # Lazy-allocate (or grow) the per-token secondary barrier.
+            # TODO(task-16, CUDA-graph capture): the `torch.zeros(...)` path
+            # below launches a memset kernel that would be recorded into any
+            # graph capturing the first emit_epilogue=True call — subsequent
+            # replays would NOT re-zero the barrier, and the self-reset
+            # pattern below covers only post-first invocations.
+            # Fix before β-coop CUDA-graph capture: either (a) pre-allocate
+            # at attach_next_input_layernorm time with sizeof(max_num_seqs)
+            # or (b) warmup-launch pre-capture. See spec §5.6.
+            need_grow = (
+                not hasattr(self, "_epilogue_barrier")
+                or self._epilogue_barrier is None
+                or self._epilogue_barrier.numel() < nat
+            )
+            if need_grow:
+                self._epilogue_barrier = torch.zeros(
+                    nat, dtype=torch.int32, device=mlp_output.device,
+                )
+            residual_ptr = Int64(residual_post_ln.data_ptr())
+            next_gamma_ptr = Int64(
+                next_input_layernorm_gamma.data_ptr()
+                if next_input_layernorm_gamma is not None else 0
+            )
+            next_hidden_ptr = Int64(next_hidden_output.data_ptr())
+            barrier_ptr = Int64(self._epilogue_barrier.data_ptr())
+            emit_ep_i32 = Int32(1)
+            emit_next_ln_i32 = Int32(1 if emit_next_layernorm else 0)
+        else:
+            residual_ptr = Int64(0)
+            next_gamma_ptr = Int64(0)
+            next_hidden_ptr = Int64(0)
+            barrier_ptr = Int64(0)
+            emit_ep_i32 = Int32(0)
+            emit_next_ln_i32 = Int32(0)
+        rms_eps_f32 = Float32(float(rms_eps))
+
         grid = (self.slice_ctas, self.num_k_tiles, nat)
 
         if stream is None:
@@ -513,6 +604,8 @@ class Phase_D_MLP_Kernel:
                 Int32(self.num_k_tiles),
                 Int32(self.slice_ctas),
                 gate_up_gs_f32, down_gs_f32,
+                residual_ptr, next_gamma_ptr, next_hidden_ptr, barrier_ptr,
+                emit_ep_i32, emit_next_ln_i32, rms_eps_f32,
                 Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
                 stream_arg,
             )
@@ -532,6 +625,8 @@ class Phase_D_MLP_Kernel:
             Int32(self.num_k_tiles),
             Int32(self.slice_ctas),
             gate_up_gs_f32, down_gs_f32,
+            residual_ptr, next_gamma_ptr, next_hidden_ptr, barrier_ptr,
+            emit_ep_i32, emit_next_ln_i32, rms_eps_f32,
             Int32(grid[0]), Int32(grid[1]), Int32(grid[2]),
             stream_arg,
         )
@@ -555,6 +650,9 @@ class Phase_D_MLP_Kernel:
             tile_s: Int32, tile_k: Int32,
             num_k_tiles: Int32, slice_ctas: Int32,
             gate_up_gs: Float32, down_gs: Float32,
+            residual_ptr: Int64, next_gamma_ptr: Int64,
+            next_hidden_ptr: Int64, barrier_ptr: Int64,
+            emit_ep: Int32, emit_next_ln: Int32, rms_eps: Float32,
             grid_x: Int32, grid_y: Int32, grid_z: Int32,
             stream,
         ):
@@ -570,6 +668,8 @@ class Phase_D_MLP_Kernel:
                 tile_s, tile_k,
                 num_k_tiles, slice_ctas,
                 gate_up_gs, down_gs,
+                residual_ptr, next_gamma_ptr, next_hidden_ptr, barrier_ptr,
+                emit_ep, emit_next_ln, rms_eps,
             ).launch(
                 grid=[grid_x, grid_y, grid_z],
                 block=[self._num_threads, 1, 1],
@@ -590,6 +690,9 @@ class Phase_D_MLP_Kernel:
             tile_s: Int32, tile_k: Int32,
             num_k_tiles: Int32, slice_ctas: Int32,
             gate_up_gs: Float32, down_gs: Float32,
+            residual_ptr: Int64, next_gamma_ptr: Int64,
+            next_hidden_ptr: Int64, barrier_ptr: Int64,
+            emit_ep: Int32, emit_next_ln: Int32, rms_eps: Float32,
         ):
             """Phase D end-to-end fused MLP kernel (small-dim path)."""
             # === Phase 0: Thread/block ids =====================
@@ -1222,6 +1325,203 @@ class Phase_D_MLP_Kernel:
                         _st_global_bf16_from_f32(
                             output_ptr + Int64(output_idx) * Int64(2),
                             val_f32,
+                        )
+
+            # === Phase E: ε epilogue (optional) ==========================
+            # Input-mux: activated only when emit_ep==1 (runtime flag from
+            # Python launcher). Preserves Phase D's byte-for-byte legacy
+            # behavior when disabled.
+            #
+            # Design: each k-tile's local-last-CTA (the `is_last` branch
+            # above) has just written its slice of mlp_output[bz, :]. A
+            # per-token secondary barrier elects ONE globally-last CTA per
+            # token — the one whose atomicAdd on barrier_ptr[bz] returns
+            # `num_k_tiles - 1`. That CTA reads all of residual_post_ln +
+            # mlp_output, computes residual_final + (optional) RMSNorm,
+            # and writes residual_post_ln (in place) + next_hidden_output.
+            #
+            # Memory ordering: the `_threadfence` inside the `is_last`
+            # branch below + atom.global.add.u32 (acq_rel) guarantees the
+            # globally-last CTA sees all prior mlp_output writes.
+            #
+            # Self-reset: the globally-last CTA atomicAdd(-num_k_tiles)
+            # restores barrier_ptr[bz] to 0 so the same tensor can be
+            # reused across kernel invocations without a host-side zero_()
+            # (matches arrival-count self-reset in Phase C).
+            #
+            # Cross-warp reduce pattern: mirrors Phase C RMSNorm at
+            # kernel.py:~1850-1878 — 5-step warp shfl_xor butterfly, then
+            # 4-slot SMEM exchange for cross-warp, then broadcast.
+            if emit_ep == Int32(1):
+                # Secondary barrier: only local-last CTAs participate.
+                # Broadcast result via smem_last_flag. Non-last CTAs
+                # already have flag=0 here (they never stored into
+                # smem_last_flag after Phase 4's election) BUT we
+                # re-initialize via a new atomic path anyway to be safe.
+                is_global_last_local = Int32(0)
+                if is_last:
+                    _threadfence()  # flush mlp_output slice writes
+                    cute.arch.sync_threads()
+                    if tid == Int32(0):
+                        old2 = _atomic_add_u32(
+                            barrier_ptr + Int64(bz) * Int64(4),
+                            Int32(1),
+                        )
+                        gl_flag = Int32(0)
+                        if old2 == (num_k_tiles - Int32(1)):
+                            gl_flag = Int32(1)
+                        _st_shared_b32(
+                            smem_last_flag + Int64(0),
+                            Uint32(gl_flag),
+                        )
+                    cute.arch.sync_threads()
+                    gl_u32 = _ld_shared_b32(smem_last_flag + Int64(0))
+                    is_global_last_local = Int32(gl_u32)
+
+                if is_global_last_local == Int32(1):
+                    # --- Pass 1: residual_add + sum_of_squares --------
+                    # Per-thread: iterate over hidden elements owned by
+                    # this thread. Element idx owned by tid is
+                    # {tid, tid+128, tid+256, ..., tid+128*(N-1)} where
+                    # N = hidden/num_threads = 5120/128 = 40 for Qwen3.5
+                    # (Python constexpr — <100, avoids constexpr-OOM).
+                    n_per_thr = self.hidden_size // self._num_threads
+
+                    res_base = (
+                        residual_ptr + Int64(bz * self.hidden_size)
+                        * Int64(2)  # BF16 = 2 bytes
+                    )
+                    mlp_base = (
+                        output_ptr + Int64(bz * self.hidden_size)
+                        * Int64(2)  # BF16 = 2 bytes
+                    )
+                    next_hidden_base = (
+                        next_hidden_ptr + Int64(bz * self.hidden_size)
+                        * Int64(2)  # BF16 = 2 bytes
+                    )
+
+                    ss = Float32(0.0)
+                    for _i in cutlass.range_constexpr(n_per_thr):
+                        idx = tid + Int32(_i * self._num_threads)
+                        res_f32 = _ld_global_b16_to_f32(
+                            res_base + Int64(idx) * Int64(2)
+                        )
+                        mlp_f32 = _ld_global_b16_to_f32(
+                            mlp_base + Int64(idx) * Int64(2)
+                        )
+                        rf = res_f32 + mlp_f32
+                        # Write residual_final back to residual_post_ln in place.
+                        _st_global_bf16_from_f32(
+                            res_base + Int64(idx) * Int64(2),
+                            rf,
+                        )
+                        ss = ss + rf * rf
+
+                    # --- Pass 2: cross-warp reduce sum_of_squares ------
+                    # Intra-warp butterfly (5 steps for 32 lanes).
+                    ss = ss + shfl_xor_sync(ss, Int32(1))
+                    ss = ss + shfl_xor_sync(ss, Int32(2))
+                    ss = ss + shfl_xor_sync(ss, Int32(4))
+                    ss = ss + shfl_xor_sync(ss, Int32(8))
+                    ss = ss + shfl_xor_sync(ss, Int32(16))
+
+                    # Cross-warp exchange via 4-slot smem_reduce scratch.
+                    if lane == Int32(0):
+                        _st_shared_f32(
+                            smem_reduce + Int64(warp) * Int64(4),
+                            ss,
+                        )
+                    cute.arch.sync_threads()
+
+                    # Warp 0 lane 0 reduces 4 warp-partials → variance → inv_rms.
+                    if warp == Int32(0):
+                        if lane == Int32(0):
+                            total_ss = _ld_shared_f32(
+                                smem_reduce + Int64(0) * Int64(4)
+                            )
+                            total_ss = total_ss + _ld_shared_f32(
+                                smem_reduce + Int64(1) * Int64(4)
+                            )
+                            total_ss = total_ss + _ld_shared_f32(
+                                smem_reduce + Int64(2) * Int64(4)
+                            )
+                            total_ss = total_ss + _ld_shared_f32(
+                                smem_reduce + Int64(3) * Int64(4)
+                            )
+                            variance = total_ss / Float32(
+                                float(self.hidden_size)
+                            )
+                            inv_rms = _rsqrt_approx_f32(variance + rms_eps)
+                            # Broadcast inv_rms via smem_reduce slot 0.
+                            _st_shared_f32(
+                                smem_reduce + Int64(0),
+                                inv_rms,
+                            )
+                    cute.arch.sync_threads()
+
+                    inv_rms_val = _ld_shared_f32(smem_reduce + Int64(0))
+
+                    # --- Pass 3: write next_hidden ---------------------
+                    # Two-path: emit_next_ln determines whether we do
+                    # RMSNorm * gamma or just memcpy residual_final.
+                    # Dynamic if on runtime emit_next_ln flag.
+                    if emit_next_ln == Int32(1):
+                        for _i in cutlass.range_constexpr(n_per_thr):
+                            idx = tid + Int32(_i * self._num_threads)
+                            # Re-read residual_final (we just wrote it;
+                            # L2-hot). Cheaper than keeping in registers
+                            # across the cross-warp sync.
+                            rf = _ld_global_b16_to_f32(
+                                res_base + Int64(idx) * Int64(2)
+                            )
+                            gamma_f32 = _ld_global_b16_to_f32(
+                                next_gamma_ptr + Int64(idx) * Int64(2)
+                            )
+                            # normed = (rf * inv_rms).to(bf16) * gamma
+                            # Match Python ref byte-for-byte: the
+                            # intermediate cast to BF16 (before gamma)
+                            # produces a measurable diff at rtol=1e-2.
+                            # The reference does `.to(torch.bfloat16)`
+                            # after `rf * rstd` and then multiplies by
+                            # gamma. We emulate by round-tripping the
+                            # FP32 product through BF16.
+                            normed_f32 = rf * inv_rms_val
+                            # Round-trip through BF16: cvt.rn.bf16.f32
+                            # then widen. Done inline via a single-
+                            # element bf16 store + reload would cost a
+                            # memory hop; simpler: cvt.rn.bf16.f32 +
+                            # shift-back.
+                            normed_bf16_u32 = _cvt_2f32_to_bf16x2(
+                                normed_f32, Float32(0.0)
+                            )
+                            # low 16 bits hold the bf16-encoded value;
+                            # reconstruct FP32 from it.
+                            low16 = normed_bf16_u32 & Uint32(0xFFFF)
+                            as_bits = Int32(low16 << Uint32(16))
+                            normed_round = _bitcast_i32_to_f32(as_bits)
+                            out_f32 = normed_round * gamma_f32
+                            _st_global_bf16_from_f32(
+                                next_hidden_base + Int64(idx) * Int64(2),
+                                out_f32,
+                            )
+                    else:
+                        # Last-layer case: next_hidden = residual_final.
+                        for _i in cutlass.range_constexpr(n_per_thr):
+                            idx = tid + Int32(_i * self._num_threads)
+                            rf = _ld_global_b16_to_f32(
+                                res_base + Int64(idx) * Int64(2)
+                            )
+                            _st_global_bf16_from_f32(
+                                next_hidden_base + Int64(idx) * Int64(2),
+                                rf,
+                            )
+
+                    # --- Self-reset secondary barrier ------------------
+                    # atomicAdd(-num_k_tiles) restores barrier_ptr[bz]=0.
+                    if tid == Int32(0):
+                        _atomic_add_u32(
+                            barrier_ptr + Int64(bz) * Int64(4),
+                            Int32(0) - num_k_tiles,
                         )
 
 
