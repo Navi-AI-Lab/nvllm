@@ -367,6 +367,53 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             self._attn_output_gate,
         )
 
+    def attach_next_input_layernorm(
+        self, next_input_layernorm_module: torch.nn.Module | None
+    ) -> None:
+        """Bind the next decoder layer's input_layernorm module for the
+        Phase E β kernel's ε epilogue. Called from
+        `Qwen3_5Model.__init__` post-hook (see vllm/nvllm/models/qwen3_5.py).
+
+        Pass `None` for the last decoder layer (index 63 in Qwen3.5-27B):
+        ε epilogue then omits the next-layer norm and writes residual
+        straight to residual_output. See spec §5.3.
+
+        Stores the MODULE ref (not the tensor) — NVFP4's
+        process_weights_after_loading replaces Parameters, so a tensor
+        captured here would go stale. Mirrors attach_fusion pattern.
+        """
+        assert getattr(self, '_fusion_attached', False), (
+            "attach_next_input_layernorm: attach_fusion must run first"
+        )
+        self._next_input_layernorm_module = next_input_layernorm_module
+        self._emit_next_layernorm = next_input_layernorm_module is not None
+
+        # Allocate Phase E workspace once. Qwen3_5Model.__init__ runs
+        # inside vLLM's set_current_vllm_config() context, so
+        # get_current_vllm_config() is always available on the real
+        # serving path. Unit tests that bypass __init__ must stub this.
+        if not hasattr(self, 'phase_e_barrier'):
+            from vllm.config import get_current_vllm_config
+            cfg = get_current_vllm_config()
+            num_layers = cfg.model_config.hf_text_config.num_hidden_layers
+            self.phase_e_barrier = torch.zeros(
+                num_layers, dtype=torch.int32, device='cuda',
+            )
+            self.next_hidden_scratch = torch.empty(
+                self._fusion_max_num_seqs, self._fusion_hidden_dim,
+                dtype=torch.bfloat16, device='cuda',
+            )
+
+        logger.info(
+            "CuTe Phase E next-input-layernorm attached: "
+            "emit_next_layernorm=%s num_layers_barrier=%d "
+            "scratch_shape=(%d, %d)",
+            self._emit_next_layernorm,
+            self.phase_e_barrier.numel(),
+            self._fusion_max_num_seqs,
+            self._fusion_hidden_dim,
+        )
+
     def _resolve_fusion_weights(self) -> None:
         """Bind current NVFP4 weight tensors off the stored o_proj / post_norm
         module refs. Called from `process_weights_after_loading` on EVERY
