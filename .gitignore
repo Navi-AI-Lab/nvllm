@@ -288,3 +288,11 @@ benchmarks/nvllm/traces/gemm_sweep_sm120/**/*.pt.trace.json.gz
 # Also carve out *.json under the GEMM sweep evidence dir (sibling to the
 # earlier *.csv exception).
 !benchmarks/nvllm/traces/gemm_sweep_sm120/**/*.json
+
+# Same carve-outs for the gemm_winners_table evidence tree (Qwen3.5-27B
+# driver update — committed GSM8K + dispatcher_replay + e2e extracts).
+benchmarks/nvllm/traces/gemm_winners_table/**/*.pt.trace.json.gz
+!benchmarks/nvllm/traces/gemm_winners_table/**/*.csv
+!benchmarks/nvllm/traces/gemm_winners_table/**/*.json
+!benchmarks/nvllm/traces/gemm_winners_table/**/*.log
+!benchmarks/nvllm/traces/gemm_winners_table/**/*.txt
