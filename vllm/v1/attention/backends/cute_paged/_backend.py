@@ -261,6 +261,16 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._mlp_module = None
         self._mlp_num_k_tiles = 0
 
+        # Phase E β-lite dispatch state (task 9). `_phase_e_consumed` is read
+        # by the Python decoder wrapper (`vllm/nvllm/models/qwen3_5.py`) to
+        # decide whether to skip the post-MLP residual `copy_` and the
+        # Python `next_input_layernorm` pass — when β-lite runs the MLP
+        # kernel's ε epilogue produces both in-kernel. Always defined so
+        # the wrapper can use a bare `getattr(..., False)` without None
+        # ambiguity (see memory:feedback_kwargs_get_none_default).
+        self._phase_e_consumed = False
+        self._phase_e_use_beta_lite = False
+
     def _preallocate_fusion_buffers(
         self,
         max_num_seqs: int,
@@ -978,6 +988,129 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 layer_name=getattr(layer, "layer_name", "<layer>"),
             )
         # --- END DEBUG ---
+
+        # --- PHASE E β-lite dispatch (task 9) ---------------------------
+        # When CUTE_PHASE_E_FUSION=1 AND (forced_path=lite OR auto-chose
+        # lite because 64*num_seqs > resident_cap) AND next-input-layernorm
+        # was attached, launch Phase_D_MLP_Kernel with emit_epilogue=True
+        # so the MLP kernel's ε epilogue does residual_add + next RMSNorm
+        # in-kernel. Sets `self._phase_e_consumed=True` so the Python
+        # decoder wrapper in `qwen3_5.py` skips its post-MLP residual
+        # copy_ and next_input_layernorm pass (both done in-kernel).
+        #
+        # Default OFF: when CUTE_PHASE_E_FUSION=0 (the default), this
+        # entire branch is bypassed and `_phase_e_consumed` stays False —
+        # the legacy Phase D path (via `torch.ops.vllm.cute_mlp_forward`)
+        # runs unchanged.
+        #
+        # Task 10 will verify this end-to-end with GSM8K under Docker.
+        # Task 9's deliverable is the dispatch path + source-level test.
+        self._phase_e_consumed = False
+        self._phase_e_use_beta_lite = False
+        _phase_e_env = _phase_e_env_config()
+        # `layer.layer_name` is the canonical identifier on vllm's Attention;
+        # `layer.layer_idx` is not populated, so extract the int index from
+        # the dotted name via `extract_layer_index` (same helper used elsewhere
+        # in the codebase).
+        _layer_idx: int | None = None
+        _layer_name = getattr(layer, "layer_name", None)
+        if _layer_name is not None:
+            try:
+                from vllm.model_executor.models.utils import extract_layer_index
+                _layer_idx = extract_layer_index(_layer_name)
+            except Exception:
+                _layer_idx = None
+        _phase_e_attached = hasattr(self, '_next_input_layernorm_module')
+        _layer_allowed = (
+            _phase_e_env.restricted_layers is None
+            or (_layer_idx is not None
+                and _layer_idx in _phase_e_env.restricted_layers)
+        )
+        # INVARIANT: β-lite reads `self.residual_output` below, which is only
+        # populated by the attention uber-kernel when `use_fusion=True`. Keep
+        # `use_fusion` in this AND; removing it would silently feed stale
+        # residual data from the previous step into the ε epilogue.
+        _phase_e_active = (
+            _phase_e_env.enabled
+            and is_decode_only
+            and _phase_e_attached
+            and _layer_allowed
+            and use_fusion  # INVARIANT above — do not remove
+            and getattr(self, "_mlp_fusion_bound", False)
+            and num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
+        )
+        # 64 = CTAs-per-seq in the attn grid (num_q_tiles=1 × num_kv_heads=4
+        # × slice_ctas=8 × num_k_tiles=8 = 64 per seq for the β grid).
+        _CTAS_PER_SEQ = 64
+        _total_ctas = _CTAS_PER_SEQ * num_seqs
+        _resident_cap = getattr(self, "_resident_cap", 0)
+        _use_beta_lite = _phase_e_active and (
+            _phase_e_env.forced_path == "lite"
+            or (
+                _phase_e_env.forced_path == "auto"
+                and _total_ctas > _resident_cap
+            )
+        )
+        if _use_beta_lite:
+            try:
+                # Zero the MLP per-step buffers BEFORE the kernel launch
+                # (Python-side zero_ is stream-ordered before the kernel).
+                nat = num_actual_tokens
+                self.mlp_partial_fp32[:nat, :].zero_()
+                self.mlp_arrival_count[:nat].zero_()
+
+                # Next-input-layernorm gamma + eps from the module attached
+                # by attach_next_input_layernorm (Task 3). When the module
+                # is None this is the last decoder layer — ε epilogue
+                # skips the norm and does a residual_final memcpy to
+                # next_hidden_scratch (emit_next_layernorm=False).
+                _next_ln = getattr(
+                    self, '_next_input_layernorm_module', None
+                )
+                _emit_next = getattr(self, '_emit_next_layernorm', False)
+                if _emit_next and _next_ln is not None:
+                    _next_gamma = _next_ln.weight
+                    _rms_eps = float(_next_ln.variance_epsilon)
+                else:
+                    _next_gamma = None
+                    _rms_eps = 1e-6
+
+                self._mlp_kernel(
+                    self.rmsnorm_output[:nat],
+                    self._mlp_gate_w,
+                    self._mlp_gate_s,
+                    self._mlp_up_w,
+                    self._mlp_up_s,
+                    self._mlp_down_w,
+                    self._mlp_down_s,
+                    self.mlp_partial_fp32[:nat],
+                    self.mlp_arrival_count[:nat],
+                    # Reuse mlp_output as the Phase-D MLP output surface
+                    # (epilogue then consumes it for residual+norm).
+                    self.mlp_output[:nat],
+                    nat,
+                    gate_up_global_scale=self._mlp_gate_up_gs,
+                    down_global_scale=self._mlp_down_gs,
+                    # ε epilogue inputs (Task 8 kwargs):
+                    residual_post_ln=self.residual_output[:nat],
+                    next_input_layernorm_gamma=_next_gamma,
+                    next_hidden_output=self.next_hidden_scratch[:nat],
+                    emit_epilogue=True,
+                    emit_next_layernorm=_emit_next,
+                    rms_eps=_rms_eps,
+                )
+                self._phase_e_consumed = True
+                self._phase_e_use_beta_lite = True
+            except Exception as e:  # noqa: BLE001 — fail-closed, log & fall back
+                logger.warning(
+                    "CuTe Phase E β-lite launch failed (fallback to "
+                    "legacy Phase D MLP path) layer=%s nat=%d %s: %r",
+                    getattr(layer, "layer_name", "<layer>"),
+                    num_actual_tokens, type(e).__name__, e,
+                )
+                self._phase_e_consumed = False
+                self._phase_e_use_beta_lite = False
+        # --- END PHASE E β-lite dispatch ---
 
         # --- PHASE D2 DISABLED (commented, not deleted — Phase B/C debug may
         # need this attention-side launch path back) ---

@@ -447,6 +447,37 @@ class Qwen3_5DecoderLayer(nn.Module):
                 hidden_states, residual
             )
 
+        # Phase E β-lite consume (task 9). When the CuTe backend launched the
+        # β-lite dispatch inside its forward, the MLP kernel's ε epilogue
+        # already produced:
+        #   - residual_final  -> impl.residual_output (overwritten in-kernel)
+        #   - next_hidden     -> impl.next_hidden_scratch (pre-RMSNorm'd by
+        #                        the next decoder layer's input_layernorm
+        #                        gamma, or a plain residual_final memcpy
+        #                        for the last layer)
+        #
+        # TODO(task-10, CUDA-graph-safety): this Python `getattr(..., False)`
+        # gate evaluates at trace time under @support_torch_compile (see
+        # Qwen3_5Model decorator at L489). Under PIECEWISE capture, a graph
+        # traced with _phase_e_consumed=False will dead-branch this `if`
+        # out — at replay, `self.mlp(hidden_states)` below will fire AGAIN
+        # after β-lite already ran, producing double-fire (see
+        # memory:feedback_opaque_op_not_enough). Task 10 MUST test first
+        # with --debug (--enforce-eager) to validate β-lite math. Before
+        # enabling PIECEWISE, refactor this gate into an opaque custom op
+        # (mirror torch.ops.vllm.cute_mlp_forward pattern from _mlp_op.py).
+        #
+        # Per-impl buffers are not aliased across layers; the .clone() the
+        # initial task-9 subagent added is unnecessary and was ~80 MiB of
+        # allocator churn per step — dropped in favor of direct slice view.
+        if getattr(impl, "_phase_e_consumed", False):
+            hidden_states = impl.next_hidden_scratch[:nat]
+            residual = impl.residual_output[:nat]
+            # Reset so a later non-β forward (or a layer where β-lite did
+            # not run) doesn't falsely trigger this branch.
+            impl._phase_e_consumed = False
+            return hidden_states, residual
+
         hidden_states = self.mlp(hidden_states)
 
         if self.layer_scale:
