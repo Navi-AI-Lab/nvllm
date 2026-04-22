@@ -832,6 +832,23 @@ if _CUTE_AVAILABLE:
             has_side_effects=True, loc=loc, ip=ip)
 
     @dsl_user_op
+    def _acquire_fence(*, loc=None, ip=None):
+        """Acquire fence — fence.acq_rel.gpu.
+
+        Lighter than membar.gl for post-barrier loads. Guarantees that
+        prior releases (atomic_add into arrival counter + membar.gl)
+        are visible to subsequent loads of the guarded region.
+
+        Used by Phase E β kernel to acquire after spin-wait on the
+        grid-barrier arrival counter.
+        """
+        _llvm_dialect.inline_asm(
+            T.i32(), [],
+            "fence.acq_rel.gpu; mov.u32 $0, 0;",
+            "=r",
+            has_side_effects=True, loc=loc, ip=ip)
+
+    @dsl_user_op
     def _atomic_add_u32(addr: Int64, val: Int32, *, loc=None, ip=None) -> Int32:
         """Integer atomicAdd, returns old value.
 
