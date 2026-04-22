@@ -73,6 +73,45 @@ class CutePagedMetadata(AttentionMetadata):
 
 
 # ---------------------------------------------------------------------------
+# Phase E env-flag parser
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _PhaseEEnvConfig:
+    enabled: bool
+    forced_path: str  # "auto" | "coop" | "lite"
+    restricted_layers: set[int] | None
+
+
+def _phase_e_env_config() -> _PhaseEEnvConfig:
+    """Parse Phase E env flags. Call once per forward for dispatch decisions.
+
+    CUTE_PHASE_E_FUSION={0,1}    — default 0 (OFF)
+    CUTE_PHASE_E_PATH={auto,coop,lite}  — default 'auto'
+    CUTE_PHASE_E_LAYERS=<csv>    — optional debug restriction, None = all
+    """
+    enabled = os.environ.get("CUTE_PHASE_E_FUSION", "0") == "1"
+    forced_path = os.environ.get("CUTE_PHASE_E_PATH", "auto").lower()
+    if forced_path not in {"auto", "coop", "lite"}:
+        forced_path = "auto"
+    layers_str = os.environ.get("CUTE_PHASE_E_LAYERS", "").strip()
+    restricted_layers: set[int] | None = None
+    if layers_str:
+        try:
+            restricted_layers = {
+                int(x.strip()) for x in layers_str.split(",") if x.strip()
+            }
+        except ValueError:
+            restricted_layers = None
+    return _PhaseEEnvConfig(
+        enabled=enabled,
+        forced_path=forced_path,
+        restricted_layers=restricted_layers,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Backend
 # ---------------------------------------------------------------------------
 

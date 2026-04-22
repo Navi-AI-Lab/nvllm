@@ -155,3 +155,36 @@ def test_beta_min_free_gb_kill_switch(monkeypatch):
 
     with pytest.raises(RuntimeError, match="CUTE_BETA_MIN_FREE_GB"):
         impl.attach_next_input_layernorm(mock_next)
+
+
+def test_phase_e_env_config_defaults(monkeypatch):
+    """Defaults: fusion=0, path=auto, layers=None."""
+    from vllm.v1.attention.backends.cute_paged._backend import (
+        _phase_e_env_config,
+    )
+    for k in ("CUTE_PHASE_E_FUSION", "CUTE_PHASE_E_PATH", "CUTE_PHASE_E_LAYERS"):
+        monkeypatch.delenv(k, raising=False)
+    cfg = _phase_e_env_config()
+    assert cfg.enabled is False
+    assert cfg.forced_path == "auto"
+    assert cfg.restricted_layers is None
+
+
+def test_phase_e_env_config_restricted_layers(monkeypatch):
+    from vllm.v1.attention.backends.cute_paged._backend import (
+        _phase_e_env_config,
+    )
+    monkeypatch.setenv("CUTE_PHASE_E_FUSION", "1")
+    monkeypatch.setenv("CUTE_PHASE_E_LAYERS", "3,7,11")
+    cfg = _phase_e_env_config()
+    assert cfg.enabled is True
+    assert cfg.restricted_layers == {3, 7, 11}
+
+
+def test_phase_e_env_config_forced_path(monkeypatch):
+    from vllm.v1.attention.backends.cute_paged._backend import (
+        _phase_e_env_config,
+    )
+    monkeypatch.setenv("CUTE_PHASE_E_PATH", "lite")
+    cfg = _phase_e_env_config()
+    assert cfg.forced_path == "lite"
