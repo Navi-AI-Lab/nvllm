@@ -388,6 +388,22 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._next_input_layernorm_module = next_input_layernorm_module
         self._emit_next_layernorm = next_input_layernorm_module is not None
 
+        # Kill-switch: refuse to enable β if host memory is tight.
+        # Runs BEFORE workspace allocation so a refusal doesn't leave
+        # ~1.25 MiB of half-attached tensors on self.
+        # CUTE_BETA_MIN_FREE_GB is plumbed via serve scripts
+        # (commit 5c000a09d); default 8 GiB preserves KV + CUDA graph
+        # headroom on GB10 (128 GiB unified).
+        min_free_gb = float(os.environ.get("CUTE_BETA_MIN_FREE_GB", "8"))
+        free_bytes, _total = torch.cuda.mem_get_info()
+        if free_bytes < min_free_gb * (1024 ** 3):
+            free_gb = free_bytes / (1024 ** 3)
+            raise RuntimeError(
+                f"CUTE_BETA_MIN_FREE_GB={min_free_gb} GiB threshold not met: "
+                f"only {free_gb:.1f} GiB free. "
+                f"Lower threshold or free memory before enabling Phase E."
+            )
+
         # Allocate Phase E workspace once. Qwen3_5Model.__init__ runs
         # inside vLLM's set_current_vllm_config() context, so
         # get_current_vllm_config() is always available on the real
@@ -404,6 +420,17 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 dtype=torch.bfloat16, device='cuda',
             )
 
+        # Probe resident-CTA cap once (SMEM-bound estimate; a real
+        # cuOccupancy probe re-runs post kernel compile in the launch
+        # path). 45568 B matches the β kernel SMEM footprint (spec §6).
+        self._resident_cap = self._probe_resident_cap(
+            kernel_fn=None, num_threads=128, smem_bytes=45568
+        )
+        logger.info(
+            "CuTe Phase E: resident_cap=%d (num_seqs_coop_max=%d)",
+            self._resident_cap, max(1, self._resident_cap // 64)
+        )
+
         logger.info(
             "CuTe Phase E next-input-layernorm attached: "
             "emit_next_layernorm=%s num_layers_barrier=%d "
@@ -413,6 +440,42 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             self._fusion_max_num_seqs,
             self._fusion_hidden_dim,
         )
+
+    def _probe_resident_cap(
+        self, kernel_fn, num_threads: int, smem_bytes: int
+    ) -> int:
+        """Probe cooperative-launch cap. Returns occupancy_per_SM * num_sms.
+
+        When kernel_fn is None (pre-compile), returns a conservative
+        default based on SMEM occupancy alone: floor(smem_per_sm / smem_bytes).
+        """
+        num_sms = torch.cuda.get_device_properties(0).multi_processor_count
+        if kernel_fn is None:
+            # Pre-compile conservative fallback — SMEM-only
+            smem_per_sm = torch.cuda.get_device_properties(
+                0
+            ).shared_memory_per_multiprocessor
+            occ = max(1, smem_per_sm // max(smem_bytes, 1))
+            return int(occ) * int(num_sms)
+        # Real probe against compiled kernel
+        try:
+            from cuda.bindings import driver as cuda_driver
+            ok, occ = cuda_driver.cuOccupancyMaxActiveBlocksPerMultiprocessor(
+                kernel_fn, int(num_threads), int(smem_bytes)
+            )
+            if ok == cuda_driver.CUresult.CUDA_SUCCESS:
+                return int(occ) * int(num_sms)
+        except Exception as e:
+            logger.warning(
+                "CuTe Phase E: cuOccupancy probe failed (%s); "
+                "using SMEM-only fallback", e
+            )
+        # Fallback to SMEM-only
+        smem_per_sm = torch.cuda.get_device_properties(
+            0
+        ).shared_memory_per_multiprocessor
+        occ = max(1, smem_per_sm // max(smem_bytes, 1))
+        return int(occ) * int(num_sms)
 
     def _resolve_fusion_weights(self) -> None:
         """Bind current NVFP4 weight tensors off the stored o_proj / post_norm

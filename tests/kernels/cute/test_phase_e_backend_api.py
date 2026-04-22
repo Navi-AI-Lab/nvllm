@@ -108,3 +108,50 @@ def test_attach_next_input_layernorm_requires_attach_fusion_first():
 
     with pytest.raises(AssertionError, match="attach_fusion must run first"):
         impl.attach_next_input_layernorm(None)
+
+
+def test_resident_cap_is_positive_and_bounded(monkeypatch):
+    """Smoke: cap probe returns a sane number (not 0, not MAX_INT)."""
+    import torch
+    from vllm.v1.attention.backends.cute_paged._backend import (
+        CutePagedAttentionImpl,
+    )
+    impl = CutePagedAttentionImpl.__new__(CutePagedAttentionImpl)
+
+    # Stub the kernel function — use None → probe falls back to
+    # SMEM-only occupancy estimate
+    dummy_fn = None
+
+    cap = impl._probe_resident_cap(dummy_fn, num_threads=128, smem_bytes=45568)
+    num_sms = torch.cuda.get_device_properties(0).multi_processor_count
+    assert 0 < cap <= 16 * num_sms, (
+        f"cap={cap} num_sms={num_sms} — implausible result"
+    )
+
+
+def test_beta_min_free_gb_kill_switch(monkeypatch):
+    """When free mem < threshold, attach_next_input_layernorm raises."""
+    import os
+    import torch
+    from vllm.v1.attention.backends.cute_paged._backend import (
+        CutePagedAttentionImpl,
+    )
+    # Stub config resolver (as in the other tests in this file)
+    monkeypatch.setattr(
+        'vllm.config.get_current_vllm_config', lambda: _stub_cfg(64),
+    )
+
+    impl = CutePagedAttentionImpl.__new__(CutePagedAttentionImpl)
+    impl._fusion_attached = True
+    impl._fusion_max_num_seqs = 128
+    impl._fusion_hidden_dim = 5120
+
+    # Force ridiculously high threshold
+    monkeypatch.setenv("CUTE_BETA_MIN_FREE_GB", "9999999")
+
+    mock_next = torch.nn.Module()
+    mock_next.weight = torch.nn.Parameter(
+        torch.ones(5120, dtype=torch.bfloat16, device='cuda'))
+
+    with pytest.raises(RuntimeError, match="CUTE_BETA_MIN_FREE_GB"):
+        impl.attach_next_input_layernorm(mock_next)
