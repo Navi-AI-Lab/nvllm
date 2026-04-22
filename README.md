@@ -89,7 +89,7 @@ curl http://localhost:8000/v1/chat/completions \
 | Script | Model | Status | Context |
 |--------|-------|--------|---------|
 | `serve.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | Active (default) | 64K |
-| `serve-cute.sh` | Qwen3.5-27B with CuTe Paged Attention | Active (kernel dev) | 64K |
+| `serve-cute.sh` | [Qwen3.5-27B with CuTe Paged Attention](https://huggingface.co/ig1/Qwen3.5-35B-A3B-NVFP4) | Active (kernel dev) | 64K |
 | `serve-nemotron.sh` | Nemotron-3-Super-120B-A12B-NVFP4 | Not Ready | 128K |
 | `serve-gemma4.sh` | Gemma 4 31B IT NVFP4 | Degraded (see script) | 32K |
 
