@@ -2382,3 +2382,234 @@ class PhaseE_Beta_Kernel:
 
         self._compiled_phase_3(*all_args)
         return mlp_output
+
+    # -----------------------------------------------------------------
+    # Task 15: Phase 4 ε epilogue (isolated debug kernel).
+    # -----------------------------------------------------------------
+    def run_phase_4_only(
+        self,
+        residual_post_ln: torch.Tensor,    # [nat, hidden] BF16 (in-place → residual_final)
+        mlp_output: torch.Tensor,          # [nat, hidden] BF16 (input)
+        next_input_layernorm_gamma: Optional[torch.Tensor],  # [hidden] BF16 or None
+        next_hidden_output: torch.Tensor,  # [nat, hidden] BF16 (written)
+        emit_next_layernorm: bool = True,
+    ) -> torch.Tensor:
+        """Launch ε epilogue only. Single CTA per seq (grid=(1,1,nat)).
+
+        Math (ports mlp_kernel.py:1355 minus the secondary barrier since
+        (1,1,nat) implies every CTA is already "last" for its seq):
+
+            residual_final = residual_post_ln + mlp_output   # BF16, FP32 acc
+            if emit_next_layernorm:
+                next_hidden = RMSNorm(residual_final) * γ_next
+            else:
+                next_hidden = residual_final                  # memcpy
+        """
+        if not _CUTE_AVAILABLE:
+            raise RuntimeError(
+                "PhaseE_Beta_Kernel requires CUTLASS; not available."
+            )
+        nat, hidden = residual_post_ln.shape
+        assert hidden == self.hidden_size
+        assert mlp_output.shape == residual_post_ln.shape
+        assert next_hidden_output.shape == residual_post_ln.shape
+        for t in (residual_post_ln, mlp_output, next_hidden_output):
+            assert t.is_contiguous()
+            assert t.dtype == torch.bfloat16
+        if emit_next_layernorm:
+            assert next_input_layernorm_gamma is not None, (
+                "emit_next_layernorm=True requires next_input_layernorm_gamma"
+            )
+            assert next_input_layernorm_gamma.shape == (hidden,)
+            assert next_input_layernorm_gamma.dtype == torch.bfloat16
+            assert next_input_layernorm_gamma.is_contiguous()
+            gamma_ptr_val = next_input_layernorm_gamma.data_ptr()
+        else:
+            # Last-layer: γ not needed; pass Int64(0) — runtime branch skips loads.
+            gamma_ptr_val = 0
+
+        residual_ptr = Int64(residual_post_ln.data_ptr())
+        mlp_output_ptr = Int64(mlp_output.data_ptr())
+        next_gamma_ptr = Int64(gamma_ptr_val)
+        next_hidden_ptr = Int64(next_hidden_output.data_ptr())
+        rms_eps_f32 = Float32(float(self.rms_eps))
+        emit_next_ln_i32 = Int32(1 if emit_next_layernorm else 0)
+
+        stream_arg = _cuda_driver.CUstream(
+            int(torch.cuda.current_stream().cuda_stream)
+        )
+
+        if getattr(self, "_compiled_phase_4", None) is None:
+            logger.info(
+                "Compiling PhaseE_Beta_Kernel phase-4-only (first call)…"
+            )
+            self._compiled_phase_4 = cute.compile(
+                self._jit_launch_phase_4_only,
+                residual_ptr,
+                mlp_output_ptr,
+                next_gamma_ptr,
+                next_hidden_ptr,
+                Int32(nat),
+                Int32(hidden),
+                rms_eps_f32,
+                emit_next_ln_i32,
+                stream_arg,
+            )
+
+        self._compiled_phase_4(
+            residual_ptr,
+            mlp_output_ptr,
+            next_gamma_ptr,
+            next_hidden_ptr,
+            Int32(nat),
+            Int32(hidden),
+            rms_eps_f32,
+            emit_next_ln_i32,
+            stream_arg,
+        )
+        return next_hidden_output
+
+    if _CUTE_AVAILABLE:
+
+        @cute.jit
+        def _jit_launch_phase_4_only(
+            self,
+            residual_post_ln_ptr: Int64,
+            mlp_output_ptr: Int64,
+            next_gamma_ptr: Int64,
+            next_hidden_out_ptr: Int64,
+            nat: Int32,
+            hidden_dim: Int32,
+            rms_eps: Float32,
+            emit_next_ln: Int32,
+            stream,
+        ):
+            """JIT host wrapper for ε epilogue launch."""
+            self._kernel_phase_4_only(
+                residual_post_ln_ptr,
+                mlp_output_ptr,
+                next_gamma_ptr,
+                next_hidden_out_ptr,
+                hidden_dim,
+                rms_eps,
+                emit_next_ln,
+            ).launch(
+                grid=[1, 1, nat],
+                block=[self.num_threads, 1, 1],
+                smem=16,  # 4-warp cross-warp reduce scratch
+                stream=stream,
+            )
+
+        @cute.kernel
+        def _kernel_phase_4_only(
+            self,
+            residual_post_ln_ptr: Int64,
+            mlp_output_ptr: Int64,
+            next_gamma_ptr: Int64,
+            next_hidden_out_ptr: Int64,
+            hidden_dim: Int32,
+            rms_eps: Float32,
+            emit_next_ln: Int32,
+        ):
+            """Phase 4 ε epilogue: residual_final + optional next-layer RMSNorm.
+
+            Port of mlp_kernel.py:1355's epilogue (Task 8). Grid=(1,1,nat)
+            means every CTA is the single participant per seq, so the
+            secondary barrier / last-CTA election is dropped.
+            """
+            bz = cute.arch.block_idx()[2]
+            tid = cute.arch.thread_idx()[0]
+            lane = cute.arch.lane_idx()
+            warp = cute.arch.warp_idx()
+
+            # SMEM: 4 warp × 4 B = 16 B cross-warp reduction scratch.
+            smem = cute.arch.get_dyn_smem(cutlass.Uint8, alignment=128)
+            smem_reduce = shared_ptr_to_i64(smem)
+
+            n_per_thr_py = self.hidden_size // self.num_threads  # 40 @ hidden=5120
+
+            res_base = (
+                residual_post_ln_ptr
+                + Int64(bz * Int32(self.hidden_size)) * Int64(2)
+            )
+            mlp_base = (
+                mlp_output_ptr
+                + Int64(bz * Int32(self.hidden_size)) * Int64(2)
+            )
+            next_hidden_base = (
+                next_hidden_out_ptr
+                + Int64(bz * Int32(self.hidden_size)) * Int64(2)
+            )
+
+            # --- Pass 1: residual_final = residual_post + mlp_out (in-place);
+            #             accumulate sum-of-squares ---------------------
+            ss = Float32(0.0)
+            for _i in cutlass.range_constexpr(n_per_thr_py):
+                idx = tid + Int32(_i * self.num_threads)
+                res_f32 = _ld_global_b16_to_f32(
+                    res_base + Int64(idx) * Int64(2))
+                mlp_f32 = _ld_global_b16_to_f32(
+                    mlp_base + Int64(idx) * Int64(2))
+                rf = res_f32 + mlp_f32
+                _st_global_bf16_from_f32(
+                    res_base + Int64(idx) * Int64(2), rf)
+                ss = ss + rf * rf
+
+            # --- Pass 2: warp-shuffle reduction + cross-warp SMEM →
+            #             variance → inv_rms, broadcast via smem slot 0 -
+            ss = ss + shfl_xor_sync(ss, Int32(1))
+            ss = ss + shfl_xor_sync(ss, Int32(2))
+            ss = ss + shfl_xor_sync(ss, Int32(4))
+            ss = ss + shfl_xor_sync(ss, Int32(8))
+            ss = ss + shfl_xor_sync(ss, Int32(16))
+
+            if lane == Int32(0):
+                _st_shared_f32(
+                    smem_reduce + Int64(warp) * Int64(4), ss)
+            cute.arch.sync_threads()
+
+            if warp == Int32(0):
+                if lane == Int32(0):
+                    total_ss = _ld_shared_f32(smem_reduce + Int64(0))
+                    total_ss = total_ss + _ld_shared_f32(
+                        smem_reduce + Int64(4))
+                    total_ss = total_ss + _ld_shared_f32(
+                        smem_reduce + Int64(8))
+                    total_ss = total_ss + _ld_shared_f32(
+                        smem_reduce + Int64(12))
+                    variance = total_ss / Float32(
+                        float(self.hidden_size))
+                    inv_rms = _rsqrt_approx_f32(variance + rms_eps)
+                    _st_shared_f32(smem_reduce + Int64(0), inv_rms)
+            cute.arch.sync_threads()
+
+            inv_rms_val = _ld_shared_f32(smem_reduce + Int64(0))
+
+            # --- Pass 3: write next_hidden — two paths gated by emit_next_ln ---
+            if emit_next_ln == Int32(1):
+                # RMSNorm(residual_final) * γ with a BF16 round-trip to
+                # match Python ref's `(rf * rstd).to(bf16) * gamma.float()`.
+                for _i in cutlass.range_constexpr(n_per_thr_py):
+                    idx = tid + Int32(_i * self.num_threads)
+                    rf = _ld_global_b16_to_f32(
+                        res_base + Int64(idx) * Int64(2))
+                    gamma_f32 = _ld_global_b16_to_f32(
+                        next_gamma_ptr + Int64(idx) * Int64(2))
+                    normed_f32 = rf * inv_rms_val
+                    # Round-trip through BF16 via cvt.rn.bf16.f32 + widen.
+                    normed_bf16_u32 = _cvt_2f32_to_bf16x2(
+                        normed_f32, Float32(0.0))
+                    low16 = normed_bf16_u32 & Uint32(0xFFFF)
+                    as_bits = Int32(low16 << Uint32(16))
+                    normed_round = _bitcast_i32_to_f32(as_bits)
+                    out_f32 = normed_round * gamma_f32
+                    _st_global_bf16_from_f32(
+                        next_hidden_base + Int64(idx) * Int64(2), out_f32)
+            else:
+                # Last-layer: next_hidden = residual_final (memcpy).
+                for _i in cutlass.range_constexpr(n_per_thr_py):
+                    idx = tid + Int32(_i * self.num_threads)
+                    rf = _ld_global_b16_to_f32(
+                        res_base + Int64(idx) * Int64(2))
+                    _st_global_bf16_from_f32(
+                        next_hidden_base + Int64(idx) * Int64(2), rf)

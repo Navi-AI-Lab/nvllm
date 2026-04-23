@@ -436,6 +436,92 @@ def test_phase_3_matches_standalone_mlp():
 
 
 @pytest.mark.skipif(not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available")
+@pytest.mark.parametrize("emit_next_ln", [True, False])
+def test_phase_4_matches_python_epsilon_ref(emit_next_ln):
+    """Phase 4 (Task 15): β kernel's ε epilogue matches Python reference.
+
+    Two paths under test:
+      - emit_next_ln=True  → next_hidden = RMSNorm(residual_post + mlp_out) * γ
+      - emit_next_ln=False → next_hidden = residual_final (memcpy, last layer)
+
+    Also verifies residual_post is updated in-place to residual_final.
+    """
+    from vllm.v1.attention.backends.cute_paged.phase_e_kernel import (
+        PhaseE_Beta_Kernel,
+    )
+    repro = import_module("2026-04-22-phase-e-repro")
+
+    torch.manual_seed(42)
+    nat, hidden = 4, 5120
+    device = "cuda"
+
+    beta = PhaseE_Beta_Kernel(
+        hidden_size=hidden, intermediate_size=17408,
+        num_attn_heads=24, num_kv_heads=4, head_dim=256,
+        rms_eps=1e-6,
+    )
+
+    residual_post = torch.randn(nat, hidden, dtype=torch.bfloat16,
+                                device=device)
+    mlp_out = torch.randn(nat, hidden, dtype=torch.bfloat16, device=device)
+    next_hidden = torch.zeros(nat, hidden, dtype=torch.bfloat16,
+                              device=device)
+    next_gamma = (torch.randn(hidden, dtype=torch.bfloat16, device=device)
+                  if emit_next_ln else None)
+
+    # Take snapshots BEFORE kernel mutates residual_post.
+    residual_post_snapshot = residual_post.clone()
+
+    beta.run_phase_4_only(
+        residual_post_ln=residual_post,
+        mlp_output=mlp_out,
+        next_input_layernorm_gamma=next_gamma,
+        next_hidden_output=next_hidden,
+        emit_next_layernorm=emit_next_ln,
+    )
+    torch.cuda.synchronize()
+
+    # Python reference (snapshot → ref, since kernel mutates in-place).
+    residual_final_ref, next_hidden_ref = repro.epsilon_epilogue_ref(
+        residual_post_snapshot, mlp_out,
+        next_gamma=next_gamma if emit_next_ln else None,
+        eps=1e-6,
+    )
+
+    # --- Assert 1: residual_post updated in-place to residual_final ---
+    max_abs_rf = (residual_post.float()
+                  - residual_final_ref.float()).abs().max().item()
+    assert torch.allclose(residual_post, residual_final_ref,
+                          rtol=1e-2, atol=1e-3), (
+        f"residual_final (in-place) diverged: max_abs={max_abs_rf:.3e}; "
+        f"kernel[0,:8]={residual_post[0,:8].tolist()}; "
+        f"ref[0,:8]={residual_final_ref[0,:8].tolist()}"
+    )
+
+    # --- Assert 2: next_hidden matches Python ref ---
+    if emit_next_ln:
+        # Tolerance: rsqrt.approx.f32 (kernel) vs torch.rsqrt (ref) diverge
+        # by ~2 ULPs in FP32 → up to 1 BF16 ULP (2^-5 = 0.031) after the
+        # * γ_bf16 stage with random γ. Phase_D's test hides this by using
+        # γ=ones so the final multiply is a no-op. atol sized for 1 BF16
+        # ULP at magnitude ~1.
+        max_abs_nh = (next_hidden.float()
+                      - next_hidden_ref.float()).abs().max().item()
+        assert torch.allclose(next_hidden, next_hidden_ref,
+                              rtol=3e-2, atol=5e-2), (
+            f"next_hidden (RMSNorm path) diverged: max_abs={max_abs_nh:.3e}; "
+            f"kernel[0,:8]={next_hidden[0,:8].tolist()}; "
+            f"ref[0,:8]={next_hidden_ref[0,:8].tolist()}"
+        )
+    else:
+        # Last-layer: next_hidden == residual_final (BF16-exact memcpy).
+        assert torch.equal(next_hidden, residual_final_ref), (
+            f"last-layer next_hidden != residual_final: "
+            f"max diff {(next_hidden.float() - residual_final_ref.float()).abs().max().item()}"
+        )
+
+
+@pytest.mark.skipif(not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available")
 @pytest.mark.parametrize("total_ctas", [2, 8, 32])
 def test_phase_2_grid_barrier_stress(total_ctas):
     """Phase 2 (Task 13): cooperative-launch grid barrier.
