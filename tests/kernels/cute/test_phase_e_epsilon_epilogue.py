@@ -119,3 +119,45 @@ def test_epsilon_epilogue_last_layer_skips_next_layernorm():
         f"last-layer next_hidden diverged from residual_final: "
         f"max diff {(next_hidden.float() - residual_final_ref.float()).abs().max().item()}"
     )
+
+
+@pytest.mark.skipif(not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available")
+def test_phase_0_prologue_matches_rmsnorm_ref():
+    """Phase 0 (Task 11): single-CTA input_layernorm prologue.
+
+    Reference: torch RMSNorm(hidden_in + residual_in) * γ.
+    Kernel: PhaseE_Beta_Kernel.run_phase_0_only (grid=(1,1,nat), phases 1-4
+    are not yet wired — Tasks 12-15 will add them).
+    """
+    from vllm.v1.attention.backends.cute_paged.phase_e_kernel import (
+        PhaseE_Beta_Kernel,
+    )
+
+    k = PhaseE_Beta_Kernel(
+        hidden_size=5120, intermediate_size=17408,
+        num_attn_heads=24, num_kv_heads=4, head_dim=256,
+        rms_eps=1e-6,
+    )
+
+    nat, hidden = 1, 5120
+    hidden_in = torch.randn(nat, hidden, dtype=torch.bfloat16, device='cuda')
+    residual_in = torch.randn(nat, hidden, dtype=torch.bfloat16, device='cuda')
+    # Non-trivial γ catches scale-broadcast bugs that γ=1 would hide.
+    gamma = torch.randn(hidden, dtype=torch.bfloat16, device='cuda')
+    normed_out = torch.zeros(nat, hidden, dtype=torch.bfloat16, device='cuda')
+
+    k.run_phase_0_only(hidden_in, residual_in, gamma, normed_out)
+    torch.cuda.synchronize()
+
+    # Reference: exact torch RMSNorm math (FP32 accumulator, BF16 cast at end).
+    summed = hidden_in.float() + residual_in.float()
+    variance = summed.pow(2).mean(dim=-1, keepdim=True)
+    rstd = torch.rsqrt(variance + 1e-6)
+    normed_ref = ((summed * rstd) * gamma.float()).to(torch.bfloat16)
+
+    max_abs = (normed_out.float() - normed_ref.float()).abs().max().item()
+    assert torch.allclose(normed_out, normed_ref, rtol=1e-2, atol=1e-3), (
+        f"Phase 0 RMSNorm diverged: max_abs={max_abs:.3e}; "
+        f"kernel[0,:8]={normed_out[0,:8].tolist()}; "
+        f"ref[0,:8]={normed_ref[0,:8].tolist()}"
+    )
