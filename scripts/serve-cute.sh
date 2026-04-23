@@ -41,7 +41,7 @@ nvllm_check_free_mem "${NVLLM_MIN_FREE_GB:-90}"
 KV_CACHE="fp8_e4m3"
 ATTN_BACKEND="CUTE_PAGED"
 MAX_MODEL_LEN=65536
-MAX_NUM_SEQS=4
+MAX_NUM_SEQS="${MAX_NUM_SEQS:-4}"
 
 # Build extra args
 EXTRA_ARGS=()
