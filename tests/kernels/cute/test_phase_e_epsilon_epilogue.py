@@ -560,3 +560,242 @@ def test_phase_2_grid_barrier_stress(total_ctas):
         f"scratch mismatch: got {scratch.tolist()}, "
         f"expected {expected_scratch.tolist()}"
     )
+
+
+@pytest.mark.skipif(not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available")
+def test_beta_coop_full_matches_beta_lite():
+    """Task 16 pre-synthesis: β-coop unified kernel matches β-lite path.
+
+    β-lite baseline (two-kernel dispatch):
+      1. `paged_attention_forward(..., wo_*, rmsnorm_*)` → writes
+         rmsnorm_output (= attn output after Phase C) + residual_output.
+      2. `Phase_D_MLP_Kernel(..., emit_epilogue=True, emit_next_layernorm=True)`
+         → consumes rmsnorm_output as x, writes mlp_output + residual_final
+         (in-place on residual_output) + next_hidden_output.
+
+    β-coop unified kernel (one launch):
+      `PhaseE_Beta_Kernel.run_beta_coop_full(...)` — grid=(8,8,nat)
+      cooperative launch. Same byte-for-byte math paths for attn +
+      MLP + ε; only difference is that Phase 1 and Phase 3 share one
+      kernel context (SMEM aliased; grid barrier between).
+
+    Tolerance sized for the 1-BF16-ULP approx-rsqrt drift verified in
+    Task 15 (memory:feedback_graphs_over_eager; Phase 4 test uses
+    rtol=3e-2/atol=5e-2 for the RMSNorm path with random γ). β-coop
+    adds no new numerical paths beyond those already covered by the
+    Phase 1/3/4 standalone tests, so the same tolerance applies.
+    """
+    from vllm.v1.attention.backends.cute_paged.phase_e_kernel import (
+        PhaseE_Beta_Kernel,
+    )
+    from vllm.v1.attention.backends.cute_paged.kernel import (
+        paged_attention_forward,
+    )
+    from vllm.v1.attention.backends.cute_paged.mlp_kernel import (
+        Phase_D_MLP_Kernel,
+    )
+    from vllm.model_executor.layers.quantization.utils.nvfp4_utils import (
+        swizzle_blockscale,
+    )
+
+    torch.manual_seed(42)
+
+    # --- Model / config ---
+    hidden = 5120
+    interm = 17408
+    num_q_heads = 24
+    num_kv_heads = 4
+    head_dim = 256
+    group_size = num_q_heads // num_kv_heads  # 6
+    page_size = 64
+    seq_len = 128   # 2 pages of 64
+    nat = 1
+    scale = 1.0 / (head_dim ** 0.5)
+    device = "cuda"
+
+    # --- Phase 0 / Phase 1 inputs (mirror test_phase_1_matches_standalone_decode) ---
+    hidden_in = torch.randn(nat, hidden, dtype=torch.bfloat16, device=device)
+    residual_in = torch.randn(nat, hidden, dtype=torch.bfloat16, device=device)
+    input_gamma = torch.randn(hidden, dtype=torch.bfloat16, device=device)
+    post_attn_gamma = torch.randn(hidden, dtype=torch.bfloat16, device=device)
+    query = torch.randn(nat, num_q_heads, head_dim,
+                        dtype=torch.bfloat16, device=device)
+
+    num_pages = 2
+    kv_cache = torch.zeros(num_pages, 2, page_size, num_kv_heads, head_dim,
+                           dtype=torch.uint8, device=device)
+    k_float = torch.randn(num_pages, page_size, num_kv_heads, head_dim,
+                          device=device).clamp(-10, 10)
+    kv_cache[:, 0] = k_float.to(torch.float8_e4m3fn).view(torch.uint8)
+    v_float = torch.randn(num_pages, page_size, num_kv_heads, head_dim,
+                          device=device).clamp(-10, 10)
+    kv_cache[:, 1] = v_float.to(torch.float8_e4m3fn).view(torch.uint8)
+
+    page_table = torch.zeros(nat, 2, dtype=torch.int32, device=device)
+    page_table[0, 0] = 0
+    page_table[0, 1] = 1
+    seq_lens = torch.tensor([seq_len], dtype=torch.int32, device=device)
+
+    # --- NVFP4 W_O (same construction as phase_1 test) ---
+    K_dim = num_q_heads * head_dim
+    N_dim = hidden
+    torch.manual_seed(123)
+    wo_nibbles = torch.randint(0, 16, (N_dim, K_dim),
+                               dtype=torch.uint8, device=device)
+    wo_weight = torch.zeros(N_dim, K_dim // 2,
+                            dtype=torch.uint8, device=device)
+    for k in range(0, K_dim, 2):
+        lo = wo_nibbles[:, k] & 0x0F
+        hi = wo_nibbles[:, k + 1] & 0x0F
+        wo_weight[:, k // 2] = lo | (hi << 4)
+    K_sf = K_dim // 16
+    wo_scales_linear = torch.full((N_dim, K_sf), 0x38,
+                                   dtype=torch.uint8, device=device)
+    wo_scales_linear = wo_scales_linear.view(torch.float8_e4m3fn)
+    wo_scales = swizzle_blockscale(wo_scales_linear)
+    wo_global_scale = torch.tensor(1.0, dtype=torch.float32, device=device)
+
+    # --- MLP weights (same construction as phase_3 test) ---
+    torch.manual_seed(42)
+    gate_fp4 = torch.randint(0, 256, (interm, hidden // 2),
+                             dtype=torch.uint8, device=device)
+    up_fp4 = torch.randint(0, 256, (interm, hidden // 2),
+                           dtype=torch.uint8, device=device)
+    down_fp4 = torch.randint(0, 256, (hidden, interm // 2),
+                             dtype=torch.uint8, device=device)
+    gate_scale = torch.full((interm, hidden // 16), 0x38,
+                            dtype=torch.uint8, device=device)
+    up_scale = torch.full((interm, hidden // 16), 0x38,
+                          dtype=torch.uint8, device=device)
+    down_scale = torch.full((hidden, interm // 16), 0x38,
+                            dtype=torch.uint8, device=device)
+
+    # --- Next-layer γ (for emit_next_layernorm=True) ---
+    next_gamma = torch.randn(hidden, dtype=torch.bfloat16, device=device)
+
+    # ================================================================
+    # β-lite reference: two-kernel dispatch.
+    # ================================================================
+    # Step 1: attn (wo + rmsnorm fused). Writes rmsnorm_output (attn
+    # output after Phase C) + residual_output.
+    lite_wo_output = torch.zeros(nat, 4, hidden,
+                                  dtype=torch.float32, device=device)
+    lite_rmsnorm_output = torch.empty(nat, hidden,
+                                       dtype=torch.bfloat16, device=device)
+    lite_residual_output = torch.empty(nat, hidden,
+                                        dtype=torch.bfloat16, device=device)
+    lite_arrival_count = torch.zeros(nat, dtype=torch.int32, device=device)
+
+    _ = paged_attention_forward(
+        query=query, kv_cache=kv_cache, page_table=page_table,
+        seq_lens=seq_lens, scale=scale, k_scale=1.0, v_scale=1.0,
+        page_size=page_size,
+        wo_weight=wo_weight, wo_scales=wo_scales,
+        wo_global_scale=wo_global_scale, wo_output=lite_wo_output,
+        rmsnorm_gamma=post_attn_gamma,
+        rmsnorm_residual=residual_in,
+        rmsnorm_output=lite_rmsnorm_output,
+        residual_output=lite_residual_output,
+        arrival_count=lite_arrival_count,
+        rmsnorm_eps=1e-6,
+        padded_num_seqs=nat,
+    )
+    torch.cuda.synchronize()
+
+    # Step 2: Phase D MLP + ε epilogue. Consumes rmsnorm_output as x;
+    # mutates residual_output (= lite_residual_output) in place.
+    lite_mlp = Phase_D_MLP_Kernel(hidden_size=hidden, intermediate_size=interm)
+    lite_partial = torch.zeros(nat, lite_mlp.slice_ctas, hidden,
+                               dtype=torch.float32, device=device)
+    lite_arrival = torch.zeros(nat, lite_mlp.num_k_tiles,
+                               dtype=torch.uint32, device=device)
+    lite_mlp_out = torch.zeros(nat, hidden,
+                               dtype=torch.bfloat16, device=device)
+    lite_next_hidden = torch.zeros(nat, hidden,
+                                    dtype=torch.bfloat16, device=device)
+
+    lite_mlp(
+        lite_rmsnorm_output, gate_fp4, gate_scale, up_fp4, up_scale,
+        down_fp4, down_scale,
+        lite_partial, lite_arrival, lite_mlp_out, nat,
+        residual_post_ln=lite_residual_output,
+        next_input_layernorm_gamma=next_gamma,
+        next_hidden_output=lite_next_hidden,
+        emit_epilogue=True,
+        emit_next_layernorm=True,
+        rms_eps=1e-6,
+    )
+    torch.cuda.synchronize()
+
+    # ================================================================
+    # β-coop unified kernel under test.
+    # ================================================================
+    beta = PhaseE_Beta_Kernel(
+        hidden_size=hidden, intermediate_size=interm,
+        num_attn_heads=num_q_heads, num_kv_heads=num_kv_heads,
+        head_dim=head_dim, rms_eps=1e-6,
+    )
+
+    coop_attn_input_bf16 = torch.zeros(nat, hidden,
+                                        dtype=torch.bfloat16, device=device)
+    coop_attn_output = torch.zeros(nat, hidden,
+                                    dtype=torch.bfloat16, device=device)
+    coop_mlp_output = torch.zeros(nat, hidden,
+                                   dtype=torch.bfloat16, device=device)
+    coop_next_hidden = torch.zeros(nat, hidden,
+                                    dtype=torch.bfloat16, device=device)
+
+    beta.run_beta_coop_full(
+        hidden_in=hidden_in,
+        residual_in=residual_in,
+        input_gamma=input_gamma,
+        post_attn_gamma=post_attn_gamma,
+        attn_input_bf16=coop_attn_input_bf16,
+        query=query,
+        kv_cache=kv_cache,
+        page_table=page_table,
+        seq_lens=seq_lens,
+        wo_weight=wo_weight,
+        wo_scales=wo_scales,
+        wo_global_scale=wo_global_scale,
+        attn_output=coop_attn_output,
+        gate_w_fp4=gate_fp4, gate_w_scale=gate_scale,
+        up_w_fp4=up_fp4, up_w_scale=up_scale,
+        down_w_fp4=down_fp4, down_w_scale=down_scale,
+        mlp_output=coop_mlp_output,
+        next_input_layernorm_gamma=next_gamma,
+        next_hidden_output=coop_next_hidden,
+        scale=scale, k_scale=1.0, v_scale=1.0,
+        emit_next_layernorm=True,
+    )
+    torch.cuda.synchronize()
+
+    # --- Assert 1: attn_output (Phase 1 Phase C RMSNorm) matches β-lite ---
+    max_abs_attn = (coop_attn_output.float()
+                    - lite_rmsnorm_output.float()).abs().max().item()
+    assert torch.allclose(coop_attn_output, lite_rmsnorm_output,
+                          rtol=1e-2, atol=1e-3), (
+        f"β-coop attn_output diverged from β-lite: max_abs={max_abs_attn:.3e}; "
+        f"coop[0,:8]={coop_attn_output[0,:8].tolist()}; "
+        f"lite[0,:8]={lite_rmsnorm_output[0,:8].tolist()}"
+    )
+
+    # --- Assert 2: mlp_output matches β-lite ---
+    max_abs_mlp = (coop_mlp_output.float()
+                   - lite_mlp_out.float()).abs().max().item()
+    assert torch.allclose(coop_mlp_output, lite_mlp_out,
+                          rtol=5e-2, atol=5e-2), (
+        f"β-coop mlp_output diverged from β-lite: max_abs={max_abs_mlp:.3e}; "
+        f"coop[0,:8]={coop_mlp_output[0,:8].tolist()}; "
+        f"lite[0,:8]={lite_mlp_out[0,:8].tolist()}"
+    )
+
+    # --- Assert 3: next_hidden matches β-lite ---
+    max_abs_nh = (coop_next_hidden.float()
+                  - lite_next_hidden.float()).abs().max().item()
+    assert torch.allclose(coop_next_hidden, lite_next_hidden,
+                          rtol=5e-2, atol=5e-2), (
+        f"β-coop next_hidden diverged from β-lite: max_abs={max_abs_nh:.3e}; "
+        f"coop[0,:8]={coop_next_hidden[0,:8].tolist()}; "
+        f"lite[0,:8]={lite_next_hidden[0,:8].tolist()}"
+    )
