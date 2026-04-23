@@ -270,6 +270,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # ambiguity (see memory:feedback_kwargs_get_none_default).
         self._phase_e_consumed = False
         self._phase_e_use_beta_lite = False
+        # Phase E β-coop state (Task 16). When attach_mlp_fusion succeeds
+        # AND CUTE_PHASE_E_FUSION=1 the β-coop kernel is constructed here;
+        # dispatch chooses β-coop vs β-lite at forward() time via
+        # _use_beta_coop predicate.
+        self._phase_e_coop_kernel = None
+        self._phase_e_use_beta_coop = False
 
     def _preallocate_fusion_buffers(
         self,
@@ -729,6 +735,56 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             dtype=torch.int32, device="cuda",
         )
 
+        # Phase E β-coop kernel (Task 16). Gated on CUTE_PHASE_E_FUSION=1
+        # so the env flag disables it without any attach-time work. Phase 0
+        # of the unified kernel consumes a (hidden_in, residual_in,
+        # input_gamma) triple that the external model code doesn't pass
+        # through to the attn backend — Phase 0's output (attn_input_bf16)
+        # is a side-channel for a future QKV-fusion step and isn't consumed
+        # by the current layer's attn path. We allocate throwaway scratch
+        # buffers and a dummy input_gamma=ones so Phase 0 runs harmlessly;
+        # the real work happens in Phases 1-4. Future: hoist input_LN into
+        # the kernel by having this layer's Phase 0 write the next layer's
+        # pre-QKV input (requires model-side plumbing).
+        if os.environ.get("CUTE_PHASE_E_FUSION", "0") == "1":
+            try:
+                from vllm.v1.attention.backends.cute_paged.phase_e_kernel import (  # noqa: E501
+                    PhaseE_Beta_Kernel,
+                )
+                self._phase_e_coop_kernel = PhaseE_Beta_Kernel(
+                    hidden_size=hidden_size,
+                    intermediate_size=intermediate_size,
+                    num_attn_heads=self.num_heads,
+                    num_kv_heads=self.num_kv_heads,
+                    head_dim=self.head_size,
+                    rms_eps=1e-6,  # overridden per-call from next-LN module
+                    tile_s=tile_s,
+                    tile_k=tile_k,
+                    slice_ctas=slice_ctas,
+                )
+                # Phase 0 throwaway buffers (output ignored; inputs dummied).
+                self._phase_e_coop_attn_input_scratch = torch.empty(
+                    max_num_seqs, hidden_dim,
+                    dtype=torch.bfloat16, device="cuda",
+                )
+                self._phase_e_coop_input_gamma = torch.ones(
+                    hidden_dim, dtype=torch.bfloat16, device="cuda",
+                )
+                logger.info(
+                    "CuTe Phase E β-coop kernel attached: hidden=%d "
+                    "intermediate=%d num_q_heads=%d num_kv_heads=%d "
+                    "head_dim=%d",
+                    hidden_size, intermediate_size,
+                    self.num_heads, self.num_kv_heads, self.head_size,
+                )
+            except Exception as e:  # noqa: BLE001 — fail-closed
+                logger.warning(
+                    "CuTe Phase E β-coop kernel construction failed: "
+                    "%s. β-coop dispatch disabled; β-lite still available.",
+                    e,
+                )
+                self._phase_e_coop_kernel = None
+
         # Phase D (pre-D1): exposed impl directly on the module; Qwen3_5MLP.forward
         # did `getattr(self, "_cute_impl", None)` + per-step `_mlp_fusion_active`
         # check, which torch.compile dead-branched at trace time. Left commented
@@ -1044,13 +1100,98 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         _CTAS_PER_SEQ = 64
         _total_ctas = _CTAS_PER_SEQ * num_seqs
         _resident_cap = getattr(self, "_resident_cap", 0)
-        _use_beta_lite = _phase_e_active and (
-            _phase_e_env.forced_path == "lite"
+        # Task 16: β-coop dispatch. β-coop requires the unified kernel
+        # attached in attach_mlp_fusion (CUTE_PHASE_E_FUSION=1 at attach
+        # time). forced_path="coop" always routes here; "auto" routes here
+        # when the full grid fits the resident cap for a single cooperative
+        # launch (otherwise β-lite's two-kernel path handles it).
+        _coop_attached = getattr(self, "_phase_e_coop_kernel", None) is not None
+        _use_beta_coop = _phase_e_active and _coop_attached and (
+            _phase_e_env.forced_path == "coop"
             or (
                 _phase_e_env.forced_path == "auto"
-                and _total_ctas > _resident_cap
+                and _total_ctas <= _resident_cap
             )
         )
+        _use_beta_lite = (
+            _phase_e_active
+            and not _use_beta_coop
+            and (
+                _phase_e_env.forced_path == "lite"
+                or _phase_e_env.forced_path == "auto"
+            )
+        )
+        if _use_beta_coop:
+            try:
+                nat = num_actual_tokens
+                _next_ln = getattr(
+                    self, '_next_input_layernorm_module', None
+                )
+                _emit_next = getattr(self, '_emit_next_layernorm', False)
+                if _emit_next and _next_ln is not None:
+                    _next_gamma = _next_ln.weight
+                    _rms_eps = float(_next_ln.variance_epsilon)
+                else:
+                    _next_gamma = None
+                    _rms_eps = 1e-6
+
+                # run_beta_coop_full allocates its own internal MLP partial/
+                # arrival/grid-barrier buffers — unlike β-lite we do NOT
+                # zero self.mlp_partial_fp32 / self.mlp_arrival_count.
+                # Future optimization: hoist those into pre-allocated
+                # per-impl buffers (task-21 perf work).
+                self._phase_e_coop_kernel.rms_eps = _rms_eps
+                self._phase_e_coop_kernel.run_beta_coop_full(
+                    # Phase 0 inputs (dummy — output side-channel for future
+                    # QKV-fusion; not consumed by this layer's attn path).
+                    hidden_in=self.rmsnorm_output[:nat],
+                    residual_in=self.residual_output[:nat],
+                    input_gamma=self._phase_e_coop_input_gamma,
+                    post_attn_gamma=self.rmsnorm_gamma,
+                    attn_input_bf16=self._phase_e_coop_attn_input_scratch[:nat],
+                    # Phase 1 inputs:
+                    query=query[:nat],
+                    kv_cache=kv_cache,
+                    page_table=attn_metadata.block_table,
+                    seq_lens=attn_metadata.seq_lens,
+                    wo_weight=self.wo_weight,
+                    wo_scales=self.wo_scales,
+                    wo_global_scale=self.wo_global_scale,
+                    attn_output=self.rmsnorm_output[:nat],
+                    # Phase 3 inputs (MLP):
+                    gate_w_fp4=self._mlp_gate_w,
+                    gate_w_scale=self._mlp_gate_s,
+                    up_w_fp4=self._mlp_up_w,
+                    up_w_scale=self._mlp_up_s,
+                    down_w_fp4=self._mlp_down_w,
+                    down_w_scale=self._mlp_down_s,
+                    mlp_output=self.mlp_output[:nat],
+                    # Phase 4 inputs (ε):
+                    next_input_layernorm_gamma=_next_gamma,
+                    next_hidden_output=self.next_hidden_scratch[:nat],
+                    scale=self.scale,
+                    k_scale=k_scale,
+                    v_scale=v_scale,
+                    gate_up_global_scale=self._mlp_gate_up_gs,
+                    down_global_scale=self._mlp_down_gs,
+                    emit_next_layernorm=_emit_next,
+                    # Caller-supplied residual_output so self.residual_output
+                    # reflects residual_final (matches β-lite post-forward state).
+                    residual_output=self.residual_output[:nat],
+                )
+                self._phase_e_consumed = True
+                self._phase_e_use_beta_coop = True
+            except Exception as e:  # noqa: BLE001 — fail-closed, fall through to β-lite
+                logger.warning(
+                    "CuTe Phase E β-coop launch failed (falling back to "
+                    "β-lite) layer=%s nat=%d %s: %r",
+                    getattr(layer, "layer_name", "<layer>"),
+                    num_actual_tokens, type(e).__name__, e,
+                )
+                self._phase_e_consumed = False
+                self._phase_e_use_beta_coop = False
+                # Retry via β-lite on this forward.
+                _use_beta_lite = True
         if _use_beta_lite:
             try:
                 # Zero the MLP per-step buffers BEFORE the kernel launch

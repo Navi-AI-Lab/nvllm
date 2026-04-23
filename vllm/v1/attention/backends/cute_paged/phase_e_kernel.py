@@ -2702,6 +2702,13 @@ class PhaseE_Beta_Kernel:
         gate_up_global_scale: float = 1.0,
         down_global_scale: float = 1.0,
         emit_next_layernorm: bool = True,
+        # Task 16: allow caller to supply a pre-allocated residual_output.
+        # When None (default), allocated internally — backward-compatible
+        # with the standalone test. When provided, the kernel writes the
+        # Phase 1 Phase-C residual (= old_residual + attn_out) into this
+        # buffer, then Phase 4 mutates it in-place to residual_final so
+        # the backend's self.residual_output reflects post-layer state.
+        residual_output: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Launch the unified β-coop kernel for a single fusion-active decoder layer.
 
@@ -2764,10 +2771,15 @@ class PhaseE_Beta_Kernel:
             dtype=torch.float32, device=hidden_in.device,
         )
         # residual_output: written by Phase 1 Phase C + mutated in place
-        # by Phase 4 (residual_final).
-        residual_output = torch.empty(
-            nat, hidden, dtype=torch.bfloat16, device=hidden_in.device,
-        )
+        # by Phase 4 (residual_final). Task 16: allow caller-supplied.
+        if residual_output is None:
+            residual_output = torch.empty(
+                nat, hidden, dtype=torch.bfloat16, device=hidden_in.device,
+            )
+        else:
+            assert residual_output.shape == hidden_in.shape
+            assert residual_output.dtype == torch.bfloat16
+            assert residual_output.is_contiguous()
         # MLP partials + arrival counter (Phase D):
         mlp_partial_fp32 = torch.zeros(
             nat, self.slice_ctas, hidden,
