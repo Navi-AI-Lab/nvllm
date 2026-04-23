@@ -863,6 +863,23 @@ if _CUTE_AVAILABLE:
         return Int32(result_ir)
 
     @dsl_user_op
+    def _ld_volatile_u32(addr: Int64, *, loc=None, ip=None) -> Int32:
+        """Volatile U32 load — ld.volatile.global.u32.
+
+        Used by Phase E β kernel's grid-barrier spin-wait: each CTA loops
+        reading the arrival counter until it sees all CTAs have arrived.
+        `volatile` prevents the compiler from hoisting the load out of the
+        loop, so every iteration re-reads from the global-visible value
+        produced by other CTAs' _atomic_add_u32 + _threadfence pair.
+        """
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        result_ir = _llvm_dialect.inline_asm(
+            T.i32(), [addr_ir],
+            "ld.volatile.global.u32 $0, [$1];", "=r,l",
+            has_side_effects=True, loc=loc, ip=ip)
+        return Int32(result_ir)
+
+    @dsl_user_op
     def _rsqrt_approx_f32(x: Float32, *, loc=None, ip=None) -> Float32:
         """Hardware reciprocal square root — rsqrt.approx.ftz.f32.
 

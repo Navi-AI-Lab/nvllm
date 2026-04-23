@@ -329,3 +329,44 @@ def test_phase_1_matches_standalone_decode():
         f"kernel[0,:8]={attn_output[0,:8].tolist()}; "
         f"ref[0,:8]={ref_rmsnorm_output[0,:8].tolist()}"
     )
+
+
+@pytest.mark.skipif(not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available")
+@pytest.mark.parametrize("total_ctas", [2, 8, 32])
+def test_phase_2_grid_barrier_stress(total_ctas):
+    """Phase 2 (Task 13): cooperative-launch grid barrier.
+
+    Each CTA writes its block-id (as FP32) into scratch[bx], passes
+    through the grid barrier, then CTA 0 sums the whole scratch.
+    Expected: total_ctas*(total_ctas-1)/2.
+
+    Also serves as the Task 13 Step 6 deadlock smoke — if the barrier
+    never releases the kernel hangs, pytest will eventually time out,
+    and we fail loudly.
+    """
+    from vllm.v1.attention.backends.cute_paged.phase_e_kernel import (
+        PhaseE_Beta_Kernel,
+    )
+
+    k = PhaseE_Beta_Kernel(
+        hidden_size=5120, intermediate_size=17408,
+        num_attn_heads=24, num_kv_heads=4, head_dim=256,
+    )
+
+    scratch, result = k.run_barrier_stress_debug(total_ctas=total_ctas)
+    torch.cuda.synchronize()
+
+    expected = float(total_ctas * (total_ctas - 1) // 2)
+    got = result.item()
+    assert got == expected, (
+        f"grid barrier: expected sum={expected}, got {got}; "
+        f"scratch={scratch.tolist()}"
+    )
+    # Also assert every scratch slot is its own bx — proves Phase 1 writes
+    # from all CTAs landed, which is what the barrier enforced.
+    expected_scratch = torch.arange(total_ctas, dtype=torch.float32,
+                                     device=scratch.device)
+    assert torch.equal(scratch, expected_scratch), (
+        f"scratch mismatch: got {scratch.tolist()}, "
+        f"expected {expected_scratch.tolist()}"
+    )

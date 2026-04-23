@@ -43,6 +43,7 @@ try:
     # Reuse PTX helpers already defined in kernel.py — they are module-level
     # and guarded by the same _CUTE_AVAILABLE pattern.
     from vllm.v1.attention.backends.cute_paged.kernel import (  # noqa: E501
+        _acquire_fence,
         _atomic_add_u32,
         _cvt_2f32_to_bf16x2,
         _extract_byte_from_b32,
@@ -55,6 +56,7 @@ try:
         _ld_shared_b32,
         _ld_shared_f32,
         _ld_swizzled_scale,
+        _ld_volatile_u32,
         _pack_4bytes,
         _pack_lo16,
         _rcp_approx_f32,
@@ -1428,3 +1430,134 @@ class PhaseE_Beta_Kernel:
                                 arrival_count_ptr
                                 + Int64(seq_idx * Int32(4)),
                                 Int32(0) - total_ctas_per_seq)
+
+        # -----------------------------------------------------------------
+        # Task 13: Phase 2 grid-barrier stress kernel.
+        # -----------------------------------------------------------------
+        # Standalone barrier test: grid (total_ctas,1,1) launched with
+        # cooperative=True. Every CTA writes its block-id into scratch[bx],
+        # passes through the grid barrier, then CTA 0 sums all scratch
+        # values. Expected sum = total_ctas*(total_ctas-1)/2. Without the
+        # barrier, CTA 0 may read stale scratch entries and the sum diverges
+        # (races are non-deterministic — this test asserts PASS with barrier;
+        # the race-free failure mode is proven structurally, not by timing).
+        @cute.kernel
+        def _kernel_barrier_stress(
+            self,
+            scratch_ptr: Int64,      # [total_ctas] FP32
+            result_ptr: Int64,       # [1]          FP32
+            barrier_ptr: Int64,      # [1]          I32 (zeroed by caller)
+            total_ctas: Int32,
+        ):
+            """Minimal grid-barrier stress kernel.
+
+            Phase 1 (one write per CTA) → Phase 2 (barrier) → Phase 3
+            (CTA 0 sum). Matches the release/acquire pattern the β-coop
+            kernel will use between real Phase 1 attn and Phase 3 MLP.
+            """
+            bx = cute.arch.block_idx()[0]
+            tid = cute.arch.thread_idx()[0]
+
+            # --- "Phase 1": each CTA's tid-0 writes bx (as FP32) to scratch[bx] ---
+            if tid == Int32(0):
+                _st_global_f32(
+                    scratch_ptr + Int64(bx * Int32(4)),
+                    Float32(bx),
+                )
+            cute.arch.sync_threads()
+
+            # --- Phase 2: grid barrier ---
+            # Release: make the Phase 1 store globally visible.
+            _threadfence()
+            # Arrival: tid-0 of every CTA bumps the counter once.
+            if tid == Int32(0):
+                _atomic_add_u32(barrier_ptr, Int32(1))
+            # Spin-wait: every thread of every CTA loops on a volatile
+            # load until all CTAs have arrived. Runtime while-loop (per
+            # memory:feedback_constexpr_oom — range_constexpr on variable
+            # N OOMs the JIT compiler).
+            arrived = Int32(0)
+            while arrived < total_ctas:
+                arrived = _ld_volatile_u32(barrier_ptr)
+            # Acquire: subsequent loads observe all prior releases.
+            _acquire_fence()
+
+            # --- "Phase 3": CTA 0's tid-0 sums the scratch ---
+            if bx == Int32(0):
+                if tid == Int32(0):
+                    acc = Float32(0.0)
+                    i = Int32(0)
+                    while i < total_ctas:
+                        v = _ld_global_f32(
+                            scratch_ptr + Int64(i * Int32(4)))
+                        acc = acc + v
+                        i = i + Int32(1)
+                    _st_global_f32(result_ptr, acc)
+
+        @cute.jit
+        def _jit_launch_barrier_stress(
+            self,
+            scratch_ptr: Int64,
+            result_ptr: Int64,
+            barrier_ptr: Int64,
+            total_ctas: Int32,
+            stream,
+        ):
+            """JIT host wrapper: grid-barrier stress launch with
+            cooperative=True (the dispatch knob Task 16 will reuse)."""
+            self._kernel_barrier_stress(
+                scratch_ptr, result_ptr, barrier_ptr, total_ctas,
+            ).launch(
+                grid=[total_ctas, 1, 1],
+                block=[self.num_threads, 1, 1],
+                smem=16,  # minimal — test kernel uses no SMEM
+                stream=stream,
+                cooperative=True,
+            )
+
+    # -----------------------------------------------------------------
+    # Python-level debug entry: grid-barrier stress.
+    # -----------------------------------------------------------------
+    def run_barrier_stress_debug(
+        self,
+        total_ctas: int = 8,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Launch the grid-barrier stress kernel. Returns (scratch, result).
+
+        Correctness criterion: `result[0] == total_ctas*(total_ctas-1)/2`.
+        """
+        if not _CUTE_AVAILABLE:
+            raise RuntimeError(
+                "PhaseE_Beta_Kernel requires CUTLASS; not available."
+            )
+        assert total_ctas >= 2, "grid-barrier test needs at least 2 CTAs"
+
+        device = "cuda"
+        scratch = torch.zeros(total_ctas, dtype=torch.float32,
+                              device=device)
+        result = torch.zeros(1, dtype=torch.float32, device=device)
+        barrier = torch.zeros(1, dtype=torch.int32, device=device)
+
+        scratch_ptr = Int64(scratch.data_ptr())
+        result_ptr = Int64(result.data_ptr())
+        barrier_ptr = Int64(barrier.data_ptr())
+        total_ctas_i = Int32(total_ctas)
+        stream_arg = _cuda_driver.CUstream(
+            int(torch.cuda.current_stream().cuda_stream)
+        )
+
+        if getattr(self, "_compiled_barrier_stress", None) is None:
+            logger.info(
+                "Compiling PhaseE_Beta_Kernel barrier-stress (first call)…"
+            )
+            self._compiled_barrier_stress = cute.compile(
+                self._jit_launch_barrier_stress,
+                scratch_ptr, result_ptr, barrier_ptr,
+                total_ctas_i, stream_arg,
+            )
+
+        self._compiled_barrier_stress(
+            scratch_ptr, result_ptr, barrier_ptr,
+            total_ctas_i, stream_arg,
+        )
+        return scratch, result
