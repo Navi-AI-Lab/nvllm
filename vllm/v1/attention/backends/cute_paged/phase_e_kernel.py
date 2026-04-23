@@ -18,11 +18,17 @@ Plan: docs/superpowers/plans/2026-04-22-unreal-kernel-phase-e-d25.md
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 import torch
 
 logger = logging.getLogger(__name__)
+
+# Phase D MLP tile constants — pulled from mlp_kernel.py for Task 14 port.
+# Keep in sync if mlp_kernel.py evolves.
+FP4_BLOCK_SIZE = 16
+LOG2_E = 1.4426950408889634
 
 
 # --- CuTe DSL import guard (mirrors kernel.py / mlp_kernel.py) --------------
@@ -44,7 +50,9 @@ try:
     # and guarded by the same _CUTE_AVAILABLE pattern.
     from vllm.v1.attention.backends.cute_paged.kernel import (  # noqa: E501
         _acquire_fence,
+        _atomic_add_f32,
         _atomic_add_u32,
+        _bitcast_i32_to_f32,
         _cvt_2f32_to_bf16x2,
         _extract_byte_from_b32,
         _fmax,
@@ -55,6 +63,7 @@ try:
         _ld_shared_b16,
         _ld_shared_b32,
         _ld_shared_f32,
+        _ld_shared_u8,
         _ld_swizzled_scale,
         _ld_volatile_u32,
         _pack_4bytes,
@@ -74,12 +83,38 @@ try:
         shfl_xor_sync,
     )
 
+    # Phase D helpers defined inside mlp_kernel.py's `if _CUTE_AVAILABLE`
+    # block — module-level once the CuTe DSL import succeeds. Imported here
+    # so the Task 14 Phase 3 body can reuse them verbatim.
+    from vllm.v1.attention.backends.cute_paged.mlp_kernel import (  # noqa: E501
+        _decode_ue4m3_u8_to_f32,
+        _div_rn_f32,
+        _f32_div_to_fp4_nibble,
+        _ld_global_u8,
+        _rcp_ieee_f32,  # noqa: F401
+        _resolve_tile_preset,
+    )
+    from vllm.v1.attention.backends.cute_paged._fp4_writer import (  # noqa: E501
+        _encode_ue4m3_f32_to_u8,
+        _f32_to_fp4_nibble,  # noqa: F401
+        _st_shared_u8,
+    )
+
     _CUTE_AVAILABLE = True
 except ImportError:
     logger.warning(
         "CuTe DSL not available (CUTLASS not installed). "
         "PhaseE_Beta_Kernel cannot be used."
     )
+    # Fallback so `_resolve_tile_preset` is still callable for __init__ —
+    # but since __init__ requires CUTLASS-side tile resolution anyway,
+    # we only need it for the env-override path. If the DSL is absent,
+    # the kernel cannot run; these stubs just let module import succeed.
+    def _resolve_tile_preset(name):  # type: ignore[no-redef]
+        raise RuntimeError(
+            "PhaseE_Beta_Kernel requires CUTLASS; _resolve_tile_preset "
+            "unavailable."
+        )
 
 
 class PhaseE_Beta_Kernel:
@@ -107,6 +142,9 @@ class PhaseE_Beta_Kernel:
         num_kv_heads: int,
         head_dim: int,
         rms_eps: float = 1e-6,
+        tile_s: Optional[int] = None,
+        tile_k: Optional[int] = None,
+        slice_ctas: Optional[int] = None,
     ):
         assert hidden_size % 128 == 0, (
             f"hidden_size={hidden_size} must be divisible by num_threads=128 "
@@ -119,10 +157,56 @@ class PhaseE_Beta_Kernel:
         self.num_kv_heads = num_kv_heads
         self.head_dim = head_dim
         self.rms_eps = rms_eps
-        # Grid constants — reserved for Tasks 12-16; phase-0-only uses (1,1,N).
-        self.slice_ctas = 8
-        self.num_k_tiles = 8
         self.num_threads = 128
+
+        # --- Phase D MLP tile resolution (Task 14) -----------------------
+        # Matches Phase_D_MLP_Kernel.__init__ sequence (mlp_kernel.py:313):
+        #   unset tile_s/tile_k/slice_ctas kwargs fall back to CUTE_MLP_TILE
+        #   env var → preset; explicit kwargs bypass the env read.
+        preset_s, preset_k, preset_c = _resolve_tile_preset(
+            os.environ.get("CUTE_MLP_TILE")
+        )
+        tile_s = tile_s if tile_s is not None else preset_s
+        tile_k = tile_k if tile_k is not None else preset_k
+        slice_ctas = slice_ctas if slice_ctas is not None else preset_c
+        self.tile_s = tile_s
+        self.tile_k = tile_k
+        self.slice_ctas = slice_ctas
+        self.num_slices = intermediate_size // tile_s
+        self.num_k_tiles = max(hidden_size // tile_k, 1)
+        assert intermediate_size % tile_s == 0, (
+            f"intermediate_size={intermediate_size} not multiple of "
+            f"tile_s={tile_s}"
+        )
+        assert hidden_size % tile_k == 0, (
+            f"hidden_size={hidden_size} not multiple of tile_k={tile_k}"
+        )
+        assert tile_s % FP4_BLOCK_SIZE == 0, (
+            f"tile_s={tile_s} not multiple of FP4_BLOCK_SIZE={FP4_BLOCK_SIZE}"
+        )
+        assert hidden_size % FP4_BLOCK_SIZE == 0, (
+            f"hidden_size={hidden_size} not multiple of "
+            f"FP4_BLOCK_SIZE={FP4_BLOCK_SIZE}"
+        )
+        # Each CTA owns a contiguous chunk of slices (mirrors Phase_D).
+        self.slices_per_cta = (self.num_slices + slice_ctas - 1) // slice_ctas
+        # FC2 thread mapping — same two-path choice as Phase_D (see
+        # mlp_kernel.py:374).
+        if tile_k >= self.num_threads:
+            assert tile_k % self.num_threads == 0, (
+                f"tile_k={tile_k} must be multiple of "
+                f"num_threads={self.num_threads} when tile_k >= num_threads"
+            )
+            self._rows_per_thread = tile_k // self.num_threads
+            self._threads_per_row = 1
+        else:
+            assert self.num_threads % tile_k == 0, (
+                f"num_threads={self.num_threads} must be multiple of "
+                f"tile_k={tile_k} when tile_k < num_threads"
+            )
+            self._rows_per_thread = 1
+            self._threads_per_row = self.num_threads // tile_k
+
         # SMEM budget (attn K/V tiles dominate once phases 1-4 land).
         self.smem_bytes = 45568
         # Phase-0-only SMEM: just 16 B for cross-warp reduction (4 warps × 4 B).
@@ -152,6 +236,30 @@ class PhaseE_Beta_Kernel:
             _qkv_bytes + _sync_o_small_bytes + _sync_md_small_bytes
         )  # 45568 for Qwen3.5-27B decode config
         self._compiled_phase_01 = None
+
+        # --- Phase 3 (MLP D) SMEM layout (Task 14) --------------------------
+        # Mirrors Phase_D_MLP_Kernel.__init__ (mlp_kernel.py:389):
+        #   [0, hidden*4)        -> smem_x FP32
+        #   [+16)                -> cross-warp reduce scratch (4 warps × FP32)
+        #   [+tile_s*2)          -> smem_intermediate_bf16 (tile_s BF16)
+        #   [+tile_s)            -> smem_intermediate_fp4 (tile_s/2 bytes)
+        #   [+tile_s/FP4_BLOCK)  -> smem_intermediate_scale (u8 per block)
+        #   [+4)                 -> smem_last_cta flag (u32)
+        self._smem_x_bytes = hidden_size * 4
+        self._smem_reduce_bytes = 4 * 4
+        self._smem_intermediate_bf16_bytes = tile_s * 2
+        self._smem_intermediate_fp4_bytes = tile_s // 2
+        self._smem_intermediate_scale_bytes = tile_s // FP4_BLOCK_SIZE
+        self._smem_flag_bytes = 4
+        self._smem_bytes_phase_3 = (
+            self._smem_x_bytes
+            + self._smem_reduce_bytes
+            + self._smem_intermediate_bf16_bytes
+            + self._smem_intermediate_fp4_bytes
+            + self._smem_intermediate_scale_bytes
+            + self._smem_flag_bytes
+        )
+        self._compiled_phase_3 = None
 
     # -----------------------------------------------------------------
     # Python-level debug entry point (phase-0-only).
@@ -1515,6 +1623,601 @@ class PhaseE_Beta_Kernel:
                 cooperative=True,
             )
 
+        # -----------------------------------------------------------------
+        # Task 14: Phase 3 MLP (D) standalone debug kernel.
+        # Byte-for-byte port of Phase_D_MLP_Kernel._kernel legacy path
+        # (mlp_kernel.py:680–1328), MINUS the ε epilogue block which
+        # Task 15 will add. Grid: (slice_ctas, num_k_tiles, num_seqs).
+        # Block: (128, 1, 1). SMEM: self._smem_bytes_phase_3.
+        # -----------------------------------------------------------------
+        @cute.kernel
+        def _kernel_phase_3_only(
+            self,
+            x_flat,
+            gate_fp4_ptr: Int64, gate_sc_ptr: Int64,
+            up_fp4_ptr: Int64, up_sc_ptr: Int64,
+            down_fp4_ptr: Int64, down_sc_ptr: Int64,
+            partial_ptr: Int64, count_ptr: Int64, output_ptr: Int64,
+            hidden: Int32, interm: Int32,
+            num_slices: Int32, slices_per_cta: Int32,
+            tile_s: Int32, tile_k: Int32,
+            num_k_tiles: Int32, slice_ctas: Int32,
+            gate_up_gs: Float32, down_gs: Float32,
+        ):
+            """Phase 3: fused MLP (legacy Phase D path) embedded in β kernel.
+
+            Byte-for-byte port of Phase_D_MLP_Kernel._kernel, excluding the
+            ε epilogue (Task 15 will add that). See mlp_kernel.py:680 for
+            the canonical docstring and pipeline overview.
+            """
+            # === Phase 0: Thread/block ids =====================
+            bx, by, bz = cute.arch.block_idx()  # slice_group, k_tile, token
+            lane = cute.arch.lane_idx()
+            warp = cute.arch.warp_idx()
+            tid = warp * Int32(32) + lane
+
+            # === Phase 1: SMEM pointer layout ===
+            smem = cute.arch.get_dyn_smem(cutlass.Uint8, alignment=128)
+            smem_x = shared_ptr_to_i64(smem)
+            smem_reduce = shared_ptr_to_i64(
+                smem + Int32(self._smem_x_bytes)
+            )
+            smem_interm_bf16 = shared_ptr_to_i64(
+                smem + Int32(self._smem_x_bytes
+                              + self._smem_reduce_bytes)
+            )
+            smem_interm_fp4 = shared_ptr_to_i64(
+                smem + Int32(self._smem_x_bytes
+                              + self._smem_reduce_bytes
+                              + self._smem_intermediate_bf16_bytes)
+            )
+            smem_interm_scale = shared_ptr_to_i64(
+                smem + Int32(self._smem_x_bytes
+                              + self._smem_reduce_bytes
+                              + self._smem_intermediate_bf16_bytes
+                              + self._smem_intermediate_fp4_bytes)
+            )
+            smem_last_flag = shared_ptr_to_i64(
+                smem + Int32(self._smem_x_bytes
+                              + self._smem_reduce_bytes
+                              + self._smem_intermediate_bf16_bytes
+                              + self._smem_intermediate_fp4_bytes
+                              + self._smem_intermediate_scale_bytes)
+            )
+
+            # === Phase 2: Load x[bz, :] into smem_x as FP32 ===
+            elems_per_thr = hidden // Int32(self.num_threads)
+            _i = Int32(0)
+            while _i < elems_per_thr:
+                flat = tid + _i * Int32(self.num_threads)
+                gmem_idx = bz * hidden + flat
+                x_bf16 = x_flat[gmem_idx]
+                x_f32 = Float32(x_bf16)
+                _st_shared_f32(
+                    smem_x + Int64(flat) * Int64(4),
+                    x_f32,
+                )
+                _i = _i + Int32(1)
+
+            cute.arch.sync_threads()
+
+            # === Phase 3: Iterate slices assigned to this CTA ===
+            s_start = bx * slices_per_cta
+            s_end_raw = s_start + slices_per_cta
+            s_end = s_end_raw
+            if s_end > num_slices:
+                s_end = num_slices
+
+            # Useful constants.
+            FP4_BS = Int32(FP4_BLOCK_SIZE)
+            LOG2E_F = Float32(LOG2_E)
+            # `num_h_blocks` = number of FP4 blocks along hidden dim.
+            num_h_blocks = hidden // FP4_BS
+
+            s = s_start
+            while s < s_end:
+                # -------- Stage 3a: FC1 -> smem_interm_bf16[tile_s] --------
+                j_base = s * tile_s
+                j_local = Int32(0)
+                while j_local < tile_s:
+                    j = j_base + j_local
+
+                    # Per-thread FP32 partial sums (gate, up).
+                    gate_acc = Float32(0.0)
+                    up_acc = Float32(0.0)
+
+                    k_i = Int32(0)
+                    while k_i < elems_per_thr:
+                        h = tid + k_i * Int32(self.num_threads)
+                        x_val = _ld_shared_f32(
+                            smem_x + Int64(h) * Int64(4)
+                        )
+
+                        h_block = h // FP4_BS
+                        byte_col = h >> Int32(1)
+                        byte_addr_gate = gate_fp4_ptr + Int64(
+                            j * (hidden >> Int32(1)) + byte_col
+                        )
+                        byte_addr_up = up_fp4_ptr + Int64(
+                            j * (hidden >> Int32(1)) + byte_col
+                        )
+                        nib_lo_gate = _ld_global_u8(byte_addr_gate)
+                        nib_lo_up = _ld_global_u8(byte_addr_up)
+                        is_odd = h & Int32(1)
+                        nib_gate = Int32(
+                            ((nib_lo_gate >> (Uint32(is_odd) * Uint32(4)))
+                             & Uint32(0xF))
+                        )
+                        nib_up = Int32(
+                            ((nib_lo_up >> (Uint32(is_odd) * Uint32(4)))
+                             & Uint32(0xF))
+                        )
+
+                        scale_byte_gate = _ld_global_u8(
+                            gate_sc_ptr + Int64(
+                                j * num_h_blocks + h_block
+                            )
+                        )
+                        scale_byte_up = _ld_global_u8(
+                            up_sc_ptr + Int64(
+                                j * num_h_blocks + h_block
+                            )
+                        )
+                        scale_gate = _decode_ue4m3_u8_to_f32(scale_byte_gate)
+                        scale_up = _decode_ue4m3_u8_to_f32(scale_byte_up)
+
+                        gw_f32 = (
+                            _fp4_nibble_to_f32(nib_gate) * scale_gate
+                            * gate_up_gs
+                        )
+                        uw_f32 = (
+                            _fp4_nibble_to_f32(nib_up) * scale_up
+                            * gate_up_gs
+                        )
+
+                        gate_acc = gate_acc + x_val * gw_f32
+                        up_acc = up_acc + x_val * uw_f32
+                        k_i = k_i + Int32(1)
+
+                    # Warp-level reduction (32 lanes → lane 0).
+                    gate_acc = gate_acc + shfl_xor_sync(gate_acc, Int32(1))
+                    gate_acc = gate_acc + shfl_xor_sync(gate_acc, Int32(2))
+                    gate_acc = gate_acc + shfl_xor_sync(gate_acc, Int32(4))
+                    gate_acc = gate_acc + shfl_xor_sync(gate_acc, Int32(8))
+                    gate_acc = gate_acc + shfl_xor_sync(gate_acc, Int32(16))
+                    up_acc = up_acc + shfl_xor_sync(up_acc, Int32(1))
+                    up_acc = up_acc + shfl_xor_sync(up_acc, Int32(2))
+                    up_acc = up_acc + shfl_xor_sync(up_acc, Int32(4))
+                    up_acc = up_acc + shfl_xor_sync(up_acc, Int32(8))
+                    up_acc = up_acc + shfl_xor_sync(up_acc, Int32(16))
+
+                    # Cross-warp reduce via smem_reduce (gate first, then up).
+                    if lane == Int32(0):
+                        _st_shared_f32(
+                            smem_reduce + Int64(warp) * Int64(4),
+                            gate_acc,
+                        )
+                    cute.arch.sync_threads()
+
+                    gate_final = Float32(0.0)
+                    up_final = Float32(0.0)
+                    if warp == Int32(0) and lane == Int32(0):
+                        g0 = _ld_shared_f32(smem_reduce + Int64(0) * Int64(4))
+                        g1 = _ld_shared_f32(smem_reduce + Int64(1) * Int64(4))
+                        g2 = _ld_shared_f32(smem_reduce + Int64(2) * Int64(4))
+                        g3 = _ld_shared_f32(smem_reduce + Int64(3) * Int64(4))
+                        gate_final = g0 + g1 + g2 + g3
+                    cute.arch.sync_threads()
+
+                    if lane == Int32(0):
+                        _st_shared_f32(
+                            smem_reduce + Int64(warp) * Int64(4),
+                            up_acc,
+                        )
+                    cute.arch.sync_threads()
+
+                    if warp == Int32(0) and lane == Int32(0):
+                        u0 = _ld_shared_f32(smem_reduce + Int64(0) * Int64(4))
+                        u1 = _ld_shared_f32(smem_reduce + Int64(1) * Int64(4))
+                        u2 = _ld_shared_f32(smem_reduce + Int64(2) * Int64(4))
+                        u3 = _ld_shared_f32(smem_reduce + Int64(3) * Int64(4))
+                        up_final = u0 + u1 + u2 + u3
+
+                        neg_g_log2e = Float32(0.0) - gate_final * LOG2E_F
+                        exp_v = exp2_approx_ftz_f32(neg_g_log2e)
+                        sig_v = _rcp_approx_f32(Float32(1.0) + exp_v)
+                        silu_g = gate_final * sig_v
+                        out_val = silu_g * up_final
+
+                        bf16x2 = _cvt_2f32_to_bf16x2(
+                            out_val, Float32(0.0)
+                        )
+                        _st_shared_b16_from_u32(
+                            smem_interm_bf16 + Int64(j_local) * Int64(2),
+                            bf16x2,
+                        )
+
+                    cute.arch.sync_threads()
+                    j_local = j_local + Int32(1)
+
+                # -------- Stage 3b: FP4 quantize intermediate --------
+                interm_nblocks = tile_s // Int32(FP4_BLOCK_SIZE)
+                blk_iter_max = (interm_nblocks + Int32(3)) >> Int32(2)
+                blk_iter = Int32(0)
+                while blk_iter < blk_iter_max:
+                    my_block = warp + blk_iter * Int32(4)
+                    my_block_valid = my_block < interm_nblocks
+                    elem_idx = my_block * Int32(FP4_BLOCK_SIZE) + lane
+                    my_val = Float32(0.0)
+                    if my_block_valid and lane < Int32(FP4_BLOCK_SIZE):
+                        addr = smem_interm_bf16 + Int64(elem_idx) * Int64(2)
+                        bf16_u32 = _ld_shared_b16(addr)
+                        f32_bits = Int32(
+                            (bf16_u32 & Uint32(0xFFFF)) << Uint32(16)
+                        )
+                        my_val = _bitcast_i32_to_f32(f32_bits)
+
+                    abs_val = my_val
+                    if abs_val < Float32(0.0):
+                        abs_val = Float32(0.0) - abs_val
+
+                    r1 = shfl_xor_sync(abs_val, Int32(1))
+                    if r1 > abs_val:
+                        abs_val = r1
+                    r2 = shfl_xor_sync(abs_val, Int32(2))
+                    if r2 > abs_val:
+                        abs_val = r2
+                    r4 = shfl_xor_sync(abs_val, Int32(4))
+                    if r4 > abs_val:
+                        abs_val = r4
+                    r8 = shfl_xor_sync(abs_val, Int32(8))
+                    if r8 > abs_val:
+                        abs_val = r8
+
+                    max_abs = abs_val
+                    FP4_MAX_F = Float32(6.0)
+                    scale_f32 = _div_rn_f32(max_abs, FP4_MAX_F)
+                    MIN_SCALE = Float32(1e-12)
+                    if scale_f32 < MIN_SCALE:
+                        scale_f32 = MIN_SCALE
+                    if my_block_valid and lane == Int32(0):
+                        scale_u8 = _encode_ue4m3_f32_to_u8(scale_f32)
+                        _st_shared_u8(
+                            smem_interm_scale + Int64(my_block) * Int64(1),
+                            scale_u8,
+                        )
+                    cute.arch.sync_threads()
+
+                    scale_rt = scale_f32
+                    if my_block_valid and lane < Int32(FP4_BLOCK_SIZE):
+                        scale_u8_rd = _ld_shared_u8(
+                            smem_interm_scale + Int64(my_block) * Int64(1)
+                        )
+                        scale_rt = _decode_ue4m3_u8_to_f32(scale_u8_rd)
+                        nib = _f32_div_to_fp4_nibble(my_val, scale_rt)
+                        _st_shared_u8(
+                            smem_interm_bf16
+                            + Int64(elem_idx) * Int64(1),
+                            nib,
+                        )
+                    cute.arch.sync_threads()
+
+                    # Packer: lane 0 of each warp reads 16 nibbles and
+                    # writes 8 packed bytes into smem_interm_fp4.
+                    if my_block_valid and lane == Int32(0):
+                        byte_out_base = (
+                            my_block * Int32(FP4_BLOCK_SIZE // 2)
+                        )
+                        pk_i = Int32(0)
+                        while pk_i < Int32(FP4_BLOCK_SIZE // 2):
+                            nib_lo = _ld_shared_u8(
+                                smem_interm_bf16
+                                + Int64(
+                                    my_block * Int32(FP4_BLOCK_SIZE)
+                                    + pk_i * Int32(2)
+                                ) * Int64(1)
+                            )
+                            nib_hi = _ld_shared_u8(
+                                smem_interm_bf16
+                                + Int64(
+                                    my_block * Int32(FP4_BLOCK_SIZE)
+                                    + pk_i * Int32(2) + Int32(1)
+                                ) * Int64(1)
+                            )
+                            packed = Int32(
+                                (nib_lo & Uint32(0xF))
+                                | ((nib_hi & Uint32(0xF)) << Uint32(4))
+                            )
+                            _st_shared_u8(
+                                smem_interm_fp4
+                                + Int64(byte_out_base + pk_i) * Int64(1),
+                                packed,
+                            )
+                            pk_i = pk_i + Int32(1)
+                    cute.arch.sync_threads()
+                    blk_iter = blk_iter + Int32(1)
+
+                # -------- Stage 3c: FC2 + atomicAdd --------
+                if cutlass.const_expr(self._threads_per_row == 1):
+                    # ---------- Path A: per-thread-owns-N-rows ----------
+                    rows_per_thread = Int32(self._rows_per_thread)
+                    row_base_local = tid * rows_per_thread
+
+                    rpt = self._rows_per_thread
+                    acc_list = [Float32(0.0) for _ in range(rpt)]
+
+                    iter_i = Int32(0)
+                    while iter_i < tile_s:
+                        h = iter_i
+                        interm_block = h >> Int32(4)
+                        interm_byte_addr = (
+                            smem_interm_fp4 + Int64(h >> Int32(1))
+                        )
+                        interm_byte = _ld_shared_u8(interm_byte_addr)
+                        interm_is_odd = h & Int32(1)
+                        interm_nib = Int32(
+                            (interm_byte
+                             >> (Uint32(interm_is_odd) * Uint32(4)))
+                            & Uint32(0xF)
+                        )
+                        interm_scale_u8 = _ld_shared_u8(
+                            smem_interm_scale + Int64(interm_block)
+                        )
+                        interm_scale_f32 = _decode_ue4m3_u8_to_f32(
+                            interm_scale_u8
+                        )
+                        interm_val = (
+                            _fp4_nibble_to_f32(interm_nib)
+                            * interm_scale_f32
+                        )
+
+                        s_col_base = s * tile_s
+                        global_col = s_col_base + h
+
+                        for r in cutlass.range_constexpr(rpt):
+                            k_row_global = (
+                                by * tile_k + row_base_local + Int32(r)
+                            )
+                            dw_byte_addr = down_fp4_ptr + Int64(
+                                k_row_global * (interm >> Int32(1))
+                                + (global_col >> Int32(1))
+                            )
+                            dw_byte = _ld_global_u8(dw_byte_addr)
+                            dw_is_odd = global_col & Int32(1)
+                            dw_nib = Int32(
+                                (dw_byte
+                                 >> (Uint32(dw_is_odd) * Uint32(4)))
+                                & Uint32(0xF)
+                            )
+                            dw_scale_addr = down_sc_ptr + Int64(
+                                k_row_global * (interm // FP4_BS)
+                                + (global_col // FP4_BS)
+                            )
+                            dw_scale_u8 = _ld_global_u8(dw_scale_addr)
+                            dw_scale_f32 = _decode_ue4m3_u8_to_f32(
+                                dw_scale_u8
+                            )
+                            dw_val = (
+                                _fp4_nibble_to_f32(dw_nib) * dw_scale_f32
+                                * down_gs
+                            )
+                            acc_list[r] = (
+                                acc_list[r] + interm_val * dw_val
+                            )
+                        iter_i = iter_i + Int32(1)
+
+                    for r in cutlass.range_constexpr(rpt):
+                        k_row_global = (
+                            by * tile_k + row_base_local + Int32(r)
+                        )
+                        partial_idx = (
+                            bz * slice_ctas * hidden
+                            + bx * hidden
+                            + k_row_global
+                        )
+                        _atomic_add_f32(
+                            partial_ptr + Int64(partial_idx) * Int64(4),
+                            acc_list[r],
+                        )
+                else:
+                    # ---------- Path B: multiple-threads-per-row ----------
+                    threads_per_row = Int32(self._threads_per_row)
+                    row_local = tid // threads_per_row
+                    thread_in_row = tid - row_local * threads_per_row
+                    elems_per_in_row = tile_s // threads_per_row
+
+                    k_row_global = by * tile_k + row_local
+                    h_start = thread_in_row * elems_per_in_row
+
+                    out_acc = Float32(0.0)
+                    iter_i = Int32(0)
+                    while iter_i < elems_per_in_row:
+                        h = h_start + iter_i
+
+                        interm_block = h >> Int32(4)
+                        interm_byte_addr = (
+                            smem_interm_fp4 + Int64(h >> Int32(1))
+                        )
+                        interm_byte = _ld_shared_u8(interm_byte_addr)
+                        interm_is_odd = h & Int32(1)
+                        interm_nib = Int32(
+                            (interm_byte
+                             >> (Uint32(interm_is_odd) * Uint32(4)))
+                            & Uint32(0xF)
+                        )
+                        interm_scale_u8 = _ld_shared_u8(
+                            smem_interm_scale + Int64(interm_block)
+                        )
+                        interm_scale_f32 = _decode_ue4m3_u8_to_f32(
+                            interm_scale_u8
+                        )
+                        interm_val = (
+                            _fp4_nibble_to_f32(interm_nib)
+                            * interm_scale_f32
+                        )
+
+                        s_col_base = s * tile_s
+                        global_col = s_col_base + h
+                        dw_row = k_row_global
+                        dw_byte_addr = down_fp4_ptr + Int64(
+                            dw_row * (interm >> Int32(1))
+                            + (global_col >> Int32(1))
+                        )
+                        dw_byte = _ld_global_u8(dw_byte_addr)
+                        dw_is_odd = global_col & Int32(1)
+                        dw_nib = Int32(
+                            (dw_byte
+                             >> (Uint32(dw_is_odd) * Uint32(4)))
+                            & Uint32(0xF)
+                        )
+                        dw_scale_addr = down_sc_ptr + Int64(
+                            dw_row * (interm // FP4_BS)
+                            + (global_col // FP4_BS)
+                        )
+                        dw_scale_u8 = _ld_global_u8(dw_scale_addr)
+                        dw_scale_f32 = _decode_ue4m3_u8_to_f32(dw_scale_u8)
+                        dw_val = (
+                            _fp4_nibble_to_f32(dw_nib) * dw_scale_f32
+                            * down_gs
+                        )
+
+                        out_acc = out_acc + interm_val * dw_val
+                        iter_i = iter_i + Int32(1)
+
+                    if cutlass.const_expr(self._threads_per_row >= 2):
+                        out_acc = out_acc + shfl_xor_sync(out_acc, Int32(1))
+                    if cutlass.const_expr(self._threads_per_row >= 4):
+                        out_acc = out_acc + shfl_xor_sync(out_acc, Int32(2))
+                    if cutlass.const_expr(self._threads_per_row >= 8):
+                        out_acc = out_acc + shfl_xor_sync(out_acc, Int32(4))
+                    if cutlass.const_expr(self._threads_per_row >= 16):
+                        out_acc = out_acc + shfl_xor_sync(out_acc, Int32(8))
+
+                    partial_idx = (
+                        bz * slice_ctas * hidden
+                        + bx * hidden
+                        + k_row_global
+                    )
+                    if thread_in_row == Int32(0):
+                        _atomic_add_f32(
+                            partial_ptr + Int64(partial_idx) * Int64(4),
+                            out_acc,
+                        )
+
+                cute.arch.sync_threads()
+                s = s + Int32(1)
+
+            # === Phase 4: Arrival counter + last-CTA epilogue ===
+            _threadfence()
+            cute.arch.sync_threads()
+
+            if tid == Int32(0):
+                count_idx = bz * num_k_tiles + by
+                old = _atomic_add_u32(
+                    count_ptr + Int64(count_idx) * Int64(4),
+                    Int32(1),
+                )
+                is_last_flag = Int32(0)
+                if old == (slice_ctas - Int32(1)):
+                    is_last_flag = Int32(1)
+                _st_shared_b32(
+                    smem_last_flag + Int64(0),
+                    Uint32(is_last_flag),
+                )
+            cute.arch.sync_threads()
+
+            last_flag_u32 = _ld_shared_b32(smem_last_flag + Int64(0))
+            is_last = Int32(last_flag_u32) == Int32(1)
+
+            if is_last:
+                # Path-A / Path-B last-CTA gather (deterministic constexpr
+                # bx order — see Phase_D audit 16475223f / Option 1).
+                if cutlass.const_expr(self._threads_per_row == 1):
+                    rpt = self._rows_per_thread
+                    rows_per_thread = Int32(rpt)
+                    row_base_local = tid * rows_per_thread
+                    for r in cutlass.range_constexpr(rpt):
+                        k_row_global = (
+                            by * tile_k + row_base_local + Int32(r)
+                        )
+                        output_idx = bz * hidden + k_row_global
+                        val_f32 = Float32(0.0)
+                        for bx_i in cutlass.range_constexpr(
+                            self.slice_ctas
+                        ):
+                            slot_idx = (
+                                bz * slice_ctas * hidden
+                                + Int32(bx_i) * hidden
+                                + k_row_global
+                            )
+                            val_f32 = val_f32 + _ld_global_f32(
+                                partial_ptr + Int64(slot_idx) * Int64(4)
+                            )
+                        _st_global_bf16_from_f32(
+                            output_ptr + Int64(output_idx) * Int64(2),
+                            val_f32,
+                        )
+                else:
+                    k_row_global = by * tile_k + tid
+                    output_idx = bz * hidden + k_row_global
+                    val_f32 = Float32(0.0)
+                    if tid < tile_k:
+                        for bx_i in cutlass.range_constexpr(
+                            self.slice_ctas
+                        ):
+                            slot_idx = (
+                                bz * slice_ctas * hidden
+                                + Int32(bx_i) * hidden
+                                + k_row_global
+                            )
+                            val_f32 = val_f32 + _ld_global_f32(
+                                partial_ptr + Int64(slot_idx) * Int64(4)
+                            )
+                        _st_global_bf16_from_f32(
+                            output_ptr + Int64(output_idx) * Int64(2),
+                            val_f32,
+                        )
+            # NOTE: the ε epilogue block (emit_ep == 1) is deliberately
+            # omitted here — Task 15 will add it. The legacy Phase D
+            # counter self-reset was also ε-epilogue-only in mlp_kernel.py,
+            # so for Task 14 the arrival counter is caller-zeroed between
+            # calls (matches Phase_D_MLP_Kernel legacy behavior).
+
+        @cute.jit
+        def _jit_launch_phase_3_only(
+            self,
+            x_flat,
+            gate_fp4_ptr: Int64, gate_sc_ptr: Int64,
+            up_fp4_ptr: Int64, up_sc_ptr: Int64,
+            down_fp4_ptr: Int64, down_sc_ptr: Int64,
+            partial_ptr: Int64, count_ptr: Int64, output_ptr: Int64,
+            hidden: Int32, interm: Int32,
+            num_slices: Int32, slices_per_cta: Int32,
+            tile_s: Int32, tile_k: Int32,
+            num_k_tiles: Int32, slice_ctas: Int32,
+            gate_up_gs: Float32, down_gs: Float32,
+            nat: Int32,
+            stream,
+        ):
+            """JIT host wrapper: Phase 3 (standalone MLP) launch."""
+            self._kernel_phase_3_only(
+                x_flat,
+                gate_fp4_ptr, gate_sc_ptr,
+                up_fp4_ptr, up_sc_ptr,
+                down_fp4_ptr, down_sc_ptr,
+                partial_ptr, count_ptr, output_ptr,
+                hidden, interm,
+                num_slices, slices_per_cta,
+                tile_s, tile_k,
+                num_k_tiles, slice_ctas,
+                gate_up_gs, down_gs,
+            ).launch(
+                grid=[slice_ctas, num_k_tiles, nat],
+                block=[self.num_threads, 1, 1],
+                smem=self._smem_bytes_phase_3,
+                stream=stream,
+            )
+
     # -----------------------------------------------------------------
     # Python-level debug entry: grid-barrier stress.
     # -----------------------------------------------------------------
@@ -1561,3 +2264,121 @@ class PhaseE_Beta_Kernel:
             total_ctas_i, stream_arg,
         )
         return scratch, result
+
+    # -----------------------------------------------------------------
+    # Python-level debug entry: Phase 3 (standalone MLP) only (Task 14).
+    # -----------------------------------------------------------------
+    def run_phase_3_only(
+        self,
+        x: torch.Tensor,                   # [nat, hidden] BF16
+        gate_w_fp4: torch.Tensor,          # [interm, hidden//2] u8
+        gate_w_scale: torch.Tensor,        # [interm, hidden//16] u8 UE4M3
+        up_w_fp4: torch.Tensor,
+        up_w_scale: torch.Tensor,
+        down_w_fp4: torch.Tensor,          # [hidden, interm//2] u8
+        down_w_scale: torch.Tensor,        # [hidden, interm//16] u8 UE4M3
+        mlp_partial_fp32: torch.Tensor,    # [nat, slice_ctas, hidden] FP32 (zeroed)
+        mlp_arrival_count: torch.Tensor,   # [nat, num_k_tiles] u32 (zeroed)
+        mlp_output: torch.Tensor,          # [nat, hidden] BF16
+        nat: int,
+        gate_up_global_scale: float = 1.0,
+        down_global_scale: float = 1.0,
+    ) -> torch.Tensor:
+        """Launch only Phase 3 (fused MLP — legacy Phase D path).
+
+        Byte-for-byte compatible with `Phase_D_MLP_Kernel.__call__(...,
+        emit_epilogue=False)`. Used by Task 14 tests to prove the β
+        kernel's Phase 3 body matches standalone Phase D. Zero-init of
+        `mlp_partial_fp32` and `mlp_arrival_count` is the caller's
+        responsibility — same contract as Phase_D_MLP_Kernel.
+        """
+        if not _CUTE_AVAILABLE:
+            raise RuntimeError(
+                "PhaseE_Beta_Kernel requires CUTLASS; not available."
+            )
+        for t in (
+            x, gate_w_fp4, gate_w_scale, up_w_fp4, up_w_scale,
+            down_w_fp4, down_w_scale, mlp_partial_fp32,
+            mlp_arrival_count, mlp_output,
+        ):
+            assert t.is_contiguous(), f"tensor {t.shape} not contiguous"
+        assert x.dtype == torch.bfloat16
+        assert gate_w_fp4.dtype == torch.uint8
+        assert gate_w_scale.dtype == torch.uint8
+        assert up_w_fp4.dtype == torch.uint8
+        assert up_w_scale.dtype == torch.uint8
+        assert down_w_fp4.dtype == torch.uint8
+        assert down_w_scale.dtype == torch.uint8
+        assert mlp_partial_fp32.dtype == torch.float32
+        assert mlp_arrival_count.dtype == torch.uint32 or \
+               mlp_arrival_count.dtype == torch.int32, (
+            f"mlp_arrival_count must be u32/i32, got {mlp_arrival_count.dtype}"
+        )
+        assert mlp_output.dtype == torch.bfloat16
+        assert x.shape == (nat, self.hidden_size)
+        assert gate_w_fp4.shape == (
+            self.intermediate_size, self.hidden_size // 2)
+        assert gate_w_scale.shape == (
+            self.intermediate_size, self.hidden_size // FP4_BLOCK_SIZE)
+        assert up_w_fp4.shape == gate_w_fp4.shape
+        assert up_w_scale.shape == gate_w_scale.shape
+        assert down_w_fp4.shape == (
+            self.hidden_size, self.intermediate_size // 2)
+        assert down_w_scale.shape == (
+            self.hidden_size,
+            self.intermediate_size // FP4_BLOCK_SIZE)
+        assert mlp_partial_fp32.shape == (
+            nat, self.slice_ctas, self.hidden_size,
+        )
+        assert mlp_arrival_count.shape == (nat, self.num_k_tiles)
+        assert mlp_output.shape == (nat, self.hidden_size)
+
+        # Flat x + byte ptrs for FP4 / scales (matches Phase_D convention).
+        x_flat = x.view(-1)
+        gate_fp4_ptr = Int64(gate_w_fp4.data_ptr())
+        gate_sc_ptr = Int64(gate_w_scale.data_ptr())
+        up_fp4_ptr = Int64(up_w_fp4.data_ptr())
+        up_sc_ptr = Int64(up_w_scale.data_ptr())
+        down_fp4_ptr = Int64(down_w_fp4.data_ptr())
+        down_sc_ptr = Int64(down_w_scale.data_ptr())
+        partial_ptr = Int64(mlp_partial_fp32.data_ptr())
+        count_ptr = Int64(mlp_arrival_count.data_ptr())
+        output_ptr = Int64(mlp_output.data_ptr())
+
+        gate_up_gs_f32 = Float32(float(gate_up_global_scale))
+        down_gs_f32 = Float32(float(down_global_scale))
+
+        stream_arg = _cuda_driver.CUstream(
+            int(torch.cuda.current_stream().cuda_stream)
+        )
+
+        all_args = (
+            x_flat,
+            gate_fp4_ptr, gate_sc_ptr,
+            up_fp4_ptr, up_sc_ptr,
+            down_fp4_ptr, down_sc_ptr,
+            partial_ptr, count_ptr, output_ptr,
+            Int32(self.hidden_size),
+            Int32(self.intermediate_size),
+            Int32(self.num_slices),
+            Int32(self.slices_per_cta),
+            Int32(self.tile_s),
+            Int32(self.tile_k),
+            Int32(self.num_k_tiles),
+            Int32(self.slice_ctas),
+            gate_up_gs_f32, down_gs_f32,
+            Int32(nat),
+            stream_arg,
+        )
+
+        if self._compiled_phase_3 is None:
+            logger.info(
+                "Compiling PhaseE_Beta_Kernel phase-3-only (first call)…"
+            )
+            self._compiled_phase_3 = cute.compile(
+                self._jit_launch_phase_3_only,
+                *all_args,
+            )
+
+        self._compiled_phase_3(*all_args)
+        return mlp_output

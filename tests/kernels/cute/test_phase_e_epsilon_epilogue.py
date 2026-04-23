@@ -332,6 +332,110 @@ def test_phase_1_matches_standalone_decode():
 
 
 @pytest.mark.skipif(not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available")
+def test_phase_3_matches_standalone_mlp():
+    """Phase 3 (Task 14): β kernel's `run_phase_3_only` MLP matches
+    standalone Phase_D_MLP_Kernel legacy path (emit_epilogue=False).
+
+    Inputs: random FP4 nibble weights (same construction as the Phase 1
+    test's W_O weights) + UE4M3 scales set to 1.0 (0x38 encoding) so both
+    kernels consume identical byte-for-byte buffers.
+
+    Allocate FRESH partial/arrival/output buffers per kernel — the
+    arrival counter mutates and neither kernel self-resets it in the
+    legacy path (matches Phase_D_MLP_Kernel contract).
+    """
+    from vllm.v1.attention.backends.cute_paged.phase_e_kernel import (
+        PhaseE_Beta_Kernel,
+    )
+
+    torch.manual_seed(42)
+    nat, hidden, interm = 4, 5120, 17408
+    device = "cuda"
+
+    # Random FP4 weights. Mirrors the Phase 1 test pattern
+    # (tests/kernels/cute/test_phase_e_epsilon_epilogue.py:234) and the
+    # ε epilogue test tensor shapes (line 22) — uint8 storage, 2 nibbles
+    # per byte along the K dim.
+    gate_fp4 = torch.randint(0, 256, (interm, hidden // 2),
+                             dtype=torch.uint8, device=device)
+    up_fp4 = torch.randint(0, 256, (interm, hidden // 2),
+                           dtype=torch.uint8, device=device)
+    down_fp4 = torch.randint(0, 256, (hidden, interm // 2),
+                             dtype=torch.uint8, device=device)
+    # UE4M3 encoding of 1.0 = 0x38 (matches the Phase 1 test / swizzle_blockscale
+    # mocks elsewhere in this file).
+    gate_scale = torch.full((interm, hidden // 16), 0x38,
+                            dtype=torch.uint8, device=device)
+    up_scale = torch.full((interm, hidden // 16), 0x38,
+                          dtype=torch.uint8, device=device)
+    down_scale = torch.full((hidden, interm // 16), 0x38,
+                            dtype=torch.uint8, device=device)
+
+    x = torch.randn(nat, hidden, dtype=torch.bfloat16, device=device)
+
+    # --- Reference: standalone Phase_D_MLP_Kernel -----------------------
+    ref_kernel = Phase_D_MLP_Kernel(
+        hidden_size=hidden, intermediate_size=interm,
+    )
+    ref_partial = torch.zeros(nat, ref_kernel.slice_ctas, hidden,
+                              dtype=torch.float32, device=device)
+    ref_arrival = torch.zeros(nat, ref_kernel.num_k_tiles,
+                              dtype=torch.uint32, device=device)
+    ref_mlp_out = torch.zeros(nat, hidden,
+                              dtype=torch.bfloat16, device=device)
+
+    ref_kernel(
+        x, gate_fp4, gate_scale, up_fp4, up_scale, down_fp4, down_scale,
+        ref_partial, ref_arrival, ref_mlp_out, nat,
+        # legacy path: no ε epilogue
+        emit_epilogue=False,
+    )
+    torch.cuda.synchronize()
+
+    # --- Kernel under test: β kernel Phase 3 only -----------------------
+    beta = PhaseE_Beta_Kernel(
+        hidden_size=hidden, intermediate_size=interm,
+        num_attn_heads=24, num_kv_heads=4, head_dim=256,
+    )
+    # Same tile config → same SMEM layout → identical math.
+    assert beta.slice_ctas == ref_kernel.slice_ctas, (
+        f"β kernel slice_ctas={beta.slice_ctas} != "
+        f"standalone slice_ctas={ref_kernel.slice_ctas}"
+    )
+    assert beta.num_k_tiles == ref_kernel.num_k_tiles
+    assert beta.tile_s == ref_kernel.tile_s
+    assert beta.tile_k == ref_kernel.tile_k
+
+    beta_partial = torch.zeros(nat, beta.slice_ctas, hidden,
+                               dtype=torch.float32, device=device)
+    beta_arrival = torch.zeros(nat, beta.num_k_tiles,
+                               dtype=torch.uint32, device=device)
+    beta_mlp_out = torch.zeros(nat, hidden,
+                               dtype=torch.bfloat16, device=device)
+
+    beta.run_phase_3_only(
+        x=x,
+        gate_w_fp4=gate_fp4, gate_w_scale=gate_scale,
+        up_w_fp4=up_fp4, up_w_scale=up_scale,
+        down_w_fp4=down_fp4, down_w_scale=down_scale,
+        mlp_partial_fp32=beta_partial,
+        mlp_arrival_count=beta_arrival,
+        mlp_output=beta_mlp_out,
+        nat=nat,
+    )
+    torch.cuda.synchronize()
+
+    max_abs = (beta_mlp_out.float() - ref_mlp_out.float()).abs().max().item()
+    assert torch.allclose(beta_mlp_out, ref_mlp_out,
+                          rtol=1e-2, atol=1e-3), (
+        f"Phase 3 β kernel MLP diverged from standalone: "
+        f"max_abs={max_abs:.3e}; "
+        f"beta[0,:8]={beta_mlp_out[0,:8].tolist()}; "
+        f"ref[0,:8]={ref_mlp_out[0,:8].tolist()}"
+    )
+
+
+@pytest.mark.skipif(not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available")
 @pytest.mark.parametrize("total_ctas", [2, 8, 32])
 def test_phase_2_grid_barrier_stress(total_ctas):
     """Phase 2 (Task 13): cooperative-launch grid barrier.
