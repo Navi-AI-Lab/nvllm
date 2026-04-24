@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
+from torch.profiler import record_function
 
 from vllm.logger import init_logger
 from vllm.v1.attention.backend import (
@@ -1141,44 +1142,49 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 # Future optimization: hoist those into pre-allocated
                 # per-impl buffers (task-21 perf work).
                 self._phase_e_coop_kernel.rms_eps = _rms_eps
-                self._phase_e_coop_kernel.run_beta_coop_full(
-                    # Phase 0 inputs (dummy — output side-channel for future
-                    # QKV-fusion; not consumed by this layer's attn path).
-                    hidden_in=self.rmsnorm_output[:nat],
-                    residual_in=self.residual_output[:nat],
-                    input_gamma=self._phase_e_coop_input_gamma,
-                    post_attn_gamma=self.rmsnorm_gamma,
-                    attn_input_bf16=self._phase_e_coop_attn_input_scratch[:nat],
-                    # Phase 1 inputs:
-                    query=query[:nat],
-                    kv_cache=kv_cache,
-                    page_table=attn_metadata.block_table,
-                    seq_lens=attn_metadata.seq_lens,
-                    wo_weight=self.wo_weight,
-                    wo_scales=self.wo_scales,
-                    wo_global_scale=self.wo_global_scale,
-                    attn_output=self.rmsnorm_output[:nat],
-                    # Phase 3 inputs (MLP):
-                    gate_w_fp4=self._mlp_gate_w,
-                    gate_w_scale=self._mlp_gate_s,
-                    up_w_fp4=self._mlp_up_w,
-                    up_w_scale=self._mlp_up_s,
-                    down_w_fp4=self._mlp_down_w,
-                    down_w_scale=self._mlp_down_s,
-                    mlp_output=self.mlp_output[:nat],
-                    # Phase 4 inputs (ε):
-                    next_input_layernorm_gamma=_next_gamma,
-                    next_hidden_output=self.next_hidden_scratch[:nat],
-                    scale=self.scale,
-                    k_scale=k_scale,
-                    v_scale=v_scale,
-                    gate_up_global_scale=self._mlp_gate_up_gs,
-                    down_global_scale=self._mlp_down_gs,
-                    emit_next_layernorm=_emit_next,
-                    # Caller-supplied residual_output so self.residual_output
-                    # reflects residual_final (matches β-lite post-forward state).
-                    residual_output=self.residual_output[:nat],
-                )
+                # Phase E.1 #3: per-layer NVTX span for torch-profiler
+                # attribution. No-op when no profiler is active.
+                with record_function(
+                    f"PhaseE_Beta.coop.{_layer_name}"
+                ):
+                    self._phase_e_coop_kernel.run_beta_coop_full(
+                        # Phase 0 inputs (dummy — output side-channel for future
+                        # QKV-fusion; not consumed by this layer's attn path).
+                        hidden_in=self.rmsnorm_output[:nat],
+                        residual_in=self.residual_output[:nat],
+                        input_gamma=self._phase_e_coop_input_gamma,
+                        post_attn_gamma=self.rmsnorm_gamma,
+                        attn_input_bf16=self._phase_e_coop_attn_input_scratch[:nat],
+                        # Phase 1 inputs:
+                        query=query[:nat],
+                        kv_cache=kv_cache,
+                        page_table=attn_metadata.block_table,
+                        seq_lens=attn_metadata.seq_lens,
+                        wo_weight=self.wo_weight,
+                        wo_scales=self.wo_scales,
+                        wo_global_scale=self.wo_global_scale,
+                        attn_output=self.rmsnorm_output[:nat],
+                        # Phase 3 inputs (MLP):
+                        gate_w_fp4=self._mlp_gate_w,
+                        gate_w_scale=self._mlp_gate_s,
+                        up_w_fp4=self._mlp_up_w,
+                        up_w_scale=self._mlp_up_s,
+                        down_w_fp4=self._mlp_down_w,
+                        down_w_scale=self._mlp_down_s,
+                        mlp_output=self.mlp_output[:nat],
+                        # Phase 4 inputs (ε):
+                        next_input_layernorm_gamma=_next_gamma,
+                        next_hidden_output=self.next_hidden_scratch[:nat],
+                        scale=self.scale,
+                        k_scale=k_scale,
+                        v_scale=v_scale,
+                        gate_up_global_scale=self._mlp_gate_up_gs,
+                        down_global_scale=self._mlp_down_gs,
+                        emit_next_layernorm=_emit_next,
+                        # Caller-supplied residual_output so self.residual_output
+                        # reflects residual_final (matches β-lite post-forward state).
+                        residual_output=self.residual_output[:nat],
+                    )
                 self._phase_e_consumed = True
                 self._phase_e_use_beta_coop = True
             except Exception as e:  # noqa: BLE001 — fail-closed, fall through to β-lite
@@ -1216,30 +1222,35 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                     _next_gamma = None
                     _rms_eps = 1e-6
 
-                self._mlp_kernel(
-                    self.rmsnorm_output[:nat],
-                    self._mlp_gate_w,
-                    self._mlp_gate_s,
-                    self._mlp_up_w,
-                    self._mlp_up_s,
-                    self._mlp_down_w,
-                    self._mlp_down_s,
-                    self.mlp_partial_fp32[:nat],
-                    self.mlp_arrival_count[:nat],
-                    # Reuse mlp_output as the Phase-D MLP output surface
-                    # (epilogue then consumes it for residual+norm).
-                    self.mlp_output[:nat],
-                    nat,
-                    gate_up_global_scale=self._mlp_gate_up_gs,
-                    down_global_scale=self._mlp_down_gs,
-                    # ε epilogue inputs (Task 8 kwargs):
-                    residual_post_ln=self.residual_output[:nat],
-                    next_input_layernorm_gamma=_next_gamma,
-                    next_hidden_output=self.next_hidden_scratch[:nat],
-                    emit_epilogue=True,
-                    emit_next_layernorm=_emit_next,
-                    rms_eps=_rms_eps,
-                )
+                # Phase E.1 #3: per-layer NVTX span for torch-profiler
+                # attribution. No-op when no profiler is active.
+                with record_function(
+                    f"PhaseE_Beta.lite.{_layer_name}"
+                ):
+                    self._mlp_kernel(
+                        self.rmsnorm_output[:nat],
+                        self._mlp_gate_w,
+                        self._mlp_gate_s,
+                        self._mlp_up_w,
+                        self._mlp_up_s,
+                        self._mlp_down_w,
+                        self._mlp_down_s,
+                        self.mlp_partial_fp32[:nat],
+                        self.mlp_arrival_count[:nat],
+                        # Reuse mlp_output as the Phase-D MLP output surface
+                        # (epilogue then consumes it for residual+norm).
+                        self.mlp_output[:nat],
+                        nat,
+                        gate_up_global_scale=self._mlp_gate_up_gs,
+                        down_global_scale=self._mlp_down_gs,
+                        # ε epilogue inputs (Task 8 kwargs):
+                        residual_post_ln=self.residual_output[:nat],
+                        next_input_layernorm_gamma=_next_gamma,
+                        next_hidden_output=self.next_hidden_scratch[:nat],
+                        emit_epilogue=True,
+                        emit_next_layernorm=_emit_next,
+                        rms_eps=_rms_eps,
+                    )
                 self._phase_e_consumed = True
                 self._phase_e_use_beta_lite = True
             except Exception as e:  # noqa: BLE001 — fail-closed, log & fall back
