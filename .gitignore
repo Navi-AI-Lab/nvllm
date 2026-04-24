@@ -296,3 +296,10 @@ benchmarks/nvllm/traces/gemm_winners_table/**/*.pt.trace.json.gz
 !benchmarks/nvllm/traces/gemm_winners_table/**/*.json
 !benchmarks/nvllm/traces/gemm_winners_table/**/*.log
 !benchmarks/nvllm/traces/gemm_winners_table/**/*.txt
+
+# Phase E evidence tree — raw .pt.trace.json.gz local-only, per-kernel CSVs
+# and serve logs committed. Reproducer: docs/research/phase_e_traces/capture_all.sh.
+benchmarks/nvllm/traces/phase_e/**/*.pt.trace.json.gz
+!benchmarks/nvllm/traces/phase_e/**/*.csv
+!benchmarks/nvllm/traces/phase_e/**/*.log
+!benchmarks/nvllm/traces/phase_e/**/*.md

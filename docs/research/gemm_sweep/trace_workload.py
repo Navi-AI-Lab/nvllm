@@ -24,7 +24,7 @@ FIXED_PROMPT = (
 
 
 async def send_one(client: httpx.AsyncClient, base_url: str, model: str,
-                   max_tokens: int) -> dict:
+                   max_tokens: int, timeout: float) -> dict:
     r = await client.post(
         f"{base_url}/completions",
         json={
@@ -35,21 +35,21 @@ async def send_one(client: httpx.AsyncClient, base_url: str, model: str,
             "seed": 42,
             "ignore_eos": True,
         },
-        timeout=120,
+        timeout=timeout,
     )
     r.raise_for_status()
     return r.json()
 
 
 async def burst(base_url: str, model: str, n_requests: int, concurrent: int,
-                max_tokens: int) -> float:
+                max_tokens: int, timeout: float) -> float:
     start = time.monotonic()
     async with httpx.AsyncClient() as client:
         sem = asyncio.Semaphore(concurrent)
 
         async def one():
             async with sem:
-                return await send_one(client, base_url, model, max_tokens)
+                return await send_one(client, base_url, model, max_tokens, timeout)
 
         await asyncio.gather(*[one() for _ in range(n_requests)])
     return time.monotonic() - start
@@ -67,10 +67,14 @@ async def main():
                     help="URL to hit to start vLLM torch profiler before timed burst")
     ap.add_argument("--profile-stop", default=None,
                     help="URL to hit to stop vLLM torch profiler after timed burst")
+    ap.add_argument("--timeout", type=float, default=120.0,
+                    help="Per-request HTTP timeout in seconds. Bump to 600+ for "
+                    "backends with long first-call JIT compiles (e.g. CuTe Paged).")
     args = ap.parse_args()
 
     print(f"[warmup] {args.warmup} requests at concurrency {args.concurrent}")
-    await burst(args.base_url, args.model, args.warmup, args.concurrent, args.max_tokens)
+    await burst(args.base_url, args.model, args.warmup, args.concurrent, args.max_tokens,
+                args.timeout)
 
     if args.profile_start:
         async with httpx.AsyncClient() as c:
@@ -79,7 +83,7 @@ async def main():
 
     print(f"[timed]  {args.timed} requests at concurrency {args.concurrent}")
     elapsed = await burst(args.base_url, args.model, args.timed, args.concurrent,
-                          args.max_tokens)
+                          args.max_tokens, args.timeout)
     print(f"[timed]  elapsed={elapsed:.2f}s, throughput={args.timed / elapsed:.2f} req/s")
 
     if args.profile_stop:
