@@ -564,17 +564,37 @@ class Qwen3_5Model(nn.Module, EagleModelMixin):
             config.num_hidden_layers, get_layer, prefix=f"{prefix}.layers"
         )
 
-        # Phase E cross-layer binding: every fusion-active (full_attention)
-        # decoder layer receives a ref to the NEXT decoder layer's
-        # input_layernorm module. Last layer (idx 63) passes None so the
-        # β kernel's ε epilogue omits the next-layer norm pull.
-        # Spec: docs/superpowers/specs/2026-04-22-unreal-kernel-phase-e-d25-design.md §5.3
+        # Phase F.1 cross-layer binding (always-on when MLP fusion is
+        # attached). Cheap module-ref attach; cute_phase_e_skip_input_layernorm
+        # opaque op needs this present even when β kernels are disabled,
+        # because the op call site fires whenever _cute_layer_name is set
+        # (gated by CUTE_MLP_FUSION, not CUTE_PHASE_E_FUSION). Without
+        # this attach, the op's non-skip branch raises fail-loud.
         import os
+        layer_types = config.layer_types
+        num_layers = config.num_hidden_layers
+        for idx, layer in enumerate(self.layers):
+            if idx < self.start_layer or idx >= self.end_layer:
+                continue
+            if layer_types[idx] != "full_attention":
+                continue
+            attn = getattr(layer.self_attn, 'attn', None)
+            impl = getattr(attn, 'impl', None)
+            if impl is None or not hasattr(impl, 'attach_input_layernorm'):
+                continue
+            impl.attach_input_layernorm(
+                getattr(layer, 'input_layernorm', None)
+            )
+
+        # Phase E cross-layer binding (gated): every fusion-active
+        # (full_attention) decoder layer receives a ref to the NEXT decoder
+        # layer's input_layernorm module. Last layer (idx 63) passes None
+        # so the β kernel's ε epilogue omits the next-layer norm pull.
+        # ALSO allocates β kernel scratch buffers (heavy), so this stays
+        # gated by CUTE_PHASE_E_FUSION.
+        # Spec: docs/superpowers/specs/2026-04-22-unreal-kernel-phase-e-d25-design.md §5.3
         if os.environ.get("CUTE_PHASE_E_FUSION", "0") == "1":
-            layer_types = config.layer_types
-            num_layers = config.num_hidden_layers
             for idx, layer in enumerate(self.layers):
-                # Only fusion-active (full_attention) layers need β binding.
                 if idx < self.start_layer or idx >= self.end_layer:
                     continue
                 if layer_types[idx] != "full_attention":
@@ -587,12 +607,6 @@ class Qwen3_5Model(nn.Module, EagleModelMixin):
                 impl = getattr(attn, 'impl', None)
                 if impl is None or not hasattr(impl, 'attach_next_input_layernorm'):
                     continue  # non-CuTe backend
-                # Phase F.1: attach THIS layer's input_layernorm so the
-                # opaque skip op can invoke it at runtime when the skip
-                # flag is unset.
-                impl.attach_input_layernorm(
-                    getattr(layer, 'input_layernorm', None)
-                )
                 # getattr tolerates PPMissingLayer (no input_layernorm attr)
                 next_norm = (
                     getattr(self.layers[idx + 1], 'input_layernorm', None)
