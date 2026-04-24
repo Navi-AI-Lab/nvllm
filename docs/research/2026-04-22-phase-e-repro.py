@@ -29,7 +29,7 @@ def epsilon_epilogue_ref(
     rf32 = residual_final.float()
     variance = rf32.pow(2).mean(dim=-1, keepdim=True)
     rstd = torch.rsqrt(variance + eps)
-    normed = (rf32 * rstd).to(torch.bfloat16) * next_gamma
+    normed = ((rf32 * rstd) * (1.0 + next_gamma.float())).to(torch.bfloat16)
     return residual_final, normed
 
 

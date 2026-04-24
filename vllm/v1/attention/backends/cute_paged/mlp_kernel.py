@@ -1499,7 +1499,9 @@ class Phase_D_MLP_Kernel:
                             low16 = normed_bf16_u32 & Uint32(0xFFFF)
                             as_bits = Int32(low16 << Uint32(16))
                             normed_round = _bitcast_i32_to_f32(as_bits)
-                            out_f32 = normed_round * gamma_f32
+                            # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                            # Kernel must match to keep β output consumable by downstream layers.
+                            out_f32 = normed_round * (Float32(1.0) + gamma_f32)
                             _st_global_bf16_from_f32(
                                 next_hidden_base + Int64(idx) * Int64(2),
                                 out_f32,
