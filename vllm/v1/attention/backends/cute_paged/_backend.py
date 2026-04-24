@@ -277,6 +277,13 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # _use_beta_coop predicate.
         self._phase_e_coop_kernel = None
         self._phase_e_use_beta_coop = False
+        # Phase F.1: skip-flag set by cute_phase_e_dispatch when consuming
+        # β output; read by cute_phase_e_skip_input_layernorm on layer N+1.
+        self._phase_e_skip_next_ln = False
+        # Phase F.1: this layer's own input_layernorm module, attached at
+        # model-init post-processing (Qwen3_5Model.__init__). Used by the
+        # opaque skip-op when the skip flag is unset.
+        self._input_layernorm_module = None
 
     def _preallocate_fusion_buffers(
         self,
@@ -496,6 +503,20 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             self._fusion_max_num_seqs,
             self._fusion_hidden_dim,
         )
+
+    def attach_input_layernorm(
+        self, input_layernorm_module: torch.nn.Module | None,
+    ) -> None:
+        """Phase F.1: Attach THIS layer's input_layernorm module so the
+        opaque cute_phase_e_skip_input_layernorm op can invoke it at
+        call time (when the skip flag is unset).
+
+        Mirror of attach_next_input_layernorm; the two are paired.
+        Stores the MODULE ref (not the tensor) — NVFP4's
+        process_weights_after_loading replaces Parameters, so a tensor
+        captured here would go stale.
+        """
+        self._input_layernorm_module = input_layernorm_module
 
     def _probe_resident_cap(
         self, kernel_fn, num_threads: int, smem_bytes: int

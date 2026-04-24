@@ -380,10 +380,28 @@ class Qwen3_5DecoderLayer(nn.Module):
         **kwargs: object,
     ):
         if residual is None:
+            # First-layer case: no residual to add. Phase F.1 skip-op only
+            # applies when there's a residual + we're past layer 0.
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
         else:
-            hidden_states, residual = self.input_layernorm(hidden_states, residual)
+            # Phase F.1: use opaque skip op if MLP fusion is attached on
+            # THIS layer (attach-time constant, trace-safe). Op body reads
+            # impl._phase_e_skip_next_ln at runtime → passes through when
+            # the previous layer's β ε epilogue already ran input_layernorm.
+            _mlp_layer_name = getattr(self.mlp, "_cute_layer_name", None)
+            if _mlp_layer_name is not None:
+                out_x = torch.empty_like(hidden_states)
+                out_residual = torch.empty_like(residual)
+                torch.ops.vllm.cute_phase_e_skip_input_layernorm(
+                    hidden_states, residual, out_x, out_residual,
+                    _mlp_layer_name,
+                )
+                hidden_states, residual = out_x, out_residual
+            else:
+                hidden_states, residual = self.input_layernorm(
+                    hidden_states, residual
+                )
 
         # Impl decides fusion per-forward. We mirror residual into impl's
         # persistent buffer unconditionally when fusion could run (full
@@ -447,7 +465,7 @@ class Qwen3_5DecoderLayer(nn.Module):
                 hidden_states, residual
             )
 
-        # Phase E β-lite consume (task 9). When the CuTe backend launched the
+        # Phase E β-lite consume. When the CuTe backend launched the
         # β-lite dispatch inside its forward, the MLP kernel's ε epilogue
         # already produced:
         #   - residual_final  -> impl.residual_output (overwritten in-kernel)
@@ -456,29 +474,35 @@ class Qwen3_5DecoderLayer(nn.Module):
         #                        gamma, or a plain residual_final memcpy
         #                        for the last layer)
         #
-        # TODO(task-10, CUDA-graph-safety): this Python `getattr(..., False)`
-        # gate evaluates at trace time under @support_torch_compile (see
-        # Qwen3_5Model decorator at L489). Under PIECEWISE capture, a graph
-        # traced with _phase_e_consumed=False will dead-branch this `if`
-        # out — at replay, `self.mlp(hidden_states)` below will fire AGAIN
-        # after β-lite already ran, producing double-fire (see
-        # memory:feedback_opaque_op_not_enough). Task 10 MUST test first
-        # with --debug (--enforce-eager) to validate β-lite math. Before
-        # enabling PIECEWISE, refactor this gate into an opaque custom op
-        # (mirror torch.ops.vllm.cute_mlp_forward pattern from _mlp_op.py).
-        #
-        # Per-impl buffers are not aliased across layers; the .clone() the
-        # initial task-9 subagent added is unnecessary and was ~80 MiB of
-        # allocator churn per step — dropped in favor of direct slice view.
-        if getattr(impl, "_phase_e_consumed", False):
-            hidden_states = impl.next_hidden_scratch[:nat]
-            residual = impl.residual_output[:nat]
-            # Reset so a later non-β forward (or a layer where β-lite did
-            # not run) doesn't falsely trigger this branch.
-            impl._phase_e_consumed = False
-            return hidden_states, residual
+        # Phase F.1 (2026-04-24): the consume gate used to be a Python
+        # `if getattr(impl, "_phase_e_consumed", False):` block that
+        # dead-branched under PIECEWISE CUDA graphs (see
+        # memory:feedback_opaque_op_not_enough, project_phase_e_phantom_speedup).
+        # Replaced with the cute_phase_e_dispatch opaque op below — op body
+        # reads impl._phase_e_consumed at runtime (not trace time), so the
+        # replay path picks the right branch regardless of capture-time state.
+        # Original Python gate kept commented for history:
+        # ORIGINAL (pre-F.1):
+        #     if getattr(impl, "_phase_e_consumed", False):
+        #         hidden_states = impl.next_hidden_scratch[:nat]
+        #         residual = impl.residual_output[:nat]
+        #         impl._phase_e_consumed = False
+        #         return hidden_states, residual
+        #     hidden_states = self.mlp(hidden_states)
 
-        hidden_states = self.mlp(hidden_states)
+        # Phase F.1 opaque dispatch. Attach-state gate is init-time
+        # constant (trace-safe); runtime branch happens inside the op body.
+        _mlp_layer_name = getattr(self.mlp, "_cute_layer_name", None)
+        if _mlp_layer_name is not None:
+            hidden_out = torch.empty_like(hidden_states)
+            residual_out = torch.empty_like(residual)
+            torch.ops.vllm.cute_phase_e_dispatch(
+                hidden_states, hidden_out, residual_out, residual,
+                _mlp_layer_name,
+            )
+            hidden_states, residual = hidden_out, residual_out
+        else:
+            hidden_states = self.mlp(hidden_states)
 
         if self.layer_scale:
             if len(hidden_states.shape) == 2:
@@ -563,6 +587,12 @@ class Qwen3_5Model(nn.Module, EagleModelMixin):
                 impl = getattr(attn, 'impl', None)
                 if impl is None or not hasattr(impl, 'attach_next_input_layernorm'):
                     continue  # non-CuTe backend
+                # Phase F.1: attach THIS layer's input_layernorm so the
+                # opaque skip op can invoke it at runtime when the skip
+                # flag is unset.
+                impl.attach_input_layernorm(
+                    getattr(layer, 'input_layernorm', None)
+                )
                 # getattr tolerates PPMissingLayer (no input_layernorm attr)
                 next_norm = (
                     getattr(self.layers[idx + 1], 'input_layernorm', None)
