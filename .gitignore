@@ -303,3 +303,11 @@ benchmarks/nvllm/traces/phase_e/**/*.pt.trace.json.gz
 !benchmarks/nvllm/traces/phase_e/**/*.csv
 !benchmarks/nvllm/traces/phase_e/**/*.log
 !benchmarks/nvllm/traces/phase_e/**/*.md
+
+# Phase E.1 follow-up evidence tree — same policy.
+benchmarks/nvllm/traces/phase_e_1/**/*.pt.trace.json.gz
+!benchmarks/nvllm/traces/phase_e_1/**/*.csv
+!benchmarks/nvllm/traces/phase_e_1/**/*.log
+!benchmarks/nvllm/traces/phase_e_1/**/*.md
+!benchmarks/nvllm/traces/phase_e_1/**/*.txt
+!benchmarks/nvllm/traces/phase_e_1/**/*.json
