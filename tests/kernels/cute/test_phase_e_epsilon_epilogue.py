@@ -150,10 +150,11 @@ def test_phase_0_prologue_matches_rmsnorm_ref():
     torch.cuda.synchronize()
 
     # Reference: exact torch RMSNorm math (FP32 accumulator, BF16 cast at end).
+    # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
     summed = hidden_in.float() + residual_in.float()
     variance = summed.pow(2).mean(dim=-1, keepdim=True)
     rstd = torch.rsqrt(variance + 1e-6)
-    normed_ref = ((summed * rstd) * gamma.float()).to(torch.bfloat16)
+    normed_ref = ((summed * rstd) * (1.0 + gamma.float())).to(torch.bfloat16)
 
     max_abs = (normed_out.float() - normed_ref.float()).abs().max().item()
     assert torch.allclose(normed_out, normed_ref, rtol=1e-2, atol=1e-3), (
@@ -305,11 +306,12 @@ def test_phase_1_matches_standalone_decode():
     )
     torch.cuda.synchronize()
 
-    # --- Assert 1: Phase 0 output matches Python RMSNorm(h+r)*γ_in ---
+    # --- Assert 1: Phase 0 output matches Python RMSNorm(h+r)*(1+γ_in) ---
+    # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
     summed = hidden_in.float() + residual_in.float()
     variance = summed.pow(2).mean(dim=-1, keepdim=True)
     rstd = torch.rsqrt(variance + 1e-6)
-    attn_input_ref = ((summed * rstd) * input_gamma.float()).to(
+    attn_input_ref = ((summed * rstd) * (1.0 + input_gamma.float())).to(
         torch.bfloat16)
 
     max_abs_p0 = (attn_input_bf16.float() - attn_input_ref.float()).abs().max().item()

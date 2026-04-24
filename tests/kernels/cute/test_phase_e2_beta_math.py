@@ -102,3 +102,118 @@ def test_beta_lite_epsilon_matches_qwen35_rmsnorm_forward_native():
         f"Most likely cause: kernel multiplies by raw γ instead of (1+γ) "
         f"at mlp_kernel.py:1502."
     )
+
+
+@pytest.mark.skipif(
+    not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available"
+)
+def test_beta_coop_phase0_matches_qwen35_rmsnorm_forward_native():
+    """β-coop Phase 0 input_layernorm prologue must match
+    Qwen3_5RMSNorm._forward_static_with_residual — i.e., normed output
+    is `(hidden + residual) / rms * (1 + γ)`.
+
+    Targets phase_e_kernel.py:641 (run_phase_0_only). Same tolerance
+    rationale as the β-lite test — rsqrt.approx.f32 ULP drift after γ multiply.
+    """
+    from vllm.v1.attention.backends.cute_paged.phase_e_kernel import (
+        PhaseE_Beta_Kernel,
+    )
+
+    nat, hidden = 4, 5120
+    device = 'cuda'
+
+    gamma = (torch.randn(hidden, dtype=torch.bfloat16, device=device)
+             * 0.02)  # trained-γ stddev
+    hidden_in = torch.randn(
+        nat, hidden, dtype=torch.bfloat16, device=device
+    )
+    residual_in = torch.randn(
+        nat, hidden, dtype=torch.bfloat16, device=device
+    )
+    normed_out = torch.zeros_like(hidden_in)
+
+    # Reference: Qwen3_5RMSNorm static — returns (normed, residual_post_add).
+    ref_normed, _ref_residual = (
+        Qwen3_5RMSNorm._forward_static_with_residual(
+            gamma, 1e-6, hidden_in, residual_in
+        )
+    )
+
+    # Kernel: run_phase_0_only writes normed_out only.
+    kernel = PhaseE_Beta_Kernel(
+        hidden_size=hidden, intermediate_size=17408,
+        num_attn_heads=24, num_kv_heads=4, head_dim=256,
+        rms_eps=1e-6,
+    )
+    kernel.run_phase_0_only(hidden_in, residual_in, gamma, normed_out)
+    torch.cuda.synchronize()
+
+    max_diff = (normed_out - ref_normed).abs().max().item()
+    assert torch.allclose(
+        normed_out, ref_normed, rtol=3e-2, atol=5e-2
+    ), (
+        f"β-coop Phase 0 does not match Qwen3_5RMSNorm.forward_native. "
+        f"Max diff: {max_diff}. "
+        f"Most likely cause: kernel multiplies by raw γ instead of (1+γ) "
+        f"at phase_e_kernel.py:641."
+    )
+
+
+@pytest.mark.skipif(
+    not CUTE_AVAILABLE, reason="CUTLASS CuTe DSL not available"
+)
+def test_beta_coop_phase4_epsilon_matches_qwen35_rmsnorm_forward_native():
+    """β-coop Phase 4 ε epilogue must match
+    Qwen3_5RMSNorm._forward_static_no_residual on residual_final =
+    residual_post + mlp_output. Targets phase_e_kernel.py:2625
+    (run_phase_4_only) — and through identical pattern, also exercises
+    the same fix at line 4641 (run_beta_coop_full).
+    """
+    from vllm.v1.attention.backends.cute_paged.phase_e_kernel import (
+        PhaseE_Beta_Kernel,
+    )
+
+    nat, hidden = 4, 5120
+    device = 'cuda'
+
+    next_gamma = (torch.randn(hidden, dtype=torch.bfloat16, device=device)
+                  * 0.02)
+    residual_post = torch.randn(
+        nat, hidden, dtype=torch.bfloat16, device=device
+    )
+    mlp_output = torch.randn(
+        nat, hidden, dtype=torch.bfloat16, device=device
+    )
+    next_hidden_out = torch.zeros_like(residual_post)
+
+    # Snapshot before kernel mutates residual_post in-place.
+    residual_final_ref = residual_post + mlp_output
+
+    # Reference: forward_native on residual_final, no prior residual.
+    ref_next_hidden = Qwen3_5RMSNorm._forward_static_no_residual(
+        next_gamma, 1e-6, residual_final_ref
+    )
+
+    kernel = PhaseE_Beta_Kernel(
+        hidden_size=hidden, intermediate_size=17408,
+        num_attn_heads=24, num_kv_heads=4, head_dim=256,
+        rms_eps=1e-6,
+    )
+    kernel.run_phase_4_only(
+        residual_post_ln=residual_post,
+        mlp_output=mlp_output,
+        next_input_layernorm_gamma=next_gamma,
+        next_hidden_output=next_hidden_out,
+        emit_next_layernorm=True,
+    )
+    torch.cuda.synchronize()
+
+    max_diff = (next_hidden_out - ref_next_hidden).abs().max().item()
+    assert torch.allclose(
+        next_hidden_out, ref_next_hidden, rtol=3e-2, atol=5e-2
+    ), (
+        f"β-coop Phase 4 ε does not match Qwen3_5RMSNorm.forward_native. "
+        f"Max diff: {max_diff}. "
+        f"Most likely cause: kernel multiplies by raw γ instead of (1+γ) "
+        f"at phase_e_kernel.py:2625 (and run_beta_coop_full at 4641)."
+    )

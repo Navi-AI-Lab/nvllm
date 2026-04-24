@@ -638,7 +638,8 @@ class PhaseE_Beta_Kernel:
                     residual_base + Int64(idx_c * Int32(2)))
                 gamma_f32 = _ld_global_b16_to_f32(
                     gamma_base + Int64(idx_c * Int32(2)))
-                normed = (h_f32 + r_f32) * inv_rms_val * gamma_f32
+                # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                normed = (h_f32 + r_f32) * inv_rms_val * (Float32(1.0) + gamma_f32)
                 _st_global_bf16_from_f32(
                     out_base + Int64(idx_c * Int32(2)), normed)
 
@@ -850,7 +851,8 @@ class PhaseE_Beta_Kernel:
                         residual_base_0 + Int64(idx_c0 * Int32(2)))
                     gamma_f32 = _ld_global_b16_to_f32(
                         gamma_base_0 + Int64(idx_c0 * Int32(2)))
-                    normed = (h_f32 + r_f32) * inv_rms_val_0 * gamma_f32
+                    # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                    normed = (h_f32 + r_f32) * inv_rms_val_0 * (Float32(1.0) + gamma_f32)
                     _st_global_bf16_from_f32(
                         out_base_0 + Int64(idx_c0 * Int32(2)), normed)
 
@@ -1540,8 +1542,9 @@ class PhaseE_Beta_Kernel:
                                 gamma_f32 = _ld_global_b16_to_f32(
                                     gamma_base_c
                                     + Int64(idx_c * Int32(2)))
+                                # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
                                 hidden_val = new_res * inv_rms_val \
-                                    * gamma_f32
+                                    * (Float32(1.0) + gamma_f32)
 
                                 _st_global_bf16_from_f32(
                                     out_base_c
@@ -2622,7 +2625,8 @@ class PhaseE_Beta_Kernel:
                     low16 = normed_bf16_u32 & Uint32(0xFFFF)
                     as_bits = Int32(low16 << Uint32(16))
                     normed_round = _bitcast_i32_to_f32(as_bits)
-                    out_f32 = normed_round * gamma_f32
+                    # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                    out_f32 = normed_round * (Float32(1.0) + gamma_f32)
                     _st_global_bf16_from_f32(
                         next_hidden_base + Int64(idx) * Int64(2), out_f32)
             else:
@@ -3273,7 +3277,8 @@ class PhaseE_Beta_Kernel:
                             residual_base_0 + Int64(idx_c0 * Int32(2)))
                         gamma_f32 = _ld_global_b16_to_f32(
                             gamma_base_0 + Int64(idx_c0 * Int32(2)))
-                        normed = (h_f32 + r_f32) * inv_rms_val_0 * gamma_f32
+                        # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                        normed = (h_f32 + r_f32) * inv_rms_val_0 * (Float32(1.0) + gamma_f32)
                         _st_global_bf16_from_f32(
                             out_base_0 + Int64(idx_c0 * Int32(2)), normed)
 
@@ -3942,8 +3947,9 @@ class PhaseE_Beta_Kernel:
                                 gamma_f32 = _ld_global_b16_to_f32(
                                     gamma_base_c
                                     + Int64(idx_c * Int32(2)))
+                                # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
                                 hidden_val = new_res * inv_rms_val \
-                                    * gamma_f32
+                                    * (Float32(1.0) + gamma_f32)
 
                                 _st_global_bf16_from_f32(
                                     out_base_c
@@ -4638,7 +4644,8 @@ class PhaseE_Beta_Kernel:
                         low16 = normed_bf16_u32 & Uint32(0xFFFF)
                         as_bits = Int32(low16 << Uint32(16))
                         normed_round = _bitcast_i32_to_f32(as_bits)
-                        out_f32 = normed_round * gamma_f32
+                        # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                        out_f32 = normed_round * (Float32(1.0) + gamma_f32)
                         _st_global_bf16_from_f32(
                             next_hidden_base_ep + Int64(idx) * Int64(2),
                             out_f32,

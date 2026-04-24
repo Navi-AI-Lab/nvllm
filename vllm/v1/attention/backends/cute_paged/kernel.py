@@ -1917,8 +1917,9 @@ if _CUTE_AVAILABLE:
                             gamma_f32 = _ld_global_b16_to_f32(
                                 gamma_base + Int64(idx_c * Int32(2)))
 
-                            # hidden = new_res * inv_rms * gamma
-                            hidden_val = new_res * inv_rms_val * gamma_f32
+                            # hidden = new_res * inv_rms * (1 + gamma)
+                            # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                            hidden_val = new_res * inv_rms_val * (Float32(1.0) + gamma_f32)
 
                             # Write hidden_states (→BF16) to output
                             _st_global_bf16_from_f32(
