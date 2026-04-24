@@ -1,0 +1,77 @@
+{
+  "test": "gsm8k_sanity_gate",
+  "label": "e1_coop_compile_cache",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "correct": 7,
+  "total": 8,
+  "errors": 0,
+  "accuracy": "7/8 (87%)",
+  "verdict": "PASS",
+  "questions": [
+    {
+      "id": "Q1",
+      "expected": 72,
+      "got": 72,
+      "raw": "72\nAnswer\n\n** </think>\n### Step-by-step Reasoning",
+      "status": "OK",
+      "elapsed": 79.4
+    },
+    {
+      "id": "Q2",
+      "expected": 10,
+      "got": 120,
+      "raw": "120/12. 2. 2\nStudent A",
+      "status": "WRONG",
+      "elapsed": 22.8
+    },
+    {
+      "id": "Q3",
+      "expected": 5,
+      "got": 5,
+      "raw": "5\nAnswer: 5\nWhat was the question and reasoning step-by",
+      "status": "OK",
+      "elapsed": 23.1
+    },
+    {
+      "id": "Q4",
+      "expected": 42,
+      "got": 42,
+      "raw": "42\n#### 42\nThe answer is: 42",
+      "status": "OK",
+      "elapsed": 23.0
+    },
+    {
+      "id": "Q5",
+      "expected": 624,
+      "got": 624,
+      "raw": "624\nWhat is a similar question that can be asked?",
+      "status": "OK",
+      "elapsed": 22.7
+    },
+    {
+      "id": "Q6",
+      "expected": 35,
+      "got": 35,
+      "raw": "35\n####  35\nThe answer is: 3",
+      "status": "OK",
+      "elapsed": 23.2
+    },
+    {
+      "id": "Q7",
+      "expected": 48,
+      "got": 48,
+      "raw": "48\nAnswer: 48\nQ: Mary is making a",
+      "status": "OK",
+      "elapsed": 23.0
+    },
+    {
+      "id": "Q8",
+      "expected": 16,
+      "got": 16,
+      "raw": "16\n#### 16\nQuestion: John has 2",
+      "status": "OK",
+      "elapsed": 22.9
+    }
+  ]
+}

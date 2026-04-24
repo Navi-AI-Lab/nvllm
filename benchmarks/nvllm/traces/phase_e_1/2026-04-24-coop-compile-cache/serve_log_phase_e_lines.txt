@@ -1,0 +1,58 @@
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:14 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:773] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=True num_layers_barrier=64 scratch_shape=(1, 5120)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:484] CuTe Phase E: resident_cap=96 (num_seqs_coop_max=1)
+(EngineCore pid=146) INFO 04-24 11:04:15 [_backend.py:489] CuTe Phase E next-input-layernorm attached: emit_next_layernorm=False num_layers_barrier=64 scratch_shape=(1, 5120)
+(APIServer pid=1) INFO:     Application startup complete.
+(EngineCore pid=146) INFO 04-24 11:09:58 [phase_e_kernel.py:2991] Compiling PhaseE_Beta_Kernel β-coop full (first call for this config)…
+(APIServer pid=1) INFO:     127.0.0.1:45300 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:35424 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:41156 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:53720 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:43278 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:40124 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:38942 - "POST /v1/completions HTTP/1.1" 200 OK
+(APIServer pid=1) INFO:     127.0.0.1:38630 - "POST /v1/completions HTTP/1.1" 200 OK

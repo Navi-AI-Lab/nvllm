@@ -117,6 +117,16 @@ except ImportError:
         )
 
 
+# --- Phase E.1 follow-up #1: process-wide β-coop compile cache --------------
+# Each full_attention layer attaches its own PhaseE_Beta_Kernel instance
+# (see _backend.py:754), so without a shared cache cute.compile() fires
+# once per layer — 16 × ~23 s = ~6 min cold-start stall on Qwen3.5-27B.
+# All instances with matching constexpr config can share one compiled
+# handle; this dict keys them by the tuple returned from
+# ``PhaseE_Beta_Kernel._coop_full_compile_key()``.
+_PHASE_E_COOP_FULL_COMPILE_CACHE: dict = {}
+
+
 class PhaseE_Beta_Kernel:
     """Cooperative CuTe kernel fusing attn + MLP + residual + next-norm.
 
@@ -2917,17 +2927,78 @@ class PhaseE_Beta_Kernel:
             stream_arg,
         )
 
-        if self._compiled_phase_coop_full is None:
-            logger.info(
-                "Compiling PhaseE_Beta_Kernel β-coop full (first call)…"
-            )
-            self._compiled_phase_coop_full = cute.compile(
-                self._jit_launch_phase_0_to_4,
-                *all_args,
-            )
-
+        self._compile_coop_full(*all_args)
         self._compiled_phase_coop_full(*all_args)
         return next_hidden_output
+
+    # -----------------------------------------------------------------
+    # Phase E.1 follow-up #1 — shared β-coop compile cache.
+    # -----------------------------------------------------------------
+    def _coop_full_compile_key(self) -> tuple:
+        """Tuple of every ``self.`` constexpr value read by
+        ``_jit_launch_phase_0_to_4``. Two instances with identical keys
+        can share one cute-compiled kernel (see
+        _PHASE_E_COOP_FULL_COMPILE_CACHE).
+        """
+        return (
+            "phase_coop_full",
+            self.hidden_size,
+            self.intermediate_size,
+            self.num_attn_heads,
+            self.num_kv_heads,
+            self.head_dim,
+            self.num_threads,
+            self.tile_s,
+            self.tile_k,
+            self.slice_ctas,
+            self.num_slices,
+            self.num_k_tiles,
+            self.slices_per_cta,
+            self._rows_per_thread,
+            self._threads_per_row,
+            self._cta_q,
+            self._cta_kv,
+            self._block_size,
+            self._num_warps_kv,
+            self._num_mma_d,
+            self._q_bytes,
+            self._k_bytes,
+            self._v_bytes,
+            self._sync_o_small_offset,
+            self._sync_md_small_offset,
+            self._smem_bytes_phase_01,
+            self._smem_x_bytes,
+            self._smem_reduce_bytes,
+            self._smem_intermediate_bf16_bytes,
+            self._smem_intermediate_fp4_bytes,
+            self._smem_intermediate_scale_bytes,
+            self._smem_flag_bytes,
+            self._smem_bytes_phase_3,
+            self._smem_bytes_phase_coop_full,
+        )
+
+    def _compile_coop_full(self, *compile_args):
+        """Cached ``cute.compile`` for the β-coop unified kernel.
+
+        First call for a given config key compiles; subsequent calls
+        (including from a different ``PhaseE_Beta_Kernel`` instance with
+        matching constexpr config) reuse the cached handle. Populates
+        ``self._compiled_phase_coop_full`` for back-compat readers.
+        """
+        key = self._coop_full_compile_key()
+        cached = _PHASE_E_COOP_FULL_COMPILE_CACHE.get(key)
+        if cached is None:
+            logger.info(
+                "Compiling PhaseE_Beta_Kernel β-coop full (first call for "
+                "this config)…"
+            )
+            cached = cute.compile(
+                self._jit_launch_phase_0_to_4,
+                *compile_args,
+            )
+            _PHASE_E_COOP_FULL_COMPILE_CACHE[key] = cached
+        self._compiled_phase_coop_full = cached
+        return cached
 
     if _CUTE_AVAILABLE:
 
