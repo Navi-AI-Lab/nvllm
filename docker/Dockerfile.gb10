@@ -91,7 +91,7 @@ RUN pip install --no-cache-dir \
     || true
 
 # -- FlashInfer --
-RUN pip install --no-cache-dir flashinfer-python==0.6.3 \
+RUN pip install --no-cache-dir flashinfer-python==0.6.7 \
     || pip install --no-cache-dir flashinfer-python \
     || echo "WARN: flashinfer install failed -- will need manual install"
 
@@ -110,7 +110,7 @@ RUN pip install --no-cache-dir \
 
 # -- Remaining vLLM runtime deps --
 RUN pip install --no-cache-dir --no-deps \
-    flashinfer-python==0.6.3 || true
+    flashinfer-python==0.6.7 || true
 RUN pip install --no-cache-dir \
     aiohttp "fastapi[standard]>=0.115.0" "openai>=1.99.1" \
     "prometheus_client>=0.18.0" "prometheus-fastapi-instrumentator>=7.0.0" \
