@@ -96,6 +96,7 @@ docker run -d \
   --trust-remote-code \
   --gpu-memory-utilization "${SERVE_GPU_UTIL:-0.70}" \
   --max-num-batched-tokens 65536 \
+  --kernel-config '{"enable_flashinfer_autotune":false}' \
   "${EXTRA_ARGS[@]}"
 
 echo "Container started: $CONTAINER"
