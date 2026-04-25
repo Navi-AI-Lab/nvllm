@@ -92,13 +92,20 @@ logger = init_logger(__name__)
 # `docs/superpowers/specs/2026-04-19-phase-d3a-mlp-decode-retune-design.md`.
 # ---------------------------------------------------------------------------
 _TILE_PRESETS: dict[str, tuple[int, int, int]] = {
-    "prefill-legacy":     (256, 640, 8),     # baseline; matches D2e shipped config
-    "decode-balanced":    (128, 640, 16),    # half tile_s, 2× CTAs
-    "decode-small":       (64,  640, 32),    # quarter tile_s, 4× CTAs
-    "decode-narrow-grid": (256, 1280, 8),    # same tile_s, 2× tile_k → halve num_k_tiles
+    "prefill-legacy":     (256, 640, 8),     # original D2e shipped config
+    "decode-balanced":    (128, 640, 16),    # 2× CTAs vs legacy
+    "decode-small":       (64,  640, 32),    # 4× CTAs (oversaturates GB10)
+    "decode-narrow-grid": (256, 1280, 8),    # halved num_k_tiles (loses)
+    # Decode-tuned 2026-04-25 — same total CTAs as decode-balanced (2176)
+    # but half tile_s and half slice_ctas. +345% e2e tok/s vs legacy on
+    # Qwen3.5-27B-NVFP4 PIECEWISE (1.90 → 8.45 tok/s, MLP-fusion-only).
+    # GSM8K-50 seed=42: 49/50 = 98.0%. See docs/research/phase_f1_opaque_gate/
+    # run_logs/{tile_sweep_piecewise_20260425_075336,tile_sweep_micro_
+    # 20260425_085056,gsm8k_decode_mini_20260425_090855}/.
+    "decode-mini":        (64,  640, 8),     # default since 2026-04-25
 }
 
-_DEFAULT_PRESET_NAME: str = "prefill-legacy"
+_DEFAULT_PRESET_NAME: str = "decode-mini"
 
 
 def _resolve_tile_preset(name: Optional[str]) -> tuple[int, int, int]:
