@@ -24,12 +24,27 @@
 # limitations under the License.
 """Inference-only Qwen3.5 Series compatible with HuggingFace weights."""
 
+import os
+import sys
+import time as _cute_time
 import typing
 from collections.abc import Callable, Iterable
 from itertools import islice
 
 import torch
 from torch import nn
+
+# Per-step instrumentation. Env-gated (CUTE_DEBUG_TIMING=1) so production
+# stays untouched. CUTE_DEBUG_TIMING_BUDGET caps total log lines to avoid
+# 65k-token spam at long contexts.
+_CUTE_DEBUG_TIMING = os.environ.get("CUTE_DEBUG_TIMING", "0") == "1"
+_CUTE_DEBUG_TIMING_BUDGET = int(os.environ.get("CUTE_DEBUG_TIMING_BUDGET", "200"))
+_CUTE_DEBUG_TIMING_STATE = {"emitted": 0}
+
+
+def _cute_tlog(msg: str) -> None:
+    sys.stderr.write(f"[CUTE_TIMING] {msg}\n")
+    sys.stderr.flush()
 
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import VllmConfig
@@ -379,11 +394,30 @@ class Qwen3_5DecoderLayer(nn.Module):
         positions: torch.Tensor = None,
         **kwargs: object,
     ):
+        # CUTE_DEBUG_TIMING checkpoints: only when env-gated, only during
+        # decode (num_tokens==1), and only until budget exhausted.
+        _ct_log = (
+            _CUTE_DEBUG_TIMING
+            and hidden_states.shape[0] == 1
+            and _CUTE_DEBUG_TIMING_STATE["emitted"] < _CUTE_DEBUG_TIMING_BUDGET
+        )
+        _ct_marks: list[str] = []
+        _ct_t = _cute_time.perf_counter() if _ct_log else 0.0
+
+        def _ct_mark(label: str) -> None:
+            nonlocal _ct_t
+            if not _ct_log:
+                return
+            _now = _cute_time.perf_counter()
+            _ct_marks.append(f"{label}={(_now - _ct_t) * 1e6:.1f}us")
+            _ct_t = _now
+
         if residual is None:
             # First-layer case: no residual to add. Phase F.1 skip-op only
             # applies when there's a residual + we're past layer 0.
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
+            _ct_mark("input_ln_first")
         else:
             # Phase F.1: use opaque skip op if MLP fusion is attached on
             # THIS layer (attach-time constant, trace-safe). Op body reads
@@ -393,15 +427,18 @@ class Qwen3_5DecoderLayer(nn.Module):
             if _mlp_layer_name is not None:
                 out_x = torch.empty_like(hidden_states)
                 out_residual = torch.empty_like(residual)
+                _ct_mark("ln_skip_alloc")
                 torch.ops.vllm.cute_phase_e_skip_input_layernorm(
                     hidden_states, residual, out_x, out_residual,
                     _mlp_layer_name,
                 )
                 hidden_states, residual = out_x, out_residual
+                _ct_mark("ln_skip_op")
             else:
                 hidden_states, residual = self.input_layernorm(
                     hidden_states, residual
                 )
+                _ct_mark("input_ln")
 
         # Impl decides fusion per-forward. We mirror residual into impl's
         # persistent buffer unconditionally when fusion could run (full
@@ -423,8 +460,10 @@ class Qwen3_5DecoderLayer(nn.Module):
                     impl.residual_buf[:nat].copy_(residual[:nat])
                 except (RuntimeError, KeyError, AttributeError, TypeError):
                     pass
+        _ct_mark("residual_mirror")
 
         self_attention_output = torch.empty_like(hidden_states)
+        _ct_mark("attn_out_alloc")
 
         if self.layer_type == "linear_attention":
             self.linear_attn(
@@ -432,12 +471,14 @@ class Qwen3_5DecoderLayer(nn.Module):
                 output=self_attention_output,
             )
             hidden_states = self_attention_output
+            _ct_mark("linear_attn")
         elif self.layer_type == "full_attention":
             self.self_attn(
                 hidden_states=hidden_states,
                 output=self_attention_output,
                 positions=positions,
             )
+            _ct_mark("self_attn")
             if impl is not None and getattr(impl, "_fusion_active", False):
                 # Kernel already did gate*attn, W_O GEMV, residual+RMSNorm.
                 self_attention_output[:nat].copy_(impl.rmsnorm_output[:nat])
@@ -445,8 +486,10 @@ class Qwen3_5DecoderLayer(nn.Module):
                     self_attention_output[nat:].zero_()
                 residual[:nat].copy_(impl.residual_output[:nat])
                 hidden_states = self_attention_output
+                _ct_mark("attn_consume")
             else:
                 hidden_states = self_attention_output
+                _ct_mark("attn_legacy")
         else:
             raise ValueError("Invalid layer_type")
 
@@ -464,6 +507,9 @@ class Qwen3_5DecoderLayer(nn.Module):
             hidden_states, residual = self.post_attention_layernorm(
                 hidden_states, residual
             )
+            _ct_mark("post_attn_ln")
+        else:
+            _ct_mark("post_attn_skip")
 
         # Phase E β-lite consume. When the CuTe backend launched the
         # β-lite dispatch inside its forward, the MLP kernel's ε epilogue
@@ -496,13 +542,16 @@ class Qwen3_5DecoderLayer(nn.Module):
         if _mlp_layer_name is not None:
             hidden_out = torch.empty_like(hidden_states)
             residual_out = torch.empty_like(residual)
+            _ct_mark("mlp_alloc")
             torch.ops.vllm.cute_phase_e_dispatch(
                 hidden_states, hidden_out, residual_out, residual,
                 _mlp_layer_name,
             )
             hidden_states, residual = hidden_out, residual_out
+            _ct_mark("mlp_op")
         else:
             hidden_states = self.mlp(hidden_states)
+            _ct_mark("mlp_legacy")
 
         if self.layer_scale:
             if len(hidden_states.shape) == 2:
@@ -517,6 +566,17 @@ class Qwen3_5DecoderLayer(nn.Module):
                 hidden_states = hidden_states * (
                     self.ffn_layer_scale.to(hidden_states.dtype) + 1
                 )
+
+        if _ct_log:
+            torch.cuda.synchronize()
+            _now = _cute_time.perf_counter()
+            _ct_marks.append(f"sync_end={(_now - _ct_t) * 1e6:.1f}us")
+            _CUTE_DEBUG_TIMING_STATE["emitted"] += 1
+            _cute_tlog(
+                f"step_emit={_CUTE_DEBUG_TIMING_STATE['emitted']} "
+                f"layer={self.layer_type} prefix={self.prefix} "
+                + " ".join(_ct_marks)
+            )
 
         return hidden_states, residual
 
