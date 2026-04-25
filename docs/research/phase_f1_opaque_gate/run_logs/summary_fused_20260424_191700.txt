@@ -1,0 +1,64 @@
+=== LEG fused : MLP=1 ATTN=1 PHASE_E=1 seqs=1 ===
+34654197961d37f7a4f618965b07d36d8818a385c8192bc37dc5b6739a7c707f
+READY in 260s
+[1/50] ERROR (gold=2280 pred=) 180.0s
+[2/50] ERROR (gold=1 pred=) 180.0s
+[3/50] ERROR (gold=5 pred=) 180.1s
+[4/50] ERROR (gold=12 pred=) 180.0s
+[5/50] ERROR (gold=273 pred=) 180.1s
+[6/50] ERROR (gold=45 pred=) 180.0s
+[7/50] ERROR (gold=21 pred=) 180.1s
+[8/50] ERROR (gold=145 pred=) 180.0s
+[9/50] ERROR (gold=60 pred=) 180.1s
+[10/50] WRONG (gold=122 pred=128) 77.3s
+[11/50] ERROR (gold=29 pred=) 180.0s
+[12/50] ERROR (gold=80 pred=) 180.1s
+[13/50] ERROR (gold=36 pred=) 180.0s
+[14/50] ERROR (gold=1430 pred=) 180.1s
+[15/50] ERROR (gold=5 pred=) 180.1s
+[16/50] ERROR (gold=5 pred=) 180.1s
+[17/50] ERROR (gold=5 pred=) 180.1s
+[18/50] ERROR (gold=66 pred=) 180.1s
+[19/50] ERROR (gold=15 pred=) 180.0s
+[20/50] ERROR (gold=40 pred=) 180.0s
+[21/50] ERROR (gold=93 pred=) 180.1s
+[22/50] ERROR (gold=2000 pred=) 180.1s
+[23/50] ERROR (gold=1520 pred=) 180.1s
+[24/50] ERROR (gold=11050 pred=) 180.1s
+[25/50] ERROR (gold=90 pred=) 180.1s
+[26/50] WRONG (gold=40000 pred=) 21.4s
+[27/50] ERROR (gold=21 pred=) 0.0s
+[28/50] ERROR (gold=18 pred=) 0.0s
+[29/50] ERROR (gold=14 pred=) 0.0s
+[30/50] ERROR (gold=23 pred=) 0.0s
+[31/50] ERROR (gold=145 pred=) 0.0s
+[32/50] ERROR (gold=123 pred=) 0.0s
+[33/50] ERROR (gold=98 pred=) 0.0s
+[34/50] ERROR (gold=7 pred=) 0.0s
+[35/50] ERROR (gold=34 pred=) 0.0s
+[36/50] ERROR (gold=38 pred=) 0.0s
+[37/50] ERROR (gold=320 pred=) 0.0s
+[38/50] ERROR (gold=50 pred=) 0.0s
+[39/50] ERROR (gold=50 pred=) 0.0s
+[40/50] ERROR (gold=84 pred=) 0.0s
+[41/50] ERROR (gold=50 pred=) 0.0s
+[42/50] ERROR (gold=8000 pred=) 0.0s
+[43/50] ERROR (gold=280 pred=) 0.0s
+[44/50] ERROR (gold=30 pred=) 0.0s
+[45/50] ERROR (gold=192 pred=) 0.0s
+[46/50] ERROR (gold=276 pred=) 0.0s
+[47/50] ERROR (gold=32 pred=) 0.0s
+[48/50] ERROR (gold=25 pred=) 0.0s
+[49/50] ERROR (gold=10 pred=) 0.0s
+[50/50] ERROR (gold=84 pred=) 0.0s
+{
+  "label": "fused",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 0,
+  "errors": 48,
+  "accuracy": "0/50 (0.0%)",
+  "total_seconds": 4420.2
+}

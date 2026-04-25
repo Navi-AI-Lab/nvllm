@@ -1,0 +1,88 @@
+=== READY in 251s ===
+=== canary scan ===
+(EngineCore pid=147) INFO 04-24 22:26:18 [gpu_model_runner.py:5962] Estimated CUDA graph memory: -2.32 GiB total
+(EngineCore pid=147) INFO 04-24 22:26:18 [gpu_worker.py:436] Available KV cache memory: 42.36 GiB
+(EngineCore pid=147) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  50%|█████     | 1/2 [00:00<00:00,  7.48it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00,  2.74it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00,  3.02it/s]
+
+=== GSM8K ===
+{
+  "test": "gsm8k_sanity_gate",
+  "label": "phase_e2_f1_beta_coop_autotune_off",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "correct": 7,
+  "total": 8,
+  "errors": 0,
+  "accuracy": "7/8 (87%)",
+  "verdict": "PASS",
+  "questions": [
+    {
+      "id": "Q1",
+      "expected": 72,
+      "got": 72,
+      "raw": "72\n####\n</think>\n 72\n</think>\n\n### Step",
+      "status": "OK",
+      "elapsed": 77.1
+    },
+    {
+      "id": "Q2",
+      "expected": 10,
+      "got": 120,
+      "raw": "120/12. 2. 2 2",
+      "status": "WRONG",
+      "elapsed": 23.0
+    },
+    {
+      "id": "Q3",
+      "expected": 5,
+      "got": 5,
+      "raw": "5\n#### 5\nThe answer is 5.\n\nQuestion:",
+      "status": "OK",
+      "elapsed": 23.4
+    },
+    {
+      "id": "Q4",
+      "expected": 42,
+      "got": 42,
+      "raw": "42\n#### 42\nThe answer is: 42",
+      "status": "OK",
+      "elapsed": 23.2
+    },
+    {
+      "id": "Q5",
+      "expected": 624,
+      "got": 624,
+      "raw": "624\nSo the answer is 624\nQuestion",
+      "status": "OK",
+      "elapsed": 22.9
+    },
+    {
+      "id": "Q6",
+      "expected": 35,
+      "got": 35,
+      "raw": "35\nWhat was the question and answer pair?\nQuestion 1",
+      "status": "OK",
+      "elapsed": 23.4
+    },
+    {
+      "id": "Q7",
+      "expected": 48,
+      "got": 48,
+      "raw": "48\nAnswer: 48\nQ: Mary is making a",
+      "status": "OK",
+      "elapsed": 23.2
+    },
+    {
+      "id": "Q8",
+      "expected": 16,
+      "got": 16,
+      "raw": "16\n#### 16\nQuestion:\n\n<think>\nThe user",
+      "status": "OK",
+      "elapsed": 23.1
+    }
+  ]
+}
+
+=== bench took 239s ===
+=== final container status ===
+Up 8 minutes
