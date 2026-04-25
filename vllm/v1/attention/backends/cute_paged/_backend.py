@@ -1172,7 +1172,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         # Phase 0 inputs (dummy — output side-channel for future
                         # QKV-fusion; not consumed by this layer's attn path).
                         hidden_in=self.rmsnorm_output[:nat],
-                        residual_in=self.residual_output[:nat],
+                        residual_in=self.residual_buf[:nat],
                         input_gamma=self._phase_e_coop_input_gamma,
                         post_attn_gamma=self.rmsnorm_gamma,
                         attn_input_bf16=self._phase_e_coop_attn_input_scratch[:nat],
@@ -1265,7 +1265,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         gate_up_global_scale=self._mlp_gate_up_gs,
                         down_global_scale=self._mlp_down_gs,
                         # ε epilogue inputs (Task 8 kwargs):
-                        residual_post_ln=self.residual_output[:nat],
+                        residual_post_ln=self.residual_buf[:nat],
                         next_input_layernorm_gamma=_next_gamma,
                         next_hidden_output=self.next_hidden_scratch[:nat],
                         emit_epilogue=True,
