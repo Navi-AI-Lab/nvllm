@@ -277,13 +277,20 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # _use_beta_coop predicate.
         self._phase_e_coop_kernel = None
         self._phase_e_use_beta_coop = False
-        # Phase F.1: skip-flag set by cute_phase_e_dispatch when consuming
-        # β output; read by cute_phase_e_skip_input_layernorm on layer N+1.
-        self._phase_e_skip_next_ln = False
-        # Phase F.1: this layer's own input_layernorm module, attached at
-        # model-init post-processing (Qwen3_5Model.__init__). Used by the
-        # opaque skip-op when the skip flag is unset.
-        self._input_layernorm_module = None
+        # --- C1.5: Phase F.1 layer-LN bake plumbing disabled. ----------------
+        # Skip-flag + this-layer LN module ref were used by the opaque
+        # cute_phase_e_skip_input_layernorm op (now no-op'd in _mlp_op.py).
+        # Layer input_layernorm runs unconditionally at every layer entry
+        # post-C1.5; per-step LN bake is gone. Kept commented in case the
+        # skip-op pattern is needed for future Phase B/C kernel debugging.
+        # self._phase_e_skip_next_ln = False
+        # self._input_layernorm_module = None
+        # ---------------------------------------------------------------------
+        # β-lite (kept through C3) still reads these fields via getattr with
+        # defaults; initialise here so the getattr lookups resolve cleanly
+        # even after attach_next_input_layernorm is retired.
+        self._next_input_layernorm_module = None
+        self._emit_next_layernorm = False
 
     def _preallocate_fusion_buffers(
         self,
@@ -335,6 +342,14 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # `attach_mlp_fusion` once the `Phase_D_MLP_Kernel` instance is
         # constructed — so both are allocated lazily there, not here.
         self.mlp_output = torch.empty(
+            max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
+        )
+        # C1.5: next_hidden_scratch was previously allocated lazily inside
+        # attach_next_input_layernorm. β-lite (kept through C3) still
+        # references self.next_hidden_scratch[:nat] in its launch site,
+        # so keep the allocation but hoist it here next to the other
+        # persistent fusion buffers. Deletes after C3 with β-lite.
+        self.next_hidden_scratch = torch.empty(
             max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
         )
         self.mlp_partial_fp32 = None
@@ -430,93 +445,111 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             self._attn_output_gate,
         )
 
-    def attach_next_input_layernorm(
-        self, next_input_layernorm_module: torch.nn.Module | None
-    ) -> None:
-        """Bind the next decoder layer's input_layernorm module for the
-        Phase E β kernel's ε epilogue. Called from
-        `Qwen3_5Model.__init__` post-hook (see vllm/nvllm/models/qwen3_5.py).
-
-        Pass `None` for the last decoder layer (index 63 in Qwen3.5-27B):
-        ε epilogue then omits the next-layer norm and writes residual
-        straight to residual_output. See spec §5.3.
-
-        Stores the MODULE ref (not the tensor) — NVFP4's
-        process_weights_after_loading replaces Parameters, so a tensor
-        captured here would go stale. Mirrors attach_fusion pattern.
-        """
-        assert getattr(self, '_fusion_attached', False), (
-            "attach_next_input_layernorm: attach_fusion must run first"
-        )
-        self._next_input_layernorm_module = next_input_layernorm_module
-        self._emit_next_layernorm = next_input_layernorm_module is not None
-
-        # Kill-switch: refuse to enable β if host memory is tight.
-        # Runs BEFORE workspace allocation so a refusal doesn't leave
-        # ~1.25 MiB of half-attached tensors on self.
-        # CUTE_BETA_MIN_FREE_GB is plumbed via serve scripts
-        # (commit 5c000a09d); default 8 GiB preserves KV + CUDA graph
-        # headroom on GB10 (128 GiB unified).
-        min_free_gb = float(os.environ.get("CUTE_BETA_MIN_FREE_GB", "8"))
-        free_bytes, _total = torch.cuda.mem_get_info()
-        if free_bytes < min_free_gb * (1024 ** 3):
-            free_gb = free_bytes / (1024 ** 3)
-            raise RuntimeError(
-                f"CUTE_BETA_MIN_FREE_GB={min_free_gb} GiB threshold not met: "
-                f"only {free_gb:.1f} GiB free. "
-                f"Lower threshold or free memory before enabling Phase E."
-            )
-
-        # Allocate Phase E workspace once. Qwen3_5Model.__init__ runs
-        # inside vLLM's set_current_vllm_config() context, so
-        # get_current_vllm_config() is always available on the real
-        # serving path. Unit tests that bypass __init__ must stub this.
-        if not hasattr(self, 'phase_e_barrier'):
-            from vllm.config import get_current_vllm_config
-            cfg = get_current_vllm_config()
-            num_layers = cfg.model_config.hf_text_config.num_hidden_layers
-            self.phase_e_barrier = torch.zeros(
-                num_layers, dtype=torch.int32, device='cuda',
-            )
-            self.next_hidden_scratch = torch.empty(
-                self._fusion_max_num_seqs, self._fusion_hidden_dim,
-                dtype=torch.bfloat16, device='cuda',
-            )
-
-        # Probe resident-CTA cap once (SMEM-bound estimate; a real
-        # cuOccupancy probe re-runs post kernel compile in the launch
-        # path). 45568 B matches the β kernel SMEM footprint (spec §6).
-        self._resident_cap = self._probe_resident_cap(
-            kernel_fn=None, num_threads=128, smem_bytes=45568
-        )
-        logger.info(
-            "CuTe Phase E: resident_cap=%d (num_seqs_coop_max=%d)",
-            self._resident_cap, max(1, self._resident_cap // 64)
-        )
-
-        logger.info(
-            "CuTe Phase E next-input-layernorm attached: "
-            "emit_next_layernorm=%s num_layers_barrier=%d "
-            "scratch_shape=(%d, %d)",
-            self._emit_next_layernorm,
-            self.phase_e_barrier.numel(),
-            self._fusion_max_num_seqs,
-            self._fusion_hidden_dim,
-        )
-
-    def attach_input_layernorm(
-        self, input_layernorm_module: torch.nn.Module | None,
-    ) -> None:
-        """Phase F.1: Attach THIS layer's input_layernorm module so the
-        opaque cute_phase_e_skip_input_layernorm op can invoke it at
-        call time (when the skip flag is unset).
-
-        Mirror of attach_next_input_layernorm; the two are paired.
-        Stores the MODULE ref (not the tensor) — NVFP4's
-        process_weights_after_loading replaces Parameters, so a tensor
-        captured here would go stale.
-        """
-        self._input_layernorm_module = input_layernorm_module
+    # ------------------------------------------------------------------ #
+    # C1.5: attach_next_input_layernorm + attach_input_layernorm DISABLED #
+    # ------------------------------------------------------------------ #
+    # The Phase F.1 layer-LN bake (ε epilogue → next-layer input_LN baked
+    # into previous layer's β-coop kernel) was removed in C1.5. Layer
+    # input_layernorm now runs unconditionally at every layer entry; the
+    # cross-layer module-attach scheme is no longer needed. The
+    # `next_hidden_scratch` allocation moved into _preallocate_fusion_buffers
+    # (above), `_resident_cap` probing moved into attach_mlp_fusion. β-lite
+    # (kept through C3) reads `_next_input_layernorm_module` /
+    # `_emit_next_layernorm` via getattr-with-defaults, which now resolve
+    # to the inert __init__ defaults — β-lite's ε then takes the
+    # last-layer (residual memcpy) branch.
+    #
+    # Methods kept commented in case the cross-layer pattern is needed
+    # again during Phase B/C kernel debugging.
+    #
+    # def attach_next_input_layernorm(
+    #     self, next_input_layernorm_module: torch.nn.Module | None
+    # ) -> None:
+    #     """Bind the next decoder layer's input_layernorm module for the
+    #     Phase E β kernel's ε epilogue. Called from
+    #     `Qwen3_5Model.__init__` post-hook (see vllm/nvllm/models/qwen3_5.py).
+    #
+    #     Pass `None` for the last decoder layer (index 63 in Qwen3.5-27B):
+    #     ε epilogue then omits the next-layer norm and writes residual
+    #     straight to residual_output. See spec §5.3.
+    #
+    #     Stores the MODULE ref (not the tensor) — NVFP4's
+    #     process_weights_after_loading replaces Parameters, so a tensor
+    #     captured here would go stale. Mirrors attach_fusion pattern.
+    #     """
+    #     assert getattr(self, '_fusion_attached', False), (
+    #         "attach_next_input_layernorm: attach_fusion must run first"
+    #     )
+    #     self._next_input_layernorm_module = next_input_layernorm_module
+    #     self._emit_next_layernorm = next_input_layernorm_module is not None
+    #
+    #     # Kill-switch: refuse to enable β if host memory is tight.
+    #     # Runs BEFORE workspace allocation so a refusal doesn't leave
+    #     # ~1.25 MiB of half-attached tensors on self.
+    #     # CUTE_BETA_MIN_FREE_GB is plumbed via serve scripts
+    #     # (commit 5c000a09d); default 8 GiB preserves KV + CUDA graph
+    #     # headroom on GB10 (128 GiB unified).
+    #     min_free_gb = float(os.environ.get("CUTE_BETA_MIN_FREE_GB", "8"))
+    #     free_bytes, _total = torch.cuda.mem_get_info()
+    #     if free_bytes < min_free_gb * (1024 ** 3):
+    #         free_gb = free_bytes / (1024 ** 3)
+    #         raise RuntimeError(
+    #             f"CUTE_BETA_MIN_FREE_GB={min_free_gb} GiB threshold not met: "
+    #             f"only {free_gb:.1f} GiB free. "
+    #             f"Lower threshold or free memory before enabling Phase E."
+    #         )
+    #
+    #     # Allocate Phase E workspace once. Qwen3_5Model.__init__ runs
+    #     # inside vLLM's set_current_vllm_config() context, so
+    #     # get_current_vllm_config() is always available on the real
+    #     # serving path. Unit tests that bypass __init__ must stub this.
+    #     if not hasattr(self, 'phase_e_barrier'):
+    #         from vllm.config import get_current_vllm_config
+    #         cfg = get_current_vllm_config()
+    #         num_layers = cfg.model_config.hf_text_config.num_hidden_layers
+    #         self.phase_e_barrier = torch.zeros(
+    #             num_layers, dtype=torch.int32, device='cuda',
+    #         )
+    #         self.next_hidden_scratch = torch.empty(
+    #             self._fusion_max_num_seqs, self._fusion_hidden_dim,
+    #             dtype=torch.bfloat16, device='cuda',
+    #         )
+    #
+    #     # Probe resident-CTA cap once (SMEM-bound estimate; a real
+    #     # cuOccupancy probe re-runs post kernel compile in the launch
+    #     # path). 45568 B matches the β kernel SMEM footprint (spec §6).
+    #     self._resident_cap = self._probe_resident_cap(
+    #         kernel_fn=None, num_threads=128, smem_bytes=45568
+    #     )
+    #     logger.info(
+    #         "CuTe Phase E: resident_cap=%d (num_seqs_coop_max=%d)",
+    #         self._resident_cap, max(1, self._resident_cap // 64)
+    #     )
+    #
+    #     logger.info(
+    #         "CuTe Phase E next-input-layernorm attached: "
+    #         "emit_next_layernorm=%s num_layers_barrier=%d "
+    #         "scratch_shape=(%d, %d)",
+    #         self._emit_next_layernorm,
+    #         self.phase_e_barrier.numel(),
+    #         self._fusion_max_num_seqs,
+    #         self._fusion_hidden_dim,
+    #     )
+    #
+    # def attach_input_layernorm(
+    #     self, input_layernorm_module: torch.nn.Module | None,
+    # ) -> None:
+    #     """Phase F.1: Attach THIS layer's input_layernorm module so the
+    #     opaque cute_phase_e_skip_input_layernorm op can invoke it at
+    #     call time (when the skip flag is unset).
+    #
+    #     Mirror of attach_next_input_layernorm; the two are paired.
+    #     Stores the MODULE ref (not the tensor) — NVFP4's
+    #     process_weights_after_loading replaces Parameters, so a tensor
+    #     captured here would go stale.
+    #     """
+    #     self._input_layernorm_module = input_layernorm_module
+    # ------------------------------------------------------------------ #
 
     def _probe_resident_cap(
         self, kernel_fn, num_threads: int, smem_bytes: int
@@ -792,12 +825,20 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 self._phase_e_coop_input_gamma = torch.ones(
                     hidden_dim, dtype=torch.bfloat16, device="cuda",
                 )
+                # C1.5: probe resident-CTA cap here (was previously inside
+                # attach_next_input_layernorm). 45568 B matches the β kernel
+                # SMEM footprint (spec §6). Read by the β-coop dispatch
+                # predicate at L1150.
+                self._resident_cap = self._probe_resident_cap(
+                    kernel_fn=None, num_threads=128, smem_bytes=45568
+                )
                 logger.info(
                     "CuTe Phase E β-coop kernel attached: hidden=%d "
                     "intermediate=%d num_q_heads=%d num_kv_heads=%d "
-                    "head_dim=%d",
+                    "head_dim=%d resident_cap=%d",
                     hidden_size, intermediate_size,
                     self.num_heads, self.num_kv_heads, self.head_size,
+                    self._resident_cap,
                 )
             except Exception as e:  # noqa: BLE001 — fail-closed
                 logger.warning(
@@ -1098,7 +1139,15 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 _layer_idx = extract_layer_index(_layer_name)
             except Exception:
                 _layer_idx = None
-        _phase_e_attached = hasattr(self, '_next_input_layernorm_module')
+        # C1.5: previously this was `hasattr(self, '_next_input_layernorm_module')`,
+        # which keyed off the (now retired) attach_next_input_layernorm scheme.
+        # Post-C1.5 the live "Phase E plumbing wired" sentinels are the kernel
+        # attachments themselves: β-coop sets `_phase_e_coop_kernel`, β-lite
+        # uses `_mlp_fusion_bound`. Either implies the attached kernel can run.
+        _phase_e_attached = (
+            getattr(self, "_phase_e_coop_kernel", None) is not None
+            or getattr(self, "_mlp_fusion_bound", False)
+        )
         _layer_allowed = (
             _phase_e_env.restricted_layers is None
             or (_layer_idx is not None
@@ -1146,23 +1195,28 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         if _use_beta_coop:
             try:
                 nat = num_actual_tokens
-                _next_ln = getattr(
-                    self, '_next_input_layernorm_module', None
-                )
-                _emit_next = getattr(self, '_emit_next_layernorm', False)
-                if _emit_next and _next_ln is not None:
-                    _next_gamma = _next_ln.weight
-                    _rms_eps = float(_next_ln.variance_epsilon)
-                else:
-                    _next_gamma = None
-                    _rms_eps = 1e-6
+                # C1.5: Phase 4 (ε epilogue) deleted. β-coop no longer takes
+                # next-LN gamma / next_hidden_output / emit_next_layernorm.
+                # Locals + kwargs kept commented for Phase B/C debug recovery.
+                # _next_ln = getattr(
+                #     self, '_next_input_layernorm_module', None
+                # )
+                # _emit_next = getattr(self, '_emit_next_layernorm', False)
+                # if _emit_next and _next_ln is not None:
+                #     _next_gamma = _next_ln.weight
+                #     _rms_eps = float(_next_ln.variance_epsilon)
+                # else:
+                #     _next_gamma = None
+                #     _rms_eps = 1e-6
 
                 # run_beta_coop_full allocates its own internal MLP partial/
                 # arrival/grid-barrier buffers — unlike β-lite we do NOT
                 # zero self.mlp_partial_fp32 / self.mlp_arrival_count.
                 # Future optimization: hoist those into pre-allocated
                 # per-impl buffers (task-21 perf work).
-                self._phase_e_coop_kernel.rms_eps = _rms_eps
+                # C1.5: rms_eps no longer read by β-coop (Phase 4 deleted),
+                # but the kernel still has the attribute so leave default.
+                # self._phase_e_coop_kernel.rms_eps = _rms_eps
                 # Phase E.1 #3: per-layer NVTX span for torch-profiler
                 # attribution. No-op when no profiler is active.
                 with record_function(
@@ -1193,17 +1247,19 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         down_w_fp4=self._mlp_down_w,
                         down_w_scale=self._mlp_down_s,
                         mlp_output=self.mlp_output[:nat],
-                        # Phase 4 inputs (ε):
-                        next_input_layernorm_gamma=_next_gamma,
-                        next_hidden_output=self.next_hidden_scratch[:nat],
+                        # C1.5: Phase 4 (ε) inputs disabled — kernel returns
+                        # at end of Phase 3. Per-layer input_LN now runs
+                        # from Python at every layer entry.
+                        # next_input_layernorm_gamma=_next_gamma,
+                        # next_hidden_output=self.next_hidden_scratch[:nat],
                         scale=self.scale,
                         k_scale=k_scale,
                         v_scale=v_scale,
                         gate_up_global_scale=self._mlp_gate_up_gs,
                         down_global_scale=self._mlp_down_gs,
-                        emit_next_layernorm=_emit_next,
+                        # emit_next_layernorm=_emit_next,
                         # Caller-supplied residual_output so self.residual_output
-                        # reflects residual_final (matches β-lite post-forward state).
+                        # reflects residual_post_attn (Phase-1 Phase-C output).
                         residual_output=self.residual_output[:nat],
                     )
                 self._phase_e_consumed = True

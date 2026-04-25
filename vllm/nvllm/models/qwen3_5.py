@@ -413,32 +413,16 @@ class Qwen3_5DecoderLayer(nn.Module):
             _ct_t = _now
 
         if residual is None:
-            # First-layer case: no residual to add. Phase F.1 skip-op only
-            # applies when there's a residual + we're past layer 0.
+            # First-layer case: no residual to add.
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
             _ct_mark("input_ln_first")
         else:
-            # Phase F.1: use opaque skip op if MLP fusion is attached on
-            # THIS layer (attach-time constant, trace-safe). Op body reads
-            # impl._phase_e_skip_next_ln at runtime → passes through when
-            # the previous layer's β ε epilogue already ran input_layernorm.
-            _mlp_layer_name = getattr(self.mlp, "_cute_layer_name", None)
-            if _mlp_layer_name is not None:
-                out_x = torch.empty_like(hidden_states)
-                out_residual = torch.empty_like(residual)
-                _ct_mark("ln_skip_alloc")
-                torch.ops.vllm.cute_phase_e_skip_input_layernorm(
-                    hidden_states, residual, out_x, out_residual,
-                    _mlp_layer_name,
-                )
-                hidden_states, residual = out_x, out_residual
-                _ct_mark("ln_skip_op")
-            else:
-                hidden_states, residual = self.input_layernorm(
-                    hidden_states, residual
-                )
-                _ct_mark("input_ln")
+            # C1.5: Phase F.1 skip-op deleted. The previous layer's β-coop
+            # kernel ends at Phase 3 (no input_LN bake), so every layer
+            # entry runs input_layernorm unconditionally.
+            hidden_states, residual = self.input_layernorm(hidden_states, residual)
+            _ct_mark("input_ln")
 
         # Impl decides fusion per-forward. We mirror residual into impl's
         # persistent buffer unconditionally when fusion could run (full
@@ -624,56 +608,14 @@ class Qwen3_5Model(nn.Module, EagleModelMixin):
             config.num_hidden_layers, get_layer, prefix=f"{prefix}.layers"
         )
 
-        # Phase F.1 cross-layer binding (always-on when MLP fusion is
-        # attached). Cheap module-ref attach; cute_phase_e_skip_input_layernorm
-        # opaque op needs this present even when β kernels are disabled,
-        # because the op call site fires whenever _cute_layer_name is set
-        # (gated by CUTE_MLP_FUSION, not CUTE_PHASE_E_FUSION). Without
-        # this attach, the op's non-skip branch raises fail-loud.
-        import os
-        layer_types = config.layer_types
-        num_layers = config.num_hidden_layers
-        for idx, layer in enumerate(self.layers):
-            if idx < self.start_layer or idx >= self.end_layer:
-                continue
-            if layer_types[idx] != "full_attention":
-                continue
-            attn = getattr(layer.self_attn, 'attn', None)
-            impl = getattr(attn, 'impl', None)
-            if impl is None or not hasattr(impl, 'attach_input_layernorm'):
-                continue
-            impl.attach_input_layernorm(
-                getattr(layer, 'input_layernorm', None)
-            )
-
-        # Phase E cross-layer binding (gated): every fusion-active
-        # (full_attention) decoder layer receives a ref to the NEXT decoder
-        # layer's input_layernorm module. Last layer (idx 63) passes None
-        # so the β kernel's ε epilogue omits the next-layer norm pull.
-        # ALSO allocates β kernel scratch buffers (heavy), so this stays
-        # gated by CUTE_PHASE_E_FUSION.
-        # Spec: docs/superpowers/specs/2026-04-22-unreal-kernel-phase-e-d25-design.md §5.3
-        if os.environ.get("CUTE_PHASE_E_FUSION", "0") == "1":
-            for idx, layer in enumerate(self.layers):
-                if idx < self.start_layer or idx >= self.end_layer:
-                    continue
-                if layer_types[idx] != "full_attention":
-                    continue
-                # impl lives on the inner Attention module, not on the
-                # Qwen3_5Attention wrapper: Qwen3_5Attention.attn is
-                # Attention, Attention.impl is CutePagedAttentionImpl.
-                # Existing pattern: see self_attn.attn.impl at L243, 361, 395.
-                attn = getattr(layer.self_attn, 'attn', None)
-                impl = getattr(attn, 'impl', None)
-                if impl is None or not hasattr(impl, 'attach_next_input_layernorm'):
-                    continue  # non-CuTe backend
-                # getattr tolerates PPMissingLayer (no input_layernorm attr)
-                next_norm = (
-                    getattr(self.layers[idx + 1], 'input_layernorm', None)
-                    if idx + 1 < num_layers
-                    else None
-                )
-                impl.attach_next_input_layernorm(next_norm)
+        # C1.5: Phase F.1 cross-layer binding loops (per-layer + next-layer
+        # LN bake) deleted. The skip-op they enabled (cute_phase_e_skip_*)
+        # was permanently retired in C1.5 along with β-coop's Phase 4
+        # epilogue — every layer now runs input_layernorm unconditionally
+        # at layer entry from Python (see Qwen3_5DecoderLayer.forward).
+        # The corresponding attach_*  methods on CutePagedAttentionImpl
+        # are commented-out (not deleted) in _backend.py per the
+        # comment-out-kernel-code rule.
 
         self.make_empty_intermediate_tensors = make_empty_intermediate_tensors_factory(
             ["hidden_states", "residual"], config.hidden_size

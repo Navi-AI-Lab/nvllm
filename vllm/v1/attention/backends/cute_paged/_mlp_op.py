@@ -186,8 +186,8 @@ direct_register_custom_op(
 # qwen3_5.py:473. Op body reads impl._phase_e_consumed at call time (runtime,
 # not trace time), branches to consume β output or delegate to cute_mlp_forward.
 #
-# Pairs with cute_phase_e_skip_input_layernorm — dispatcher sets
-# impl._phase_e_skip_next_ln=True when consumed, skip-op reads it on layer N+1.
+# Post-C1.5: the consume branch reads impl.mlp_output (raw post-MLP hidden);
+# layer N+1's input_layernorm runs from Python at layer entry (no F.1 bake).
 
 def _cute_phase_e_dispatch_impl(
     x: torch.Tensor,
@@ -206,16 +206,14 @@ def _cute_phase_e_dispatch_impl(
 
     if getattr(impl, "_phase_e_consumed", False):
         # Consume β output. Fail-loud — no try/except per spec Decision 5.
-        hidden_out[:nat].copy_(impl.next_hidden_scratch[:nat])
+        hidden_out[:nat].copy_(impl.mlp_output[:nat])
         residual_out[:nat].copy_(impl.residual_output[:nat])
         impl._phase_e_consumed = False
-        impl._phase_e_skip_next_ln = True
         return
 
     # Not-consumed: β did not run this layer; delegate to regular MLP op.
     torch.ops.vllm.cute_mlp_forward(x, hidden_out, layer_name)
     residual_out.copy_(residual_in)
-    impl._phase_e_skip_next_ln = False
 
 
 def _cute_phase_e_dispatch_fake(
@@ -236,66 +234,11 @@ direct_register_custom_op(
 )
 
 
-# --- Phase F.1: cute_phase_e_skip_input_layernorm --------------------------
-# Opaque wrap of layer N+1's self.input_layernorm(hidden_states, residual)
-# call at qwen3_5.py:386. Reads impl._phase_e_skip_next_ln (set by the
-# previous layer's cute_phase_e_dispatch when it consumed β output) and
-# either passes through (skip) or runs the module normally.
+# --- Phase F.1: cute_phase_e_skip_input_layernorm — DELETED (C1.5) ---------
+# The skip-op + bake-into-previous-layer scheme was removed in C1.5 because
+# it corrupted the residual stream at non-fusion-active layers (linear-attn
+# layers in Qwen3.5's stride-4 pattern do not honor the skip flag). Layer
+# input_layernorm now runs unconditionally at every layer entry; β-coop's
+# ε epilogue (Phase 4) was deleted in the same commit.
 #
-# State flows ACROSS a layer boundary (layer N writes, N+1 reads). Ordering
-# is guaranteed by the decoder's sequential forward() calls.
-
-def _cute_phase_e_skip_input_layernorm_impl(
-    x: torch.Tensor,
-    residual: torch.Tensor,
-    out_x: torch.Tensor,
-    out_residual: torch.Tensor,
-    layer_name: str,
-) -> None:
-    impl = _CUTE_MLP_REGISTRY.get(layer_name)
-    if impl is None:
-        raise RuntimeError(
-            f"cute_phase_e_skip_input_layernorm called for unregistered "
-            f"layer {layer_name!r}"
-        )
-    nat = x.shape[0]
-
-    if getattr(impl, "_phase_e_skip_next_ln", False):
-        # Skip: previous layer's β ε epilogue already applied THIS layer's
-        # input_layernorm. Pass-through.
-        out_x[:nat].copy_(x[:nat])
-        out_residual[:nat].copy_(residual[:nat])
-        impl._phase_e_skip_next_ln = False
-        return
-
-    # Normal path: run input_layernorm.
-    input_ln = getattr(impl, "_input_layernorm_module", None)
-    if input_ln is None:
-        raise RuntimeError(
-            f"cute_phase_e_skip_input_layernorm: layer {layer_name!r} "
-            f"has no _input_layernorm_module attached. Check that "
-            f"attach_input_layernorm was called at model init."
-        )
-    ln_out, ln_residual = input_ln._forward_static_with_residual(
-        input_ln.weight.data, input_ln.variance_epsilon, x, residual
-    )
-    out_x[:nat].copy_(ln_out[:nat])
-    out_residual[:nat].copy_(ln_residual[:nat])
-
-
-def _cute_phase_e_skip_input_layernorm_fake(
-    x: torch.Tensor,
-    residual: torch.Tensor,
-    out_x: torch.Tensor,
-    out_residual: torch.Tensor,
-    layer_name: str,
-) -> None:
-    return
-
-
-direct_register_custom_op(
-    op_name="cute_phase_e_skip_input_layernorm",
-    op_func=_cute_phase_e_skip_input_layernorm_impl,
-    mutates_args=["out_x", "out_residual"],
-    fake_impl=_cute_phase_e_skip_input_layernorm_fake,
-)
+# See docs/research/uber_kernel_migration/q4_brainstorm_layer_LN_2026-04-25.md.
