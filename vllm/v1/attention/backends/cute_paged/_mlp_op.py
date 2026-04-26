@@ -242,3 +242,70 @@ direct_register_custom_op(
 # ε epilogue (Phase 4) was deleted in the same commit.
 #
 # See docs/research/uber_kernel_migration/q4_brainstorm_layer_LN_2026-04-25.md.
+
+
+# --- 2026-04-26: cute_residual_mirror -----------------------------------------
+# Opaque op for the residual mirror copy that qwen3_5.py's decoder forward
+# does at layer entry: `impl.residual_buf[:nat].copy_(residual[:nat])`.
+#
+# Why an op: the prior plain-Python `.copy_()` was inside an `if fusion_could_run:
+# try: ... attn_md = get_forward_context().attn_metadata[layer_name] ...`
+# block. Under @support_torch_compile (model.forward), dynamo traced the
+# get_forward_context lookup (None at trace time) → TypeError → except
+# pass. The captured graph then dropped the `.copy_` because (a) the
+# inferred trace path always took the except branch and (b) `impl.residual_buf`
+# is mutated state torch.compile doesn't track as a graph output. Result at
+# runtime: residual_buf stayed at the CUDA-graph-allocator-zeroed value;
+# β-coop read zeros; gibberish. (Verified 2026-04-26 via /tmp/nvllm-dumps —
+# residual_in absmax=0.0000 across all 16 full-attn layers.)
+#
+# Wrapping the copy in an opaque custom op makes it a black-box side-effect
+# from torch.compile's perspective — it's preserved across graph capture and
+# always runs at runtime.
+
+_RES_MIRROR_DIAG_SEEN: set[int] = set()
+
+
+def _cute_residual_mirror_impl(
+    residual_buf: torch.Tensor,
+    residual: torch.Tensor,
+) -> None:
+    """Copy `residual` into `residual_buf` (in-place mutation).
+
+    Direct buffer-passing replaces the prior registry-lookup design:
+    `mutates_args=["residual_buf"]` tells torch.compile the op has a
+    real side effect on a tracked tensor, so it isn't dead-eliminated.
+    """
+    nat = residual.shape[0]
+    if nat == 0:
+        return
+    nat = min(nat, residual_buf.shape[0])
+    # 2026-04-26 DIAG: one-shot per residual_buf identity. Logs whether
+    # the op fires at runtime + the input magnitude. Remove after ship.
+    _key = id(residual_buf)
+    if _key not in _RES_MIRROR_DIAG_SEEN:
+        _RES_MIRROR_DIAG_SEEN.add(_key)
+        logger.info(
+            "[RES_MIRROR_OP] nat=%d residual_absmax=%.4e "
+            "buf_shape=%s buf_pre_absmax=%.4e",
+            nat,
+            residual.float().abs().max().item(),
+            tuple(residual_buf.shape),
+            residual_buf.float().abs().max().item(),
+        )
+    residual_buf[:nat].copy_(residual[:nat])
+
+
+def _cute_residual_mirror_fake(
+    residual_buf: torch.Tensor,
+    residual: torch.Tensor,
+) -> None:
+    return
+
+
+direct_register_custom_op(
+    op_name="cute_residual_mirror",
+    op_func=_cute_residual_mirror_impl,
+    mutates_args=["residual_buf"],
+    fake_impl=_cute_residual_mirror_fake,
+)

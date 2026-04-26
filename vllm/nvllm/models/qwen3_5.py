@@ -253,20 +253,15 @@ class Qwen3_5Attention(nn.Module):
         # is a cheap one-off BF16 memcpy; it avoids the old model->impl flag
         # side-channel that was flagged as fragile.
         if gate is not None:
-            from vllm.forward_context import get_forward_context
-
+            # 2026-04-26: gate_buf mirror via the same opaque op as
+            # residual_buf — the prior plain-Python .copy_() inside
+            # try/except (which protected the trace-time-failing
+            # `attn_metadata[...]` lookup) was being dead-eliminated by
+            # @support_torch_compile dynamo. Same root cause, same fix.
             impl = self.attn.impl
             gate_buf = getattr(impl, "gate_buf", None)
             if gate_buf is not None:
-                try:
-                    nat = (
-                        get_forward_context()
-                        .attn_metadata[self.attn.layer_name]
-                        .num_actual_tokens
-                    )
-                    gate_buf[:nat].copy_(gate[:nat])
-                except (RuntimeError, KeyError, AttributeError, TypeError):
-                    pass
+                torch.ops.vllm.cute_residual_mirror(gate_buf, gate)
 
         attn_output = self.attn(q, k, v)
 
@@ -432,18 +427,23 @@ class Qwen3_5DecoderLayer(nn.Module):
         impl = None
         if self.layer_type == "full_attention":
             impl = self.self_attn.attn.impl
-            fusion_could_run = getattr(impl, "_fusion_bound", False)
-            if fusion_could_run:
-                try:
-                    from vllm.forward_context import get_forward_context
-
-                    attn_md = get_forward_context().attn_metadata[
-                        self.self_attn.attn.layer_name
-                    ]
-                    nat = attn_md.num_actual_tokens
-                    impl.residual_buf[:nat].copy_(residual[:nat])
-                except (RuntimeError, KeyError, AttributeError, TypeError):
-                    pass
+            # 2026-04-26: residual mirror via opaque custom op. The prior
+            # plain-Python .copy_(residual) was inside a try/except whose
+            # protected lookup `get_forward_context().attn_metadata[...]`
+            # threw at torch.compile trace time. dynamo concluded the
+            # try body was always-caught dead code and the captured
+            # graph dropped the .copy_. At runtime residual_buf stayed at
+            # the CUDA-graph-allocator-zeroed value → β-coop read zeros
+            # → gibberish.
+            #
+            # The opaque op preserves the side effect across graph capture.
+            # `residual_buf` is a declared mutates_args so torch.compile
+            # tracks the mutation as a real side effect (the prior op
+            # version with `mutates_args=[]` was still dead-eliminated).
+            if getattr(impl, "_fusion_bound", False):
+                torch.ops.vllm.cute_residual_mirror(
+                    impl.residual_buf, residual
+                )
         _ct_mark("residual_mirror")
 
         self_attention_output = torch.empty_like(hidden_states)

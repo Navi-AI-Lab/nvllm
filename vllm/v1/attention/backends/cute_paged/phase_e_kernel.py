@@ -2725,6 +2725,11 @@ class PhaseE_Beta_Kernel:
         # residual = old_residual + attn_out). The next layer's input_LN
         # in Python takes care of adding mlp_out.
         residual_output: Optional[torch.Tensor] = None,
+        # C2: Qwen3.5 attn output gate. When supplied (BF16
+        # [nat, num_q_heads * head_dim]), the kernel multiplies the
+        # per-head attn output by sigmoid(gate) before the W_O GEMV —
+        # mirrors paged kernel.py:1555-1569.
+        gate_buf: Optional[torch.Tensor] = None,
     ) -> None:
         """Launch the unified β-coop kernel for a single fusion-active decoder layer.
 
@@ -2854,6 +2859,23 @@ class PhaseE_Beta_Kernel:
         wo_nkt = Int32((wo_K // 16 + 3) // 4)
         wo_row_stride = Int32(wo_weight.shape[1])
 
+        # C2: gate_buf optional — back-compat for callers that don't pass it
+        # (gate_fused == 0 disables the multiply inside the kernel).
+        if gate_buf is not None:
+            assert gate_buf.dtype == torch.bfloat16
+            assert gate_buf.is_contiguous()
+            assert gate_buf.shape[-1] == self.num_attn_heads * self.head_dim
+            gate_ptr = Int64(gate_buf.data_ptr())
+            gate_fused_flag = Int32(1)
+        else:
+            gate_ptr = Int64(0)
+            gate_fused_flag = Int32(0)
+
+        # C2 DIAG removed: the host-side gate_buf check fires at trace time
+        # (compile path) and reads the uninitialised buffer, not the
+        # runtime-populated one. Misleading — keep diagnostics inside the
+        # CUTE kernel proper if needed (write-then-read via a debug global).
+
         rms_eps_f32 = Float32(float(self.rms_eps))
         gate_up_gs_f32 = Float32(float(gate_up_global_scale))
         down_gs_f32 = Float32(float(down_global_scale))
@@ -2911,6 +2933,9 @@ class PhaseE_Beta_Kernel:
             Int32(self.num_k_tiles),
             Int32(self.slice_ctas),
             gate_up_gs_f32, down_gs_f32,
+            # C2: Qwen3.5 attn output gate.
+            gate_ptr,
+            gate_fused_flag,
             # C1.5: Phase 4 args (secondary_barrier_ptr, next_gamma_ptr,
             # next_hidden_ptr, emit_next_ln_i32) dropped.
             # Grid z-dim
@@ -3044,6 +3069,9 @@ class PhaseE_Beta_Kernel:
             slice_ctas: Int32,
             gate_up_gs: Float32,
             down_gs: Float32,
+            # C2: Qwen3.5 attn output gate (BF16 [nat, num_q_heads*hd]).
+            gate_ptr: Int64,
+            gate_fused: Int32,
             # C1.5: Phase 4 args (secondary_barrier_ptr, next_gamma_ptr,
             # next_hidden_ptr, emit_next_ln) dropped — kernel ends at
             # Phase 3 (MLP write).
@@ -3103,6 +3131,8 @@ class PhaseE_Beta_Kernel:
                 slice_ctas,
                 gate_up_gs,
                 down_gs,
+                gate_ptr,
+                gate_fused,
             ).launch(
                 grid=[self.slice_ctas, self.num_k_tiles, nat],
                 block=[self.num_threads, 1, 1],
@@ -3162,6 +3192,11 @@ class PhaseE_Beta_Kernel:
             slice_ctas: Int32,
             gate_up_gs: Float32,
             down_gs: Float32,
+            # C2: Qwen3.5 attn output gate (BF16 [nat, num_q_heads*hd]).
+            # gate_fused == 0 disables the multiply (back-compat for
+            # callers that don't supply gate_buf).
+            gate_ptr: Int64,
+            gate_fused: Int32,
             # C1.5: Phase 4 params (secondary_barrier_ptr, next_gamma_ptr,
             # next_hidden_ptr, emit_next_ln) dropped.
         ):
@@ -3676,6 +3711,26 @@ class PhaseE_Beta_Kernel:
                                 if red_row < group_size_p1:
                                     out_idx = (seq_idx * num_q_heads * hd
                                                + out_head * hd + g_col)
+                                    # C2: Qwen3.5 attn output gate fusion —
+                                    # mirrors paged kernel.py:1555-1569.
+                                    # gate_buf layout matches `output`:
+                                    # [num_seqs, num_q_heads * head_dim] BF16
+                                    if gate_fused != Int32(0):
+                                        gate_elem_idx = (
+                                            seq_idx * num_q_heads * hd
+                                            + out_head * hd + g_col)
+                                        gate_f32 = _ld_global_b16_to_f32(
+                                            gate_ptr + Int64(
+                                                gate_elem_idx * Int32(2)))
+                                        # sigmoid(x) = 1/(1+exp2(-x*LOG2E))
+                                        neg_x_log2e = (
+                                            Float32(0.0) - gate_f32
+                                            * Float32(1.4426950408889634))
+                                        exp_val = exp2_approx_ftz_f32(
+                                            neg_x_log2e)
+                                        sigmoid_val = _rcp_approx_f32(
+                                            Float32(1.0) + exp_val)
+                                        o_final = o_final * sigmoid_val
                                     _st_global_bf16_from_f32(
                                         attn_output_ptr
                                         + Int64(out_idx * Int32(2)),

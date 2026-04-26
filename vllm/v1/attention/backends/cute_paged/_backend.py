@@ -1072,35 +1072,75 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         num_seqs = len(attn_metadata.seq_lens)
         padded_num_seqs = num_seqs  # graph capture overrides via metadata
 
-        result = paged_attention_forward(
-            query=query[:num_actual_tokens],
-            kv_cache=kv_cache,
-            page_table=attn_metadata.block_table,
-            seq_lens=attn_metadata.seq_lens,
-            scale=self.scale,
-            k_scale=k_scale,
-            v_scale=v_scale,
-            page_size=64,
-            query_start_loc=attn_metadata.query_start_loc,
-            wo_weight=wo_weight,
-            wo_scales=wo_scales,
-            wo_global_scale=wo_global_scale,
-            wo_output=wo_output,
-            rmsnorm_gamma=rmsnorm_gamma,
-            rmsnorm_residual=rmsnorm_residual,
-            rmsnorm_output=rmsnorm_output,
-            residual_output=residual_output,
-            arrival_count=arrival_count,
-            rmsnorm_eps=rmsnorm_eps,
-            gate_buf=gate_buf,
-            padded_num_seqs=padded_num_seqs,
+        # C2: gate paged_attention_forward off on decode when β-coop is
+        # going to fire — β-coop is the sole Phase A+B+C+3+4 uber-kernel
+        # in that path, paged becomes redundant double-fire. We replicate
+        # the _use_beta_coop predicate computed below so the gate matches.
+        # NOTE: kept commented-out OFF gate sites (none here) per
+        # feedback_comment_not_delete; the only structural change is the
+        # `if _will_fire_beta_coop_pre:` wrapper around the paged call.
+        _phase_e_env_pre = _phase_e_env_config()
+        # 2026-04-26: cooperative-launch fitness (64*num_seqs <= _resident_cap)
+        # is a HARD gate even in forced-coop mode. Previously bypassed when
+        # forced_path=="coop", which caused CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE
+        # on multi-seq decode (e.g., nat=3 batches). Because the paged-skip
+        # below assumes β-coop will run, a coop launch failure left
+        # self.rmsnorm_output stale → β-lite (MLP-only) ran on garbage →
+        # silent gibberish. Keep this in sync with `_use_beta_coop` below.
+        _will_fire_beta_coop_pre = (
+            _phase_e_env_pre.enabled
+            and is_decode_only
+            and use_fusion
+            and getattr(self, "_phase_e_coop_kernel", None) is not None
+            and getattr(self, "_mlp_fusion_bound", False)
+            and num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
+            and (64 * num_seqs) <= getattr(self, "_resident_cap", 0)
+            and _phase_e_env_pre.forced_path in ("coop", "auto")
         )
+        if _will_fire_beta_coop_pre:
+            result = None
+            # Mark snapshots stale so the BETA_DIFF harness skips below.
+            self._debug_paged_res = None
+        else:
+            result = paged_attention_forward(
+                query=query[:num_actual_tokens],
+                kv_cache=kv_cache,
+                page_table=attn_metadata.block_table,
+                seq_lens=attn_metadata.seq_lens,
+                scale=self.scale,
+                k_scale=k_scale,
+                v_scale=v_scale,
+                page_size=64,
+                query_start_loc=attn_metadata.query_start_loc,
+                wo_weight=wo_weight,
+                wo_scales=wo_scales,
+                wo_global_scale=wo_global_scale,
+                wo_output=wo_output,
+                rmsnorm_gamma=rmsnorm_gamma,
+                rmsnorm_residual=rmsnorm_residual,
+                rmsnorm_output=rmsnorm_output,
+                residual_output=residual_output,
+                arrival_count=arrival_count,
+                rmsnorm_eps=rmsnorm_eps,
+                gate_buf=gate_buf,
+                padded_num_seqs=padded_num_seqs,
+            )
+
+            # --- BETA_DIFF harness: snapshot paged's outputs so we can diff
+            # against β-coop's overwrite later. Gated on CUTE_DEBUG_FUSION=1.
+            # Only fires when paged actually ran (else clause).
+            # See memory:project_beta_coop_residual_solo_bug for protocol.
+            if _DEBUG_FUSION and use_fusion and is_decode_only:
+                self._debug_paged_wo = self.wo_output.detach().clone()
+                self._debug_paged_rms = self.rmsnorm_output.detach().clone()
+                self._debug_paged_res = self.residual_output.detach().clone()
 
         # --- DEBUG: fusion diagnostic (CUTE_DEBUG_FUSION=1) ---
         # Compares kernel's impl.wo_output (Phase B GEMV) against a Python
         # reference computed from the kernel's own Phase A output (`result`)
         # and a one-time-dequantized W_O. Proves whether Phase B is faithful.
-        if _DEBUG_FUSION and use_fusion:
+        # Skip when paged was gated off (result is None).
+        if _DEBUG_FUSION and use_fusion and result is not None:
             self._debug_fusion_diff(
                 result=result,
                 num_actual_tokens=num_actual_tokens,
@@ -1173,16 +1213,18 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         _resident_cap = getattr(self, "_resident_cap", 0)
         # Task 16: β-coop dispatch. β-coop requires the unified kernel
         # attached in attach_mlp_fusion (CUTE_PHASE_E_FUSION=1 at attach
-        # time). forced_path="coop" always routes here; "auto" routes here
-        # when the full grid fits the resident cap for a single cooperative
-        # launch (otherwise β-lite's two-kernel path handles it).
+        # time). 2026-04-26: cooperative-launch fitness is a HARD gate
+        # for both forced_path values — was previously bypassed when
+        # forced_path=="coop", causing CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE
+        # on multi-seq decode and silent gibberish (β-lite is MLP-only,
+        # provides no attention fallback). Must stay in sync with
+        # `_will_fire_beta_coop_pre` above.
         _coop_attached = getattr(self, "_phase_e_coop_kernel", None) is not None
-        _use_beta_coop = _phase_e_active and _coop_attached and (
-            _phase_e_env.forced_path == "coop"
-            or (
-                _phase_e_env.forced_path == "auto"
-                and _total_ctas <= _resident_cap
-            )
+        _use_beta_coop = (
+            _phase_e_active
+            and _coop_attached
+            and _total_ctas <= _resident_cap
+            and _phase_e_env.forced_path in ("coop", "auto")
         )
         _use_beta_lite = (
             _phase_e_active
@@ -1261,9 +1303,81 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         # Caller-supplied residual_output so self.residual_output
                         # reflects residual_post_attn (Phase-1 Phase-C output).
                         residual_output=self.residual_output[:nat],
+                        # C2: Qwen3.5 attn output gate — buffer was filled by
+                        # qwen3_5.py:267 from the q_proj's gate slice. Mirrors
+                        # the paged kernel's `gate_buf=` plumbing.
+                        gate_buf=self.gate_buf[:nat],
                     )
                 self._phase_e_consumed = True
                 self._phase_e_use_beta_coop = True
+                # 2026-04-26: ENV-GATED dump for off-line math verification.
+                # CUTE_DUMP_TENSORS=1 enables; bounded to first 3 decode
+                # steps × 16 full-attn layers so disk doesn't bloat. Files
+                # land in /tmp/nvllm-dumps/layer{N}_step{S}_{name}.pt.
+                # See ~/jupyterlab/beta_coop_kernel_dump_compare.ipynb.
+                if os.environ.get("CUTE_DUMP_TENSORS", "0") == "1":
+                    _dump_dir = "/tmp/nvllm-dumps"
+                    os.makedirs(_dump_dir, exist_ok=True)
+                    _step_counter = getattr(self, "_dump_step_counter", 0)
+                    if _step_counter < 3 * 16:
+                        _layer_segs = getattr(
+                            layer, "layer_name", "<layer>").split(".")
+                        _layer_digits = [
+                            p for p in _layer_segs if p.isdigit()]
+                        _layer_idx = int(_layer_digits[0]) \
+                            if _layer_digits else -1
+                        _base = (f"{_dump_dir}/layer{_layer_idx}_"
+                                 f"step{_step_counter // 16}")
+                        torch.save(
+                            self.residual_buf[:nat].detach().clone(),
+                            f"{_base}_residual_in.pt")
+                        torch.save(
+                            query[:nat].detach().clone(),
+                            f"{_base}_query.pt")
+                        torch.save(
+                            self.gate_buf[:nat].detach().clone(),
+                            f"{_base}_gate.pt")
+                        torch.save(
+                            self.residual_output[:nat].detach().clone(),
+                            f"{_base}_residual_out.pt")
+                        torch.save(
+                            self.rmsnorm_output[:nat].detach().clone(),
+                            f"{_base}_rmsnorm_out.pt")
+                        self._dump_step_counter = _step_counter + 1
+                # --- BETA_DIFF harness: diff β-coop's overwrite vs paged.
+                # See memory:project_beta_coop_residual_solo_bug for protocol.
+                if (_DEBUG_FUSION and is_decode_only
+                    and getattr(self, "_debug_paged_res", None) is not None):
+                    nat_dbg = num_actual_tokens
+                    wo_diff = (
+                        self.wo_output[:nat_dbg]
+                        - self._debug_paged_wo[:nat_dbg]
+                    ).abs()
+                    rms_diff = (
+                        self.rmsnorm_output[:nat_dbg].float()
+                        - self._debug_paged_rms[:nat_dbg].float()
+                    ).abs()
+                    res_diff = (
+                        self.residual_output[:nat_dbg].float()
+                        - self._debug_paged_res[:nat_dbg].float()
+                    ).abs()
+                    # Also dump the raw β-coop residual_output[0, :8] and
+                    # the corresponding paged value, so we can eyeball
+                    # whether sentinel landed.
+                    res_b = self.residual_output[0, :8].float().tolist()
+                    res_p = self._debug_paged_res[0, :8].float().tolist()
+                    logger.info(
+                        "[BETA_DIFF] layer=%s nat=%d "
+                        "wo:max=%.4e mean=%.4e | "
+                        "rms:max=%.4e mean=%.4e | "
+                        "res:max=%.4e mean=%.4e | "
+                        "res_beta[0,:8]=%s | res_paged[0,:8]=%s",
+                        getattr(layer, "layer_name", "<layer>"), nat_dbg,
+                        wo_diff.max().item(), wo_diff.mean().item(),
+                        rms_diff.max().item(), rms_diff.mean().item(),
+                        res_diff.max().item(), res_diff.mean().item(),
+                        res_b, res_p,
+                    )
             except Exception as e:  # noqa: BLE001 — fail-closed, fall through to β-lite
                 logger.warning(
                     "CuTe Phase E β-coop launch failed (falling back to "
@@ -1394,7 +1508,14 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         #         self._mlp_fusion_active = False
         # --- END PHASE D2 DISABLED ---
 
-        output[:num_actual_tokens].copy_(result)
+        # C2: when paged_attention_forward was gated off (β-coop fired
+        # alone), `result` is None. β-coop wrote its outputs into
+        # self.rmsnorm_output / self.mlp_output / self.residual_output
+        # which the consume branch reads directly — `output` is the
+        # framework's unified attn-output buffer, not consumed in the
+        # fusion path. Skip the copy_ in that case.
+        if result is not None:
+            output[:num_actual_tokens].copy_(result)
         return output
 
     def _debug_fusion_diff(

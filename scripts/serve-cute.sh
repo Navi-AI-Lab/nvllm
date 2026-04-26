@@ -70,10 +70,12 @@ docker run -d \
   --network host \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
+  -v "/tmp/nvllm-dumps:/tmp/nvllm-dumps" \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -e CUTE_DEBUG_FUSION="${CUTE_DEBUG_FUSION:-0}" \
+  -e CUTE_DUMP_TENSORS="${CUTE_DUMP_TENSORS:-0}" \
   -e CUTE_MLP_FUSION="${CUTE_MLP_FUSION:-1}" \
   -e CUTE_ATTN_FUSION="${CUTE_ATTN_FUSION:-1}" \
   -e CUTE_DEBUG_MLP_FUSION="${CUTE_DEBUG_MLP_FUSION:-0}" \
