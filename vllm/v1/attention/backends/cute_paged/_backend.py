@@ -336,6 +336,20 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             max_num_seqs, hidden_dim, dtype=torch.bfloat16, device=device
         )
 
+        # 2026-04-26 (B-fix): runtime signal tensor for the consume-or-postln
+        # dispatch in qwen3_5.py. 0-dim int32 written inside impl.forward
+        # (which is wrapped in the unified_attention opaque op, invisible
+        # to dynamo). Read at runtime by `cute_attn_consume` and
+        # `cute_post_attn_ln_dispatch` ops via .item(). Value: 0 = fusion
+        # didn't fire (run Python o_proj/post_attn_LN normally), N > 0 =
+        # fusion fired with N tokens (use β-coop outputs, skip post_attn_LN).
+        # This replaces the dead-eliminated `getattr(impl, "_fusion_active",
+        # False)` Python-bool gates with a tensor-based signal that survives
+        # torch.compile specialization.
+        self._fusion_active_signal = torch.zeros(
+            (), dtype=torch.int32, device=device
+        )
+
         # Phase D MLP fusion buffers. Shape-defining axes (`slice_ctas`
         # for `mlp_partial_fp32`, `num_k_tiles` for `mlp_arrival_count`)
         # are both kernel-side constants resolved inside
@@ -655,6 +669,15 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             return
 
         self._fusion_bound = True
+        # 2026-04-26 (B-fix): register self in the attn-consume registry so
+        # cute_attn_consume / cute_post_attn_ln_dispatch can look up the impl
+        # at runtime via layer_name string. Avoids passing impl as a custom-op
+        # arg (not supported) AND avoids reading a 0-dim tensor signal via
+        # .item() (causes cudaErrorStreamCaptureInvalidated under graph capture).
+        from vllm.v1.attention.backends.cute_paged._mlp_op import (
+            _CUTE_ATTN_REGISTRY,
+        )
+        _CUTE_ATTN_REGISTRY[self._fusion_prefix] = self
         logger.info(
             "CuTe fusion resolved: layer=%s wo_weight=%s rmsnorm_gamma=%s",
             self._fusion_prefix,
@@ -1020,6 +1043,23 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         fits_buffer = num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
         self._fusion_active = self._fusion_bound and is_decode_only and fits_buffer
         use_fusion = self._fusion_active
+        # 2026-04-26 (B-fix): per-step reset for the consume gate. Both flags
+        # are read inside opaque op bodies (cute_attn_consume and
+        # cute_post_attn_ln_dispatch) at runtime via Python attribute access
+        # — keyed off impl from _CUTE_ATTN_REGISTRY by layer_name. Resetting
+        # here ensures the gate reflects THIS forward call (β-coop may not
+        # fire even when fusion is bound, e.g. predicate fails or kernel
+        # falls back to β-lite/paged via the except handler below).
+        #
+        # _fusion_active_signal stays as a 0-dim tensor for debug visibility
+        # but is NOT read inside the consume ops anymore — switching to
+        # Python attr access avoids the .item() host-device sync that broke
+        # CUDA graph capture (cudaErrorStreamCaptureInvalidated 2026-04-26).
+        # Kept commented-out for the moment so the .fill_() side effect can
+        # be re-enabled if a future debug session wants the visibility back.
+        self._phase_e_use_beta_coop = False
+        # if hasattr(self, "_fusion_active_signal"):
+        #     self._fusion_active_signal.fill_(0)
         # --- PHASE D2 DISABLED (commented, not deleted — Phase B/C debug may
         # need this reset back) ---
         # Pre-D2, the MLP fusion launch was an attention-side side effect
@@ -1310,6 +1350,14 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                     )
                 self._phase_e_consumed = True
                 self._phase_e_use_beta_coop = True
+                # 2026-04-26 (B-fix): the consume gate now reads
+                # `impl._phase_e_use_beta_coop` (Python attr) inside the
+                # opaque op body via _CUTE_ATTN_REGISTRY lookup — no .item()
+                # call, no host-device sync, CUDA-graph-safe. The tensor
+                # signal `.fill_(nat)` below is kept commented (not deleted)
+                # so it can be re-enabled if a future debug session wants
+                # tensor-side visibility into β-coop firing decisions.
+                # self._fusion_active_signal.fill_(nat)
                 # 2026-04-26: ENV-GATED dump for off-line math verification.
                 # CUTE_DUMP_TENSORS=1 enables; bounded to first 3 decode
                 # steps × 16 full-attn layers so disk doesn't bloat. Files

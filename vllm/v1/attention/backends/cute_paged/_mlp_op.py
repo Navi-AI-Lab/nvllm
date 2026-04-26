@@ -46,6 +46,17 @@ logger = init_logger(__name__)
 # The op body reads from this dict at runtime (not at trace time).
 _CUTE_MLP_REGISTRY: dict[str, "CutePagedAttentionImpl"] = {}
 
+# 2026-04-26 (B-fix): attn-consume registry, populated by
+# `CutePagedAttentionImpl.attach_fusion`. Same impl object as
+# _CUTE_MLP_REGISTRY but keyed by ATTENTION layer name (e.g.
+# `language_model.model.layers.3.self_attn.attn`), not the MLP key
+# used by cute_phase_e_dispatch. Allows cute_attn_consume and
+# cute_post_attn_ln_dispatch to look up the impl and read its
+# Python-side flags at runtime — avoids the .item() host-device sync
+# on a 0-dim tensor signal (which raises cudaErrorStreamCaptureInvalidated
+# under CUDA graph capture, verified 2026-04-26).
+_CUTE_ATTN_REGISTRY: dict[str, "CutePagedAttentionImpl"] = {}
+
 
 def _cute_mlp_forward_impl(
     x: torch.Tensor,
@@ -308,4 +319,170 @@ direct_register_custom_op(
     op_func=_cute_residual_mirror_impl,
     mutates_args=["residual_buf"],
     fake_impl=_cute_residual_mirror_fake,
+)
+
+
+# --- 2026-04-26: cute_attn_consume + cute_post_attn_ln_dispatch ----------------
+# B-fix: replace the dead-eliminated Python `if _fusion_active` consume branch
+# at qwen3_5.py:466-476 and the dead-eliminated `if not _fusion_active`
+# post_attention_layernorm gate at qwen3_5.py:490-496.
+#
+# WHY needed: the captured FX graph (verified 2026-04-26 via
+# /root/.cache/vllm/torch_compile_cache/<hash>/rank_0_0/backbone/computation_graph.py)
+# specialized BOTH gates at trace time on `_fusion_active = False` (the impl's
+# __init__ default) — dynamo can't see the runtime mutation that happens inside
+# the unified_attention opaque op. Result: the consume copy was DCE'd, the
+# legacy Python o_proj + post_attn_LN ALWAYS ran, β-coop's rmsnorm_output /
+# residual_output were never read by the captured graph. In dual-fire this
+# happened to produce coherent output because paged populated `output` with
+# Phase A and the Python pipeline applied o_proj + post_attn_LN over it. In
+# solo (paged gated off, β-coop only), `output` stayed uninitialised and
+# Python applied o_proj over junk → gibberish.
+#
+# Fix: route the consume / postln decision through a runtime tensor signal
+# (`impl._fusion_active_signal`, 0-dim int32) that's mutated INSIDE the
+# unified_attention op (invisible to dynamo's specialization) and read at
+# runtime via .item() inside these opaque ops. Both ops always run, dispatch
+# at runtime via the signal value:
+#   signal == 0 : non-fusion mode (β-coop didn't fire). consume no-ops;
+#                 postln applies the fused-residual RMSNorm in-place over
+#                 the Python o_proj's wo_out.
+#   signal > 0  : fusion mode (β-coop fired with N=signal tokens). consume
+#                 copies β-coop's rmsnorm_output → self_attention_output and
+#                 residual_output → residual; postln no-ops (β-coop's Phase
+#                 1C already produced LN(post_input_LN_residual + wo_out)·γ).
+#
+# residual_buf and gate_buf are passed to consume as PHANTOM inputs (not
+# read inside the body) — their sole purpose is to give the cute_residual_mirror
+# and cute_residual_mirror(gate_buf, ...) ops observable downstream readers
+# in the captured graph, which prevents dynamo's DCE from dropping them
+# (verified empirically that mutates_args alone is NOT sufficient against
+# DCE — the ops were dead-eliminated despite mutates_args=["residual_buf"]
+# until a downstream reader was added).
+
+
+def _cute_attn_consume_impl(
+    self_attention_output: torch.Tensor,  # mutated [num_tokens, hidden_dim] BF16
+    residual: torch.Tensor,                # mutated [num_tokens, hidden_dim] BF16
+    rmsnorm_output: torch.Tensor,          # impl.rmsnorm_output [max_num_seqs, hidden_dim] BF16
+    residual_output: torch.Tensor,         # impl.residual_output [max_num_seqs, hidden_dim] BF16
+    residual_buf: torch.Tensor,            # phantom for cute_residual_mirror dep
+    gate_buf: torch.Tensor,                # phantom for gate-mirror dep
+    layer_name: str,                       # registry key into _CUTE_ATTN_REGISTRY
+) -> None:
+    """If β-coop fired this step: copy its outputs into model-side tensors.
+
+    Reads `impl._phase_e_use_beta_coop` (Python attr) at runtime via
+    `_CUTE_ATTN_REGISTRY[layer_name]` — no .item() call, no CUDA sync,
+    safe under CUDA graph capture. Reset to False at top of impl.forward,
+    set to True only on successful β-coop launch — so True ⇔ β-coop wrote
+    rmsnorm_output and residual_output for THIS forward call.
+    """
+    impl = _CUTE_ATTN_REGISTRY.get(layer_name)
+    # 2026-04-26 (B-fix v2): gate on `_fusion_bound` (set once at
+    # attach_fusion, stable across warmup + runtime) rather than
+    # `_phase_e_use_beta_coop` (set per-step inside impl.forward — not
+    # consistently True at warmup capture time, so the captured segment
+    # would skip the consume kernels and replay would never fill
+    # self_attention_output from β-coop's outputs). With _fusion_bound:
+    # capture always sees True for fusion-bound full-attn layers,
+    # consume kernels always captured. Cost: if β-coop ever fails to
+    # fire at runtime (e.g. predicate fails), consume reads stale
+    # impl.rmsnorm_output. Mitigated by the predicate hard-gate landed
+    # in the prior commit which prevents silent β-coop fallthrough on
+    # cooperative-launch-too-large.
+    if impl is None or not getattr(impl, "_fusion_bound", False):
+        # Non-fusion / non-bound: leave self_attention_output as-is (Python
+        # o_proj already wrote it) and residual untouched.
+        return
+    # Fusion mode: β-coop's Phase 1C produced these. Bound by buffer capacity
+    # defensively (matches the original Python consume branch).
+    nat = min(self_attention_output.shape[0], rmsnorm_output.shape[0])
+    self_attention_output[:nat].copy_(rmsnorm_output[:nat])
+    if nat < self_attention_output.shape[0]:
+        # Match the prior `if nat < num_tokens: self_attention_output[nat:].zero_()`
+        # — keeps unused rows deterministic across decode steps.
+        self_attention_output[nat:].zero_()
+    residual[:nat].copy_(residual_output[:nat])
+
+
+def _cute_attn_consume_fake(
+    self_attention_output: torch.Tensor,
+    residual: torch.Tensor,
+    rmsnorm_output: torch.Tensor,
+    residual_output: torch.Tensor,
+    residual_buf: torch.Tensor,
+    gate_buf: torch.Tensor,
+    layer_name: str,
+) -> None:
+    return
+
+
+direct_register_custom_op(
+    op_name="cute_attn_consume",
+    op_func=_cute_attn_consume_impl,
+    # Both self_attention_output and residual are mutated when fusion fires;
+    # the phantom inputs are read-only.
+    mutates_args=["self_attention_output", "residual"],
+    fake_impl=_cute_attn_consume_fake,
+)
+
+
+def _cute_post_attn_ln_dispatch_impl(
+    hidden_states: torch.Tensor,  # mutated [num_tokens, hidden_dim] BF16
+    residual: torch.Tensor,        # mutated [num_tokens, hidden_dim] BF16
+    weight: torch.Tensor,          # post_attention_layernorm.weight [hidden_dim] BF16
+    rmsnorm_eps: float,
+    layer_name: str,               # registry key into _CUTE_ATTN_REGISTRY
+) -> None:
+    """If β-coop did NOT fire: apply fused-residual post_attention_layernorm.
+
+    Mirrors `_forward_static_with_residual` in vllm/nvllm/layers/layernorm.py:
+        combined = hidden_states + residual
+        residual = combined
+        x = combined.float()
+        var = x.pow(2).mean(dim=-1, keepdim=True)
+        x = x * torch.rsqrt(var + eps)
+        x = x * (1.0 + weight.float())
+        hidden_states = x.to(combined.dtype)
+
+    When β-coop fired, its Phase 1C already produced this exact output into
+    hidden_states via cute_attn_consume above, and residual already holds
+    residual_post_attn — skip to avoid double-LN.
+
+    Reads `impl._phase_e_use_beta_coop` (Python attr) — no .item() needed,
+    CUDA-graph-safe. See cute_attn_consume docstring for the gate semantics.
+    """
+    impl = _CUTE_ATTN_REGISTRY.get(layer_name)
+    # See cute_attn_consume docstring above for why we gate on _fusion_bound
+    # rather than _phase_e_use_beta_coop. Symmetric: when consume fires,
+    # post_attn_LN must skip; when consume no-ops, post_attn_LN must apply.
+    if impl is not None and getattr(impl, "_fusion_bound", False):
+        # Fusion mode: β-coop already did post_attn_LN. Skip.
+        return
+    # Non-fusion mode: replicate _forward_static_with_residual in-place.
+    combined = hidden_states + residual
+    residual.copy_(combined)
+    x = combined.float()
+    var = x.pow(2).mean(dim=-1, keepdim=True)
+    x = x * torch.rsqrt(var + rmsnorm_eps)
+    x = x * (1.0 + weight.float())
+    hidden_states.copy_(x.to(combined.dtype))
+
+
+def _cute_post_attn_ln_dispatch_fake(
+    hidden_states: torch.Tensor,
+    residual: torch.Tensor,
+    weight: torch.Tensor,
+    rmsnorm_eps: float,
+    layer_name: str,
+) -> None:
+    return
+
+
+direct_register_custom_op(
+    op_name="cute_post_attn_ln_dispatch",
+    op_func=_cute_post_attn_ln_dispatch_impl,
+    mutates_args=["hidden_states", "residual"],
+    fake_impl=_cute_post_attn_ln_dispatch_fake,
 )

@@ -463,17 +463,50 @@ class Qwen3_5DecoderLayer(nn.Module):
                 positions=positions,
             )
             _ct_mark("self_attn")
-            if impl is not None and getattr(impl, "_fusion_active", False):
-                # Kernel already did gate*attn, W_O GEMV, residual+RMSNorm.
-                self_attention_output[:nat].copy_(impl.rmsnorm_output[:nat])
-                if nat < num_tokens:
-                    self_attention_output[nat:].zero_()
-                residual[:nat].copy_(impl.residual_output[:nat])
-                hidden_states = self_attention_output
-                _ct_mark("attn_consume")
-            else:
-                hidden_states = self_attention_output
-                _ct_mark("attn_legacy")
+            # 2026-04-26 (B-fix): the prior `if getattr(impl, "_fusion_active",
+            # False)` Python-bool gate was dead-eliminated by torch.compile —
+            # at trace time `_fusion_active` was False (impl __init__ default),
+            # so dynamo specialised the if-branch as dead and the captured
+            # graph always ran the else fall-through. Empirically verified
+            # via /root/.cache/vllm/torch_compile_cache/<hash>/.../
+            # computation_graph.py: the consume `.copy_()` calls were absent
+            # AND the legacy Python o_proj path was always present.
+            #
+            # Replace with an opaque op (cute_attn_consume) that always runs
+            # in the captured graph and dispatches at runtime via
+            # `impl._fusion_active_signal` (a 0-dim int32 tensor mutated
+            # inside the unified_attention opaque op, where dynamo can't
+            # see the change). When the signal == 0, the op no-ops; when
+            # it's > 0 (β-coop fired), it copies β-coop's outputs into
+            # self_attention_output and residual.
+            #
+            # residual_buf and gate_buf are passed as PHANTOM inputs: they
+            # are not used inside the op body, but their presence forces
+            # a data dependency on cute_residual_mirror's output, which
+            # otherwise gets DCE'd despite mutates_args (verified: only
+            # mutates_args is NOT enough to survive DCE if no graph op
+            # reads the mutated tensor).
+            if impl is not None and getattr(impl, "_fusion_bound", False):
+                # Consistent with the cute_residual_mirror gate above
+                # (_fusion_bound is set in attach_fusion, stable at trace
+                # time — dynamo's specialization on it is correct because
+                # it's a one-time setup flag, not a per-step runtime flag).
+                # The op uses _CUTE_ATTN_REGISTRY[layer_name] internally to
+                # read impl._phase_e_use_beta_coop at runtime — Python attr
+                # access only, no .item() / no CUDA sync, safe under graph
+                # capture (verified failure mode 2026-04-26 from .item():
+                # cudaErrorStreamCaptureInvalidated).
+                torch.ops.vllm.cute_attn_consume(
+                    self_attention_output,
+                    residual,
+                    impl.rmsnorm_output,
+                    impl.residual_output,
+                    impl.residual_buf,
+                    impl.gate_buf,
+                    self.self_attn.attn.layer_name,
+                )
+            hidden_states = self_attention_output
+            _ct_mark("attn_consume_or_legacy")
         else:
             raise ValueError("Invalid layer_type")
 
@@ -487,13 +520,35 @@ class Qwen3_5DecoderLayer(nn.Module):
                     self.attn_layer_scale.to(hidden_states.dtype) + 1
                 )
 
-        if not getattr(impl, "_fusion_active", False):
+        # 2026-04-26 (B-fix): post_attn_LN dispatch via opaque op for full
+        # attention layers (replacing the dead-eliminated Python-bool gate).
+        # The prior `if not getattr(impl, "_fusion_active", False)` was
+        # specialised to always-run by dynamo (because trace-time
+        # `_fusion_active = False`, so `not False = True`). The captured
+        # graph ran post_attn_LN unconditionally — fine in dual-fire (β-coop's
+        # rmsnorm_output was unused anyway, Python pipeline did the work)
+        # but in solo it operated over uninitialised self_attention_output
+        # because β-coop doesn't expose Phase A to the framework `output`
+        # parameter.
+        #
+        # Linear-attention layers have impl=None and no fusion signal, so
+        # they keep the plain Python module call (no compile fragility there
+        # — the dead-elim only bites paths that depend on a runtime-mutated
+        # Python attribute).
+        if impl is not None and getattr(impl, "_fusion_bound", False):
+            torch.ops.vllm.cute_post_attn_ln_dispatch(
+                hidden_states,
+                residual,
+                self.post_attention_layernorm.weight,
+                float(self.post_attention_layernorm.variance_epsilon),
+                self.self_attn.attn.layer_name,
+            )
+            _ct_mark("post_attn_ln_dispatch")
+        else:
             hidden_states, residual = self.post_attention_layernorm(
                 hidden_states, residual
             )
             _ct_mark("post_attn_ln")
-        else:
-            _ct_mark("post_attn_skip")
 
         # Phase E β-lite consume. When the CuTe backend launched the
         # β-lite dispatch inside its forward, the MLP kernel's ε epilogue
