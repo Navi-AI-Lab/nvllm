@@ -34,6 +34,21 @@ from itertools import islice
 import torch
 from torch import nn
 
+# C2 diag env load (vLLM's EngineCore subprocess strips most of pid-1's env;
+# source the gate config from a sentinel file written by serve-cute.sh).
+# No-op when the file is absent (production behavior unchanged).
+# See docs/research/uber_kernel_migration/2026-04-26-c2-diagnostic-plan.md.
+_C2_ENV_FILE = "/tmp/c2_diag/ENV"
+if os.path.isfile(_C2_ENV_FILE):
+    with open(_C2_ENV_FILE) as _c2_f:
+        for _c2_ln in _c2_f:
+            if "=" in _c2_ln and _c2_ln.startswith("CUTE_C2_"):
+                _c2_k, _c2_v = _c2_ln.strip().split("=", 1)
+                if _c2_v:  # skip empty values so we don't shadow real env
+                    os.environ.setdefault(_c2_k, _c2_v)
+    del _c2_f, _c2_ln, _c2_k, _c2_v
+del _C2_ENV_FILE
+
 # Per-step instrumentation. Env-gated (CUTE_DEBUG_TIMING=1) so production
 # stays untouched. CUTE_DEBUG_TIMING_BUDGET caps total log lines to avoid
 # 65k-token spam at long contexts.
@@ -45,6 +60,7 @@ _CUTE_DEBUG_TIMING_STATE = {"emitted": 0}
 def _cute_tlog(msg: str) -> None:
     sys.stderr.write(f"[CUTE_TIMING] {msg}\n")
     sys.stderr.flush()
+
 
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import VllmConfig
@@ -441,9 +457,7 @@ class Qwen3_5DecoderLayer(nn.Module):
             # tracks the mutation as a real side effect (the prior op
             # version with `mutates_args=[]` was still dead-eliminated).
             if getattr(impl, "_fusion_bound", False):
-                torch.ops.vllm.cute_residual_mirror(
-                    impl.residual_buf, residual
-                )
+                torch.ops.vllm.cute_residual_mirror(impl.residual_buf, residual)
         _ct_mark("residual_mirror")
 
         self_attention_output = torch.empty_like(hidden_states)
@@ -495,6 +509,55 @@ class Qwen3_5DecoderLayer(nn.Module):
         else:
             _ct_mark("post_attn_skip")
 
+        # --- C2 DIAG (env-gated, per spec
+        # docs/research/uber_kernel_migration/2026-04-26-c2-diagnostic-spec.md)
+        # Compares β-coop's outputs (impl.rmsnorm_output/residual_output)
+        # against the legacy post-attn-LN outputs (hidden_states/residual)
+        # in dual-fire mode under PIECEWISE+graphs. Off by default.
+        #
+        # ARCHITECTURAL LIMIT (2026-04-27, results doc):
+        # `direct_register_custom_op` runs the op's Python body once at
+        # graph capture, then captured CUDA ops replay on every step —
+        # the body never re-runs during steady-state decode. Combined
+        # with the impl's required capture-skip (host-sync inside the op
+        # body raises `cudaErrorStreamCaptureInvalidated`), this means
+        # the diag fundamentally cannot fire under captured PIECEWISE
+        # decode. It can only fire during eager warmup iters, where
+        # β-coop's own fire-gate (is_decode_only + cooperative-fitness)
+        # often gates it off — yielding spurious `legacy vs 0` verdicts.
+        # Use `CUTE_DUMP_TENSORS=1` (in _backend.py) for offline forensics
+        # of real β-coop outputs. Tightening the gate with
+        # `_phase_e_consumed` was attempted and reverted: under fullgraph
+        # compile the attribute is False at trace time → Dynamo DCE'd
+        # the entire diag block. The current loose gate at least lets
+        # the eager warmup paths fire (uninformative but doesn't crash).
+        if (
+            os.getenv("CUTE_C2_DIAG") == "1"
+            and impl is not None
+            and getattr(impl, "_fusion_bound", False)
+            and self.layer_type == "full_attention"
+            and nat > 0
+        ):
+            from vllm.v1.attention.backends.cute_paged import _c2_diag
+
+            step_idx = (
+                _c2_diag.next_step_idx()
+                if self.layer_idx == 0
+                else max(0, _c2_diag._STEP_COUNTER - 1)
+            )
+            # Custom-op call (positional args). The op is opaque to Dynamo
+            # via the registered fake_impl returning None — see
+            # _c2_diag.py for the registration + rationale.
+            torch.ops.vllm.cute_c2_diag_compare(
+                self.layer_idx,
+                step_idx,
+                nat,
+                hidden_states,
+                residual,
+                impl.rmsnorm_output,
+                impl.residual_output,
+            )
+
         # Phase E β-lite consume. When the CuTe backend launched the
         # β-lite dispatch inside its forward, the MLP kernel's ε epilogue
         # already produced:
@@ -528,7 +591,10 @@ class Qwen3_5DecoderLayer(nn.Module):
             residual_out = torch.empty_like(residual)
             _ct_mark("mlp_alloc")
             torch.ops.vllm.cute_phase_e_dispatch(
-                hidden_states, hidden_out, residual_out, residual,
+                hidden_states,
+                hidden_out,
+                residual_out,
+                residual,
                 _mlp_layer_name,
             )
             hidden_states, residual = hidden_out, residual_out
@@ -558,8 +624,7 @@ class Qwen3_5DecoderLayer(nn.Module):
             _CUTE_DEBUG_TIMING_STATE["emitted"] += 1
             _cute_tlog(
                 f"step_emit={_CUTE_DEBUG_TIMING_STATE['emitted']} "
-                f"layer={self.layer_type} prefix={self.prefix} "
-                + " ".join(_ct_marks)
+                f"layer={self.layer_type} prefix={self.prefix} " + " ".join(_ct_marks)
             )
 
         return hidden_states, residual
