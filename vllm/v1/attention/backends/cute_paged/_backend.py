@@ -1236,8 +1236,14 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 or _phase_e_env.forced_path == "auto"
             )
         )
-        # Phase 4 collapsed skip rule.
-        _skip_paged = _use_beta_coop and not _framework_output_route
+        # PHASE 5 EDIT (2026-04-28): drop `and not _framework_output_route`
+        # from skip rule. Paged is now skipped whenever β-coop will fire,
+        # regardless of route. The β-coop except handler below explicitly
+        # re-runs paged into framework buffers BEFORE β-lite fallback so
+        # the writer-invariant still holds when β-coop raises.
+        # Phase 4 (commented for rollback):
+        # _skip_paged = _use_beta_coop and not _framework_output_route
+        _skip_paged = _use_beta_coop
         # PHASE 3 ORIGINAL `_will_fire_beta_coop_pre` (commented per
         # feedback_comment_not_delete — may be re-enabled if the
         # framework-output writer-invariant changes):
@@ -1253,11 +1259,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         #     and (64 * num_seqs) <= getattr(self, "_resident_cap", 0)
         #     and _phase_e_env_pre.forced_path in ("coop", "auto")
         # )
-        if _skip_paged:
-            result = None
-            # Mark snapshots stale so the BETA_DIFF harness skips below.
-            self._debug_paged_res = None
-        else:
+
+        # PHASE 5 EDIT (2026-04-28): paged call extracted to a closure so it
+        # can be invoked from BOTH the normal path AND the β-coop except
+        # handler (writer-invariant on β-coop kernel failure when route
+        # active). Closure captures forward-local kwargs.
+        def _run_paged() -> torch.Tensor:
             paged_rmsnorm_output = (
                 output_rmsnorm if _framework_output_route else rmsnorm_output
             )
@@ -1270,7 +1277,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             paged_gate_buf = (
                 gate if _framework_output_route else gate_buf
             )
-            result = paged_attention_forward(
+            return paged_attention_forward(
                 query=query[:num_actual_tokens],
                 kv_cache=kv_cache,
                 page_table=attn_metadata.block_table,
@@ -1293,6 +1300,13 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 gate_buf=paged_gate_buf,
                 padded_num_seqs=padded_num_seqs,
             )
+
+        if _skip_paged:
+            result = None
+            # Mark snapshots stale so the BETA_DIFF harness skips below.
+            self._debug_paged_res = None
+        else:
+            result = _run_paged()
 
             # --- BETA_DIFF harness: snapshot paged's outputs so we can diff
             # against β-coop's overwrite later. Gated on CUTE_DEBUG_FUSION=1.
@@ -1567,6 +1581,26 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 )
                 self._phase_e_consumed = False
                 self._phase_e_use_beta_coop = False
+                # PHASE 5 EDIT (2026-04-28, friend's audit): paged was
+                # skipped at top (_skip_paged=True because _use_beta_coop
+                # =True). β-coop raised before populating its output
+                # buffers. Re-run paged now so β-lite reads valid input:
+                # - framework route: paged writes output_rmsnorm/
+                #   output_residual that β-lite reads as MLP input
+                # - non-route (e.g. CUTE_PHASE3_DIAG_DISABLE_FW=1
+                #   rollback): paged writes self.rmsnorm_output/
+                #   self.residual_output that β-lite reads
+                # Guard is `_skip_paged and use_fusion` (not just route)
+                # so non-framework paths get the same writer-invariant.
+                # Re-zero wo_output/arrival_count first since β-coop
+                # may have partially mutated them before raising.
+                # β-coop's own wo/MLP scratch is internal to
+                # run_beta_coop_full; β-lite re-zeros mlp_partial_fp32/
+                # mlp_arrival_count itself, so no extra reset needed.
+                if _skip_paged and use_fusion:
+                    self.wo_output.zero_()
+                    self.arrival_count.zero_()
+                    result = _run_paged()
                 # Retry via β-lite on this forward.
                 _use_beta_lite = True
         if _use_beta_lite:
