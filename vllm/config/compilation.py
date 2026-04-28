@@ -719,6 +719,7 @@ class CompilationConfig:
         "vllm::mamba_mixer",
         "vllm::short_conv",
         "vllm::linear_attention",
+        "vllm::cute_beta_coop_run",
         "vllm::plamo2_mamba_mixer",
         "vllm::gdn_attention_core",
         "vllm::olmo_hybrid_gdn_full_forward",

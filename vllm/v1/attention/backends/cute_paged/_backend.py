@@ -262,6 +262,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._mlp_module = None
         self._mlp_num_k_tiles = 0
 
+        # Phase E β-coop framework-output-buffer route. Set True at end of
+        # _resolve_mlp_weights() ONLY when all three pre-conditions hold:
+        # _fusion_bound, _mlp_fusion_bound, _phase_e_coop_kernel is not None.
+        # See feedback_splitting_op_runtime_dispatch + spec § Q3.
+        self._beta_coop_framework_output_bound: bool = False
+
         # Phase E β-lite dispatch state (task 9). `_phase_e_consumed` is read
         # by the Python decoder wrapper (`vllm/nvllm/models/qwen3_5.py`) to
         # decide whether to skip the post-MLP residual `copy_` and the
@@ -902,12 +908,14 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 "loaded); MLP fusion disabled this call."
             )
             self._mlp_fusion_bound = False
+            self._beta_coop_framework_output_bound = False
             return
         if not hasattr(down, "weight_global_scale"):
             logger.warning(
                 "CuTe MLP fusion: down_proj weights not NVFP4; disabled."
             )
             self._mlp_fusion_bound = False
+            self._beta_coop_framework_output_bound = False
             return
 
         # Split stacked [2*interm, hidden/2] FP4 weights into separate
@@ -924,6 +932,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 gate_up_w.shape[0], 2 * interm,
             )
             self._mlp_fusion_bound = False
+            self._beta_coop_framework_output_bound = False
             return
 
         self._mlp_gate_w = gate_up_w[:interm]
@@ -948,6 +957,25 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         )
 
         self._mlp_fusion_bound = True
+        # All three β-coop framework-output prerequisites resolved.
+        # This is the stable post-weight-load flag the decoder layer
+        # branches on.
+        # PHASE 3 DIAG (2026-04-27): env override `CUTE_PHASE3_DIAG_DISABLE_FW=1`
+        # forces framework-output route off so we can test the LEGACY
+        # paged+β-lite path with CUTE_PHASE_E_FUSION=1 without changing
+        # any other behavior. Apples-to-apples comparison vs framework-output.
+        if os.environ.get("CUTE_PHASE3_DIAG_DISABLE_FW") == "1":
+            self._beta_coop_framework_output_bound = False
+            logger.warning(
+                "[PHASE3_DIAG] framework-output route DISABLED via "
+                "CUTE_PHASE3_DIAG_DISABLE_FW=1 (legacy paged+β-lite test path)"
+            )
+        else:
+            self._beta_coop_framework_output_bound = (
+                self._fusion_bound
+                and self._mlp_fusion_bound
+                and getattr(self, "_phase_e_coop_kernel", None) is not None
+            )
         logger.debug(
             "CuTe MLP fusion resolved: gate_w=%s up_w=%s down_w=%s",
             list(self._mlp_gate_w.shape),
@@ -1001,11 +1029,63 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         output: torch.Tensor | None = None,
         output_scale: torch.Tensor | None = None,
         output_block_scale: torch.Tensor | None = None,
+        # NEW (Phase 3): framework-output-buffer route. When all three
+        # are non-None, β-coop / fall-through writes through these.
+        residual: torch.Tensor | None = None,
+        attn_input: torch.Tensor | None = None,
+        gate: torch.Tensor | None = None,
+        output_rmsnorm: torch.Tensor | None = None,
+        output_residual: torch.Tensor | None = None,
+        output_mlp: torch.Tensor | None = None,
     ) -> torch.Tensor:
         assert output is not None, "Output tensor must be provided"
 
         if attn_metadata is None:
             return output.fill_(0)
+
+        # Phase 3 framework-output route is active when ALL six new kwargs
+        # are non-None (caller is the new cute_beta_coop_run op).
+        _framework_output_route = (
+            residual is not None and attn_input is not None and gate is not None
+            and output_rmsnorm is not None and output_residual is not None
+            and output_mlp is not None
+        )
+        if _framework_output_route:
+            assert output_rmsnorm.shape == output_residual.shape == output_mlp.shape == residual.shape, (
+                f"Framework output shape mismatch: rmsnorm={output_rmsnorm.shape} "
+                f"residual={output_residual.shape} mlp={output_mlp.shape} "
+                f"input residual={residual.shape}"
+            )
+            assert output_rmsnorm.dtype == torch.bfloat16
+            # Contiguity asserts — paged kernel uses raw data_ptr() arithmetic
+            # and assumes contiguous BF16. Non-contiguous tensors silently
+            # read/write wrong memory.
+            assert residual.is_contiguous(), (
+                f"residual not contiguous: stride={residual.stride()} shape={residual.shape}"
+            )
+            assert output_rmsnorm.is_contiguous(), "output_rmsnorm not contiguous"
+            assert output_residual.is_contiguous(), "output_residual not contiguous"
+            assert output_mlp.is_contiguous(), "output_mlp not contiguous"
+            assert gate.is_contiguous(), (
+                f"gate not contiguous: stride={gate.stride()} shape={gate.shape}"
+            )
+            # One-shot diagnostic: dump first 4 elements of each input/output
+            # at the FIRST forward call only (per impl). Reveals stale data,
+            # NaN, or value mismatches vs the legacy self.X buffers.
+            if not getattr(self, "_phase3_diag_done", False):
+                self._phase3_diag_done = True
+                _layer_name_dbg = getattr(layer, "layer_name", "<unknown>")
+                logger.warning(
+                    "[PHASE3_DIAG] layer=%s nat=%d residual[0,:4]=%s "
+                    "gate[0,:4]=%s self.residual_buf[0,:4]=%s "
+                    "self.gate_buf[0,:4]=%s",
+                    _layer_name_dbg,
+                    attn_metadata.num_actual_tokens,
+                    residual[0, :4].float().tolist(),
+                    gate[0, :4].float().tolist(),
+                    self.residual_buf[0, :4].float().tolist(),
+                    self.gate_buf[0, :4].float().tolist() if hasattr(self, "gate_buf") else None,
+                )
 
         k_scale = getattr(layer, "_k_scale_float", 1.0)
         v_scale = getattr(layer, "_v_scale_float", 1.0)
@@ -1072,36 +1152,124 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         num_seqs = len(attn_metadata.seq_lens)
         padded_num_seqs = num_seqs  # graph capture overrides via metadata
 
-        # C2: gate paged_attention_forward off on decode when β-coop is
-        # going to fire — β-coop is the sole Phase A+B+C+3+4 uber-kernel
-        # in that path, paged becomes redundant double-fire. We replicate
-        # the _use_beta_coop predicate computed below so the gate matches.
-        # NOTE: kept commented-out OFF gate sites (none here) per
-        # feedback_comment_not_delete; the only structural change is the
-        # `if _will_fire_beta_coop_pre:` wrapper around the paged call.
-        _phase_e_env_pre = _phase_e_env_config()
-        # 2026-04-26: cooperative-launch fitness (64*num_seqs <= _resident_cap)
-        # is a HARD gate even in forced-coop mode. Previously bypassed when
-        # forced_path=="coop", which caused CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE
-        # on multi-seq decode (e.g., nat=3 batches). Because the paged-skip
-        # below assumes β-coop will run, a coop launch failure left
-        # self.rmsnorm_output stale → β-lite (MLP-only) ran on garbage →
-        # silent gibberish. Keep this in sync with `_use_beta_coop` below.
-        _will_fire_beta_coop_pre = (
-            _phase_e_env_pre.enabled
+        # PHASE 4 EDIT 3 (2026-04-28): hoisted unified β-coop predicate +
+        # collapsed skip rule. Replaces the prior parallel pair
+        # (_will_fire_beta_coop_pre / _use_beta_coop) with one computation.
+        # The duplicate computation block at the original site (~L1261-1340)
+        # is commented out below. New invariant:
+        #   _skip_paged = _use_beta_coop and not _framework_output_route
+        # When framework-output route is active, paged ALWAYS runs to
+        # guarantee writer-invariant on output_rmsnorm/output_residual:
+        #   - β-coop except → β-lite needs filled buffers (else stale)
+        #   - _layer_allowed=False → no β fires (else stale)
+        #   - prefill / oversize → β disabled (handled in Edit 4 fallback)
+        # PHASE 4 EDIT 5 (re-flipped 2026-04-28 PM after KV-update fix).
+        # Bisect history: initial flip to False produced "rome?" gibberish
+        # (root cause: KV-update DCE in qwen3_5.py:328, NOT β-coop).
+        # Friend's KV canonical-dispatch fix landed at qwen3_5.py:328
+        # restored Phase 3 "Paris" baseline with route always-ON. Now
+        # re-enabling β-coop to validate the full Phase 4 stack.
+        # Rollback path (proven coherent under PIECEWISE+graphs):
+        # _phase3_force_fallthrough = True
+        _phase3_force_fallthrough = False
+        # Per-step Phase E flag resets (was at original L1261-1262 + new
+        # _phase_e_use_beta_coop reset per friend's audit).
+        self._phase_e_consumed = False
+        self._phase_e_use_beta_coop = False
+        self._phase_e_use_beta_lite = False
+        _phase_e_env = _phase_e_env_config()
+        # `layer.layer_name` is the canonical identifier; layer_idx isn't
+        # populated, so extract via dotted-name helper.
+        _layer_idx: int | None = None
+        _layer_name = getattr(layer, "layer_name", None)
+        if _layer_name is not None:
+            try:
+                from vllm.model_executor.models.utils import extract_layer_index
+                _layer_idx = extract_layer_index(_layer_name)
+            except Exception:
+                _layer_idx = None
+        # C1.5: live "Phase E plumbing wired" sentinel — either kernel
+        # attached implies the path can run.
+        _phase_e_attached = (
+            getattr(self, "_phase_e_coop_kernel", None) is not None
+            or getattr(self, "_mlp_fusion_bound", False)
+        )
+        _layer_allowed = (
+            _phase_e_env.restricted_layers is None
+            or (_layer_idx is not None
+                and _layer_idx in _phase_e_env.restricted_layers)
+        )
+        # INVARIANT: β-lite reads `self.residual_output` below, populated by
+        # the attention uber-kernel only when use_fusion=True. Keep
+        # `use_fusion` in this AND.
+        _phase_e_active = (
+            _phase_e_env.enabled
             and is_decode_only
-            and use_fusion
-            and getattr(self, "_phase_e_coop_kernel", None) is not None
+            and _phase_e_attached
+            and _layer_allowed
+            and use_fusion  # INVARIANT — do not remove
             and getattr(self, "_mlp_fusion_bound", False)
             and num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
-            and (64 * num_seqs) <= getattr(self, "_resident_cap", 0)
-            and _phase_e_env_pre.forced_path in ("coop", "auto")
         )
-        if _will_fire_beta_coop_pre:
+        # 64 = CTAs-per-seq in the attn grid (num_q_tiles=1 × num_kv_heads=4
+        # × slice_ctas=8 × num_k_tiles=8 = 64 per seq).
+        _CTAS_PER_SEQ = 64
+        _total_ctas = _CTAS_PER_SEQ * num_seqs
+        _resident_cap = getattr(self, "_resident_cap", 0)
+        _coop_attached = getattr(self, "_phase_e_coop_kernel", None) is not None
+        # 2026-04-26: cooperative-launch fitness (64*num_seqs <= _resident_cap)
+        # is a HARD gate even in forced-coop mode. Previously bypassed when
+        # forced_path=="coop", causing CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE
+        # on multi-seq decode and silent gibberish.
+        _use_beta_coop = (
+            not _phase3_force_fallthrough
+            and _phase_e_active
+            and _coop_attached
+            and _total_ctas <= _resident_cap
+            and _phase_e_env.forced_path in ("coop", "auto")
+        )
+        _use_beta_lite = (
+            _phase_e_active
+            and not _use_beta_coop
+            and (
+                _phase_e_env.forced_path == "lite"
+                or _phase_e_env.forced_path == "auto"
+            )
+        )
+        # Phase 4 collapsed skip rule.
+        _skip_paged = _use_beta_coop and not _framework_output_route
+        # PHASE 3 ORIGINAL `_will_fire_beta_coop_pre` (commented per
+        # feedback_comment_not_delete — may be re-enabled if the
+        # framework-output writer-invariant changes):
+        # _phase_e_env_pre = _phase_e_env_config()
+        # _will_fire_beta_coop_pre = (
+        #     not _phase3_force_fallthrough
+        #     and _phase_e_env_pre.enabled
+        #     and is_decode_only
+        #     and use_fusion
+        #     and getattr(self, "_phase_e_coop_kernel", None) is not None
+        #     and getattr(self, "_mlp_fusion_bound", False)
+        #     and num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
+        #     and (64 * num_seqs) <= getattr(self, "_resident_cap", 0)
+        #     and _phase_e_env_pre.forced_path in ("coop", "auto")
+        # )
+        if _skip_paged:
             result = None
             # Mark snapshots stale so the BETA_DIFF harness skips below.
             self._debug_paged_res = None
         else:
+            paged_rmsnorm_output = (
+                output_rmsnorm if _framework_output_route else rmsnorm_output
+            )
+            paged_residual_output = (
+                output_residual if _framework_output_route else residual_output
+            )
+            paged_rmsnorm_residual = (
+                residual if _framework_output_route else rmsnorm_residual
+            )
+            paged_gate_buf = (
+                gate if _framework_output_route else gate_buf
+            )
             result = paged_attention_forward(
                 query=query[:num_actual_tokens],
                 kv_cache=kv_cache,
@@ -1117,12 +1285,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 wo_global_scale=wo_global_scale,
                 wo_output=wo_output,
                 rmsnorm_gamma=rmsnorm_gamma,
-                rmsnorm_residual=rmsnorm_residual,
-                rmsnorm_output=rmsnorm_output,
-                residual_output=residual_output,
+                rmsnorm_residual=paged_rmsnorm_residual,
+                rmsnorm_output=paged_rmsnorm_output,
+                residual_output=paged_residual_output,
                 arrival_count=arrival_count,
                 rmsnorm_eps=rmsnorm_eps,
-                gate_buf=gate_buf,
+                gate_buf=paged_gate_buf,
                 padded_num_seqs=padded_num_seqs,
             )
 
@@ -1164,76 +1332,65 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         #
         # Task 10 will verify this end-to-end with GSM8K under Docker.
         # Task 9's deliverable is the dispatch path + source-level test.
-        self._phase_e_consumed = False
-        self._phase_e_use_beta_lite = False
-        _phase_e_env = _phase_e_env_config()
-        # `layer.layer_name` is the canonical identifier on vllm's Attention;
-        # `layer.layer_idx` is not populated, so extract the int index from
-        # the dotted name via `extract_layer_index` (same helper used elsewhere
-        # in the codebase).
-        _layer_idx: int | None = None
-        _layer_name = getattr(layer, "layer_name", None)
-        if _layer_name is not None:
-            try:
-                from vllm.model_executor.models.utils import extract_layer_index
-                _layer_idx = extract_layer_index(_layer_name)
-            except Exception:
-                _layer_idx = None
-        # C1.5: previously this was `hasattr(self, '_next_input_layernorm_module')`,
-        # which keyed off the (now retired) attach_next_input_layernorm scheme.
-        # Post-C1.5 the live "Phase E plumbing wired" sentinels are the kernel
-        # attachments themselves: β-coop sets `_phase_e_coop_kernel`, β-lite
-        # uses `_mlp_fusion_bound`. Either implies the attached kernel can run.
-        _phase_e_attached = (
-            getattr(self, "_phase_e_coop_kernel", None) is not None
-            or getattr(self, "_mlp_fusion_bound", False)
-        )
-        _layer_allowed = (
-            _phase_e_env.restricted_layers is None
-            or (_layer_idx is not None
-                and _layer_idx in _phase_e_env.restricted_layers)
-        )
-        # INVARIANT: β-lite reads `self.residual_output` below, which is only
-        # populated by the attention uber-kernel when `use_fusion=True`. Keep
-        # `use_fusion` in this AND; removing it would silently feed stale
-        # residual data from the previous step into the ε epilogue.
-        _phase_e_active = (
-            _phase_e_env.enabled
-            and is_decode_only
-            and _phase_e_attached
-            and _layer_allowed
-            and use_fusion  # INVARIANT above — do not remove
-            and getattr(self, "_mlp_fusion_bound", False)
-            and num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
-        )
-        # 64 = CTAs-per-seq in the attn grid (num_q_tiles=1 × num_kv_heads=4
-        # × slice_ctas=8 × num_k_tiles=8 = 64 per seq for the β grid).
-        _CTAS_PER_SEQ = 64
-        _total_ctas = _CTAS_PER_SEQ * num_seqs
-        _resident_cap = getattr(self, "_resident_cap", 0)
-        # Task 16: β-coop dispatch. β-coop requires the unified kernel
-        # attached in attach_mlp_fusion (CUTE_PHASE_E_FUSION=1 at attach
-        # time). 2026-04-26: cooperative-launch fitness is a HARD gate
-        # for both forced_path values — was previously bypassed when
-        # forced_path=="coop", causing CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE
-        # on multi-seq decode and silent gibberish (β-lite is MLP-only,
-        # provides no attention fallback). Must stay in sync with
-        # `_will_fire_beta_coop_pre` above.
-        _coop_attached = getattr(self, "_phase_e_coop_kernel", None) is not None
-        _use_beta_coop = (
-            _phase_e_active
-            and _coop_attached
-            and _total_ctas <= _resident_cap
-            and _phase_e_env.forced_path in ("coop", "auto")
-        )
-        _use_beta_lite = (
-            _phase_e_active
-            and not _use_beta_coop
-            and (
-                _phase_e_env.forced_path == "lite"
-                or _phase_e_env.forced_path == "auto"
-            )
-        )
+        # PHASE 4 EDIT 3 (2026-04-28): predicate computation MOVED UP to the
+        # paged-skip site (see ~L1162). The originals below are commented
+        # out per feedback_comment_not_delete; they are referenced only by
+        # the dispatch branches that follow. All variables (_phase_e_env,
+        # _layer_idx, _layer_name, _phase_e_attached, _layer_allowed,
+        # _phase_e_active, _CTAS_PER_SEQ, _total_ctas, _resident_cap,
+        # _coop_attached, _use_beta_coop, _use_beta_lite) are now defined
+        # by the hoisted block. The per-step Phase E flag resets are also
+        # moved to the hoist site.
+        #
+        # PHASE 3 ORIGINAL (commented):
+        # self._phase_e_consumed = False
+        # self._phase_e_use_beta_lite = False
+        # _phase_e_env = _phase_e_env_config()
+        # _layer_idx: int | None = None
+        # _layer_name = getattr(layer, "layer_name", None)
+        # if _layer_name is not None:
+        #     try:
+        #         from vllm.model_executor.models.utils import extract_layer_index
+        #         _layer_idx = extract_layer_index(_layer_name)
+        #     except Exception:
+        #         _layer_idx = None
+        # _phase_e_attached = (
+        #     getattr(self, "_phase_e_coop_kernel", None) is not None
+        #     or getattr(self, "_mlp_fusion_bound", False)
+        # )
+        # _layer_allowed = (
+        #     _phase_e_env.restricted_layers is None
+        #     or (_layer_idx is not None
+        #         and _layer_idx in _phase_e_env.restricted_layers)
+        # )
+        # _phase_e_active = (
+        #     _phase_e_env.enabled
+        #     and is_decode_only
+        #     and _phase_e_attached
+        #     and _layer_allowed
+        #     and use_fusion
+        #     and getattr(self, "_mlp_fusion_bound", False)
+        #     and num_actual_tokens <= getattr(self, "_fusion_max_num_seqs", 0)
+        # )
+        # _CTAS_PER_SEQ = 64
+        # _total_ctas = _CTAS_PER_SEQ * num_seqs
+        # _resident_cap = getattr(self, "_resident_cap", 0)
+        # _coop_attached = getattr(self, "_phase_e_coop_kernel", None) is not None
+        # _use_beta_coop = (
+        #     not _phase3_force_fallthrough
+        #     and _phase_e_active
+        #     and _coop_attached
+        #     and _total_ctas <= _resident_cap
+        #     and _phase_e_env.forced_path in ("coop", "auto")
+        # )
+        # _use_beta_lite = (
+        #     _phase_e_active
+        #     and not _use_beta_coop
+        #     and (
+        #         _phase_e_env.forced_path == "lite"
+        #         or _phase_e_env.forced_path == "auto"
+        #     )
+        # )
         if _use_beta_coop:
             try:
                 nat = num_actual_tokens
@@ -1261,14 +1418,37 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 # self._phase_e_coop_kernel.rms_eps = _rms_eps
                 # Phase E.1 #3: per-layer NVTX span for torch-profiler
                 # attribution. No-op when no profiler is active.
+                # β-coop launch — use framework outputs when available,
+                # else legacy self.X scratch. Phase 5 cleanup deletes
+                # the self.X path entirely.
+                _attn_output_buf = (
+                    output_rmsnorm[:nat] if _framework_output_route
+                    else self.rmsnorm_output[:nat]
+                )
+                _residual_output_buf = (
+                    output_residual[:nat] if _framework_output_route
+                    else self.residual_output[:nat]
+                )
+                _mlp_output_buf = (
+                    output_mlp[:nat] if _framework_output_route
+                    else self.mlp_output[:nat]
+                )
+                _residual_in_buf = (
+                    residual[:nat] if _framework_output_route
+                    else self.residual_buf[:nat]
+                )
+                _gate_buf = (
+                    gate[:nat] if _framework_output_route
+                    else self.gate_buf[:nat]
+                )
                 with record_function(
                     f"PhaseE_Beta.coop.{_layer_name}"
                 ):
                     self._phase_e_coop_kernel.run_beta_coop_full(
                         # Phase 0 inputs (dummy — output side-channel for future
                         # QKV-fusion; not consumed by this layer's attn path).
-                        hidden_in=self.rmsnorm_output[:nat],
-                        residual_in=self.residual_buf[:nat],
+                        hidden_in=_attn_output_buf,  # placeholder; β-coop ignores
+                        residual_in=_residual_in_buf,
                         input_gamma=self._phase_e_coop_input_gamma,
                         post_attn_gamma=self.rmsnorm_gamma,
                         attn_input_bf16=self._phase_e_coop_attn_input_scratch[:nat],
@@ -1280,7 +1460,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         wo_weight=self.wo_weight,
                         wo_scales=self.wo_scales,
                         wo_global_scale=self.wo_global_scale,
-                        attn_output=self.rmsnorm_output[:nat],
+                        attn_output=_attn_output_buf,
                         # Phase 3 inputs (MLP):
                         gate_w_fp4=self._mlp_gate_w,
                         gate_w_scale=self._mlp_gate_s,
@@ -1288,7 +1468,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         up_w_scale=self._mlp_up_s,
                         down_w_fp4=self._mlp_down_w,
                         down_w_scale=self._mlp_down_s,
-                        mlp_output=self.mlp_output[:nat],
+                        mlp_output=_mlp_output_buf,
                         # C1.5: Phase 4 (ε) inputs disabled — kernel returns
                         # at end of Phase 3. Per-layer input_LN now runs
                         # from Python at every layer entry.
@@ -1302,11 +1482,11 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         # emit_next_layernorm=_emit_next,
                         # Caller-supplied residual_output so self.residual_output
                         # reflects residual_post_attn (Phase-1 Phase-C output).
-                        residual_output=self.residual_output[:nat],
+                        residual_output=_residual_output_buf,
                         # C2: Qwen3.5 attn output gate — buffer was filled by
                         # qwen3_5.py:267 from the q_proj's gate slice. Mirrors
                         # the paged kernel's `gate_buf=` plumbing.
-                        gate_buf=self.gate_buf[:nat],
+                        gate_buf=_gate_buf,
                     )
                 self._phase_e_consumed = True
                 self._phase_e_use_beta_coop = True
@@ -1413,13 +1593,30 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                     _next_gamma = None
                     _rms_eps = 1e-6
 
+                # β-lite launch — uses framework outputs when available.
+                # When the framework-output route is active, paged
+                # attention has already written output_rmsnorm and
+                # output_residual; β-lite reads output_rmsnorm as MLP
+                # input and writes output_mlp.
+                _mlp_in = (
+                    output_rmsnorm[:nat] if _framework_output_route
+                    else self.rmsnorm_output[:nat]
+                )
+                _mlp_out = (
+                    output_mlp[:nat] if _framework_output_route
+                    else self.mlp_output[:nat]
+                )
+                _residual_post_ln = (
+                    output_residual[:nat] if _framework_output_route
+                    else self.residual_buf[:nat]
+                )
                 # Phase E.1 #3: per-layer NVTX span for torch-profiler
                 # attribution. No-op when no profiler is active.
                 with record_function(
                     f"PhaseE_Beta.lite.{_layer_name}"
                 ):
                     self._mlp_kernel(
-                        self.rmsnorm_output[:nat],
+                        _mlp_in,
                         self._mlp_gate_w,
                         self._mlp_gate_s,
                         self._mlp_up_w,
@@ -1428,21 +1625,35 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         self._mlp_down_s,
                         self.mlp_partial_fp32[:nat],
                         self.mlp_arrival_count[:nat],
-                        # Reuse mlp_output as the Phase-D MLP output surface
-                        # (epilogue then consumes it for residual+norm).
-                        self.mlp_output[:nat],
+                        # Reuse mlp_output as the Phase-D MLP output surface.
+                        # C1.5 consumes raw MLP output and the post-attn
+                        # residual separately; next layer input_LN performs
+                        # the residual + MLP accumulation.
+                        _mlp_out,
                         nat,
                         gate_up_global_scale=self._mlp_gate_up_gs,
                         down_global_scale=self._mlp_down_gs,
                         # ε epilogue inputs (Task 8 kwargs):
-                        residual_post_ln=self.residual_buf[:nat],
+                        residual_post_ln=_residual_post_ln,
                         next_input_layernorm_gamma=_next_gamma,
                         next_hidden_output=self.next_hidden_scratch[:nat],
-                        emit_epilogue=True,
+                        # C1.5 contract: β-lite is MLP-only. The epilogue
+                        # mutates residual_post_ln in place, but current
+                        # consumers read raw mlp_output + residual_output.
+                        emit_epilogue=False,
                         emit_next_layernorm=_emit_next,
                         rms_eps=_rms_eps,
                     )
-                self._phase_e_consumed = True
+                # FIX #3 (2026-04-27, friend's analysis): in framework-output
+                # mode, the decoder layer reads output_mlp/output_residual
+                # DIRECTLY (returns before reaching cute_phase_e_dispatch).
+                # `_phase_e_consumed=True` here would poison any later
+                # non-framework fallback that still calls cute_phase_e_dispatch
+                # — that op would try to consume from impl.mlp_output, which
+                # in framework-output mode was NOT written (β-lite wrote
+                # output_mlp instead). Keep the flag False on framework path.
+                if not _framework_output_route:
+                    self._phase_e_consumed = True
                 self._phase_e_use_beta_lite = True
             except Exception as e:  # noqa: BLE001 — fail-closed, log & fall back
                 logger.warning(
@@ -1454,6 +1665,58 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 self._phase_e_consumed = False
                 self._phase_e_use_beta_lite = False
         # --- END PHASE E β-lite dispatch ---
+
+        # --- PHASE 4 EDIT 4: writer-invariant fallback ------------------
+        # Required when framework-output route is active but no β path
+        # produced output_mlp (and possibly not output_rmsnorm/output_residual
+        # either). Covers:
+        #   - prefill / oversize batch (use_fusion=False; paged returned
+        #     raw 2D `result`, didn't touch framework buffers)
+        #   - decode where _phase_e_active=False (e.g. _layer_allowed=False
+        #     or _phase_e_attached=False; paged ran fused → output_rmsnorm
+        #     and output_residual are valid, only output_mlp missing)
+        #   - β-coop and β-lite both raised (rare)
+        # Uses modules stashed on impl by attach_fusion + attach_mlp_fusion:
+        #   _o_proj_module, _post_norm_module, _attn_output_gate,
+        #   _mlp_gate_up_proj, _mlp_act_fn, _mlp_down_proj.
+        if (
+            _framework_output_route
+            and not self._phase_e_use_beta_coop
+            and not self._phase_e_use_beta_lite
+        ):
+            nat = num_actual_tokens
+            if use_fusion:
+                # paged ran fused → output_rmsnorm + output_residual valid.
+                # Only output_mlp missing.
+                _mlp_in = output_rmsnorm[:nat]
+            else:
+                # paged returned 3D raw attn `[nat, num_q_heads, head_dim]`
+                # into `result`. Reshape to 2D `[nat, q_size]` before the
+                # gate multiply (gate is 2D `[nat, q_size]` from
+                # qwen3_5.py:264) and o_proj input.
+                attn_2d = result.reshape(nat, -1)
+                if self._attn_output_gate and gate is not None:
+                    gate_sigmoid = torch.sigmoid(gate[:nat])
+                    attn_2d = attn_2d * gate_sigmoid
+                wo_out, _ = self._o_proj_module(attn_2d)
+                # Fused-residual post-attn LN: returns (LN(x+r)*(1+γ), x+r).
+                # Per feedback_layer_output_contract, residual_post_attn = x+r,
+                # NOT residual_final. The next layer's input_LN will re-fuse.
+                out_x, out_residual = self._post_norm_module(
+                    wo_out, residual[:nat]
+                )
+                output_rmsnorm[:nat].copy_(out_x)
+                output_residual[:nat].copy_(out_residual)
+                _mlp_in = output_rmsnorm[:nat]
+            # MLP fallback into output_mlp[:nat]. Stashed unfused modules
+            # are safe under graph capture because this entire block is
+            # executed inside the cute_beta_coop_run splitting-op body
+            # (eager Python between captured pieces).
+            gate_up, _ = self._mlp_gate_up_proj(_mlp_in)
+            mid = self._mlp_act_fn(gate_up)
+            mlp_out, _ = self._mlp_down_proj(mid)
+            output_mlp[:nat].copy_(mlp_out)
+        # --- END PHASE 4 EDIT 4 -----------------------------------------
 
         # --- PHASE D2 DISABLED (commented, not deleted — Phase B/C debug may
         # need this attention-side launch path back) ---
@@ -1514,7 +1777,13 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # which the consume branch reads directly — `output` is the
         # framework's unified attn-output buffer, not consumed in the
         # fusion path. Skip the copy_ in that case.
-        if result is not None:
+        #
+        # Phase 3 (2026-04-27): when the framework-output route is active,
+        # paged writes directly to output_rmsnorm (== output) via the
+        # rmsnorm_output kwarg. The legacy 3D `result` (per-head attn
+        # output) doesn't match the 2D `output_rmsnorm` shape and is also
+        # redundant — skip the copy on this route.
+        if result is not None and not _framework_output_route:
             output[:num_actual_tokens].copy_(result)
         return output
 

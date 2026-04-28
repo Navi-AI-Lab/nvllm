@@ -34,6 +34,12 @@ from itertools import islice
 import torch
 from torch import nn
 
+# Side-effect import: registers torch.ops.vllm.cute_beta_coop_run.
+# Mirrors vllm/nvllm/layers/mlp.py:21 pattern. Importing here ensures
+# the op exists at torch.compile trace time even for the attached-fusion
+# branch.
+import vllm.v1.attention.backends.cute_paged._beta_coop_op  # noqa: F401
+
 # C2 diag env load (vLLM's EngineCore subprocess strips most of pid-1's env;
 # source the gate config from a sentinel file written by serve-cute.sh).
 # No-op when the file is absent (production behavior unchanged).
@@ -238,6 +244,12 @@ class Qwen3_5Attention(nn.Module):
         positions: torch.Tensor,
         output: torch.Tensor,
         hidden_states: torch.Tensor,
+        # NEW (Phase 3): framework-output route. When all three non-None,
+        # β-coop / fall-through writes through these (output is reused
+        # as output_rmsnorm).
+        residual: torch.Tensor | None = None,
+        output_residual: torch.Tensor | None = None,
+        output_mlp: torch.Tensor | None = None,
     ):
         qkv, _ = self.qkv_proj(hidden_states)
 
@@ -279,6 +291,76 @@ class Qwen3_5Attention(nn.Module):
             if gate_buf is not None:
                 torch.ops.vllm.cute_residual_mirror(gate_buf, gate)
 
+        # ---- β-coop framework-output route (Phase 3+) ----
+        # _beta_coop_framework_output_bound is set in
+        # _resolve_mlp_weights when ALL three pre-conditions hold
+        # (attn fusion + MLP fusion + coop kernel attached).
+        # See feedback_splitting_op_runtime_dispatch.
+        impl = self.attn.impl
+        _use_framework_output = (
+            getattr(impl, "_beta_coop_framework_output_bound", False)
+            and residual is not None
+            and output_residual is not None
+            and output_mlp is not None
+        )
+        if _use_framework_output:
+            # FIX #2 (2026-04-27, friend's analysis): reshape Q/K/V to 3D
+            # BEFORE unified_kv_cache_update. This mirrors canonical
+            # Attention.forward (vllm/model_executor/layers/attention/
+            # attention.py:451-468): query/key/value are reshaped to 3D
+            # `[num_tokens, n_heads, head_size]` BEFORE the kv-cache update
+            # op AND before the attention op. Our prior version called
+            # unified_kv_cache_update with 2D K/V — even if it didn't crash,
+            # it bypasses the canonical contract and could write the cache
+            # at the wrong stride. The reshape inside _beta_coop_op.py is
+            # now redundant (Q/K/V already 3D when the op receives them).
+            inner_attn = self.attn  # the framework-side `Attention` instance
+            q3d = q.view(-1, inner_attn.num_heads, inner_attn.head_size)
+            k3d = k.view(-1, inner_attn.num_kv_heads, inner_attn.head_size)
+            v3d = v.view(-1, inner_attn.num_kv_heads, inner_attn.head_size_v)
+
+            # KV-cache update (cute_paged backend has
+            # forward_includes_kv_cache_update = False at _backend.py:124,
+            # so caller must do this).
+            #
+            # PHASE 4 BISECT FIX (2026-04-28, friend's analysis):
+            # Canonical Attention.forward dispatches `unified_kv_cache_update`
+            # via use_direct_call (attention.py:458-487). On CUDA-opaque-attn
+            # platforms (our case, cute_paged is opaque), use_direct_call=False
+            # → must call via `torch.ops.vllm.unified_kv_cache_update`.
+            # The prior unconditional direct Python call was being DCE'd by
+            # torch.compile (no graph-op marker for the side effect),
+            # corrupting KV cache for every layer of every forward → byte-
+            # identical "rome?" gibberish across all Phase 4 configurations.
+            if inner_attn.use_direct_call:
+                from vllm.model_executor.layers.attention.attention import (
+                    unified_kv_cache_update,
+                )
+                kv_cache_dummy_dep = unified_kv_cache_update(
+                    k3d, v3d, inner_attn.layer_name
+                )
+            else:
+                kv_cache_dummy_dep = torch.ops.vllm.unified_kv_cache_update(
+                    k3d, v3d, inner_attn.layer_name
+                )
+            # `attn_input` for β-coop is the post-input-LN hidden_states
+            # (already computed by the caller before this forward).
+            torch.ops.vllm.cute_beta_coop_run(
+                q3d,
+                k3d,
+                v3d,
+                residual,
+                hidden_states,  # attn_input
+                gate if self.attn_output_gate else torch.empty(0, device=q.device, dtype=torch.bfloat16),
+                output,         # → output_rmsnorm
+                output_residual,
+                output_mlp,
+                inner_attn.layer_name,
+                kv_cache_dummy_dep=kv_cache_dummy_dep,
+            )
+            return  # Decoder layer reads `output`, `output_residual`, `output_mlp`.
+
+        # ---- Legacy path (unchanged) ----
         attn_output = self.attn(q, k, v)
 
         # Apply gate + o_proj in Python when the kernel did not fuse them.
@@ -460,6 +542,52 @@ class Qwen3_5DecoderLayer(nn.Module):
                 torch.ops.vllm.cute_residual_mirror(impl.residual_buf, residual)
         _ct_mark("residual_mirror")
 
+        # ---- Phase 4 framework-output route gate (trace-static only) ----
+        # Phase 3 had this gate also check `_framework_decode_only` (Python
+        # read of attn_metadata.is_decode_only at this point) and
+        # `nat <= _fusion_max_num_seqs`. Both are runtime-only signals that
+        # torch.compile bakes to False at trace time → captured graph never
+        # entered the framework-output route, only the legacy fall-through
+        # ran. Phase 4 makes the gate trace-static so the graph emits
+        # `torch.ops.vllm.cute_beta_coop_run` unconditionally. The op's
+        # eager body (splitting boundary at compilation.py:722) handles
+        # runtime dispatch — β-coop, β-lite, or full-legacy fallback —
+        # inside _backend.forward (writer-invariant per Edit 4 below).
+        #
+        # PHASE 3 ORIGINAL (commented per feedback_comment_not_delete; may
+        # be re-enabled if Phase 4 architecture is rolled back):
+        # _framework_decode_only = False
+        # if self.layer_type == "full_attention" and impl is not None:
+        #     try:
+        #         from vllm.forward_context import get_forward_context
+        #
+        #         _attn_md = get_forward_context().attn_metadata
+        #         if isinstance(_attn_md, dict):
+        #             _attn_md = _attn_md.get(self.self_attn.attn.layer_name)
+        #         _framework_decode_only = bool(
+        #             getattr(_attn_md, "is_decode_only", False)
+        #         )
+        #     except (RuntimeError, KeyError, AttributeError, TypeError):
+        #         _framework_decode_only = False
+        # _framework_output_route = (
+        #     self.layer_type == "full_attention"
+        #     and impl is not None
+        #     and getattr(impl, "_beta_coop_framework_output_bound", False)
+        #     and _framework_decode_only
+        #     and nat <= getattr(impl, "_fusion_max_num_seqs", 0)
+        # )
+        _framework_output_route = (
+            self.layer_type == "full_attention"
+            and impl is not None
+            and getattr(impl, "_beta_coop_framework_output_bound", False)
+        )
+        if _framework_output_route:
+            output_residual = torch.empty_like(residual)
+            output_mlp = torch.empty_like(residual)
+        else:
+            output_residual = None
+            output_mlp = None
+
         self_attention_output = torch.empty_like(hidden_states)
         _ct_mark("attn_out_alloc")
 
@@ -475,9 +603,23 @@ class Qwen3_5DecoderLayer(nn.Module):
                 hidden_states=hidden_states,
                 output=self_attention_output,
                 positions=positions,
+                residual=residual if _framework_output_route else None,
+                output_residual=output_residual,
+                output_mlp=output_mlp,
             )
             _ct_mark("self_attn")
-            if impl is not None and getattr(impl, "_fusion_active", False):
+            # Phase 3 (2026-04-27): when framework-output route is active,
+            # the kernel wrote output_rmsnorm (= self_attention_output) and
+            # output_residual directly. Skip the legacy `impl.X` consume —
+            # it would copy stale impl-attribute data (impl.rmsnorm_output
+            # is unwritten under the framework-output route) over the good
+            # framework values, corrupting them until rebound at line ~577.
+            # Functionally harmless but wastes compute and obscures intent.
+            if (
+                impl is not None
+                and getattr(impl, "_fusion_active", False)
+                and not _framework_output_route
+            ):
                 # Kernel already did gate*attn, W_O GEMV, residual+RMSNorm.
                 self_attention_output[:nat].copy_(impl.rmsnorm_output[:nat])
                 if nat < num_tokens:
@@ -501,6 +643,16 @@ class Qwen3_5DecoderLayer(nn.Module):
                     self.attn_layer_scale.to(hidden_states.dtype) + 1
                 )
 
+        if _framework_output_route:
+            # β-coop / fall-through wrote through self_attention_output
+            # (= output_rmsnorm), output_residual, output_mlp.
+            # Decoder layer consumes them directly — no Python
+            # post-attn-LN, no Python MLP.
+            hidden_states = output_mlp
+            residual = output_residual
+            return hidden_states, residual
+
+        # ---- Legacy path (unchanged below) ----
         if not getattr(impl, "_fusion_active", False):
             hidden_states, residual = self.post_attention_layernorm(
                 hidden_states, residual
