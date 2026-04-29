@@ -11,18 +11,43 @@ namespace nvllm::fp4 {
 struct ShapeWinners {
     int N;
     int K;
-    int idx_16_32;
-    int idx_64_128;
-    int idx_192_256;
+    int idx_1_2;       // small-M: mp2 in {1,2}
+    int idx_4_8;       // small-M: mp2 in {4,8}
+    int idx_16;        // small-M: mp2 == 16
+    int idx_16_32;     // mid-M:   mp2 == 32 (bucket name "16-32" historical)
+    int idx_64_128;    // mid-M:   mp2 in {64,128}
+    int idx_192_256;   // mid-M:   mp2 == 256
     const char* shape_name;  // debug only — NVLLM_FP4_GEMM_LOG_TABLE=1
 };
 
 inline constexpr ShapeWinners kWinnersTable[] = {
-    {   8192,   5120, /*16-32*/  6, /*64-128*/ 11, /*192-256*/  1, "qwen35_27b/qkv_proj" },
-    {   5120,   6144, /*16-32*/  6, /*64-128*/  5, /*192-256*/ 10, "qwen35_27b/o_proj" },
-    {  34816,   5120, /*16-32*/  2, /*64-128*/  3, /*192-256*/  2, "qwen35_27b/gate_up_proj" },
-    {   5120,  17408, /*16-32*/  2, /*64-128*/  2, /*192-256*/  2, "qwen35_27b/down_proj" },
+    {   8192,   5120, /*1-2*/  7, /*4-8*/  6, /*16*/  6, /*16-32*/  6, /*64-128*/ 11, /*192-256*/  1, "qwen35_27b/qkv_proj" },
+    {   5120,   6144, /*1-2*/  7, /*4-8*/  7, /*16*/  6, /*16-32*/  6, /*64-128*/  5, /*192-256*/ 10, "qwen35_27b/o_proj" },
+    {  34816,   5120, /*1-2*/  2, /*4-8*/  3, /*16*/  2, /*16-32*/  2, /*64-128*/  3, /*192-256*/  2, "qwen35_27b/gate_up_proj" },
+    {   5120,  17408, /*1-2*/  3, /*4-8*/  2, /*16*/  2, /*16-32*/  2, /*64-128*/  2, /*192-256*/  2, "qwen35_27b/down_proj" },
+    {  14336,   5120, /*1-2*/  2, /*4-8*/  3, /*16*/  2, /*16-32*/ -1, /*64-128*/ -1, /*192-256*/ -1, "qwen35_27b/gdn_in_proj_qkv" },
 };
+
+// Returns ShortlistCfg idx or -1 if (n,k) not in table / mp2 not in small band.
+// Small band: mp2 in {1, 2, 4, 8, 16}.
+inline int lookup_m_small_winner(int n, int k, int mp2) {
+    for (auto const& w : kWinnersTable) {
+        if (w.N != n || w.K != k) continue;
+        int idx;
+        switch (mp2) {
+            case 1: case 2:  idx = w.idx_1_2; break;
+            case 4: case 8:  idx = w.idx_4_8; break;
+            case 16:         idx = w.idx_16;  break;
+            default:         return -1;
+        }
+        if (const char* dbg = std::getenv("NVLLM_FP4_GEMM_LOG_TABLE"); dbg && dbg[0] == '1') {
+            std::fprintf(stderr, "[nvllm] fp4 small-M table: %s mp2=%d -> idx=%d\n",
+                         w.shape_name, mp2, idx);
+        }
+        return idx;
+    }
+    return -1;
+}
 
 // Returns ShortlistCfg idx or -1 if (n,k) not in table / mp2 not in mid band.
 inline int lookup_m_mid_winner(int n, int k, int mp2) {

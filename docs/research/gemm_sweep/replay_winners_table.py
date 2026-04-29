@@ -36,7 +36,9 @@ SHAPES = [
     ("gate_up_proj", 34816, 5120),
     ("down_proj",    5120,  17408),
 ]
-M_VALUES = [16, 32, 64, 128, 192, 256]
+M_VALUES_MID = [16, 32, 64, 128, 192, 256]
+M_VALUES_SMALL = [1, 2, 4, 8, 16]
+M_VALUES = M_VALUES_MID  # back-compat default; --m-band overrides
 
 WARMUP = 50
 TIMED  = 200
@@ -77,12 +79,12 @@ def time_op(m: int, n: int, k: int, warmup: int, timed: int,
     return [s.elapsed_time(e) * 1000.0 for s, e in zip(start, end)]  # ms -> us
 
 
-def run_grid(label: str) -> list[dict]:
+def run_grid(label: str, m_values: list[int]) -> list[dict]:
     out_dtype = torch.bfloat16
     device = "cuda"
     rows = []
     for shape, n, k in SHAPES:
-        for m in M_VALUES:
+        for m in m_values:
             us = time_op(m, n, k, WARMUP, TIMED, out_dtype, device)
             rows.append({
                 "shape": shape, "M": m, "N": n, "K": k,
@@ -98,19 +100,30 @@ def run_grid(label: str) -> list[dict]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--output", type=Path, required=True)
-    ap.add_argument("--label", required=True, choices=["baseline", "table"],
+    ap.add_argument("--label", required=True,
+                    choices=["baseline", "table", "baseline_streamk", "table_smallm"],
                     help="baseline = NVLLM_FP4_GEMM_CONFIG_M256=11 forces smoke_M256; "
-                         "table = no env var, hits lookup_m_mid_winner")
+                         "table = no env var, hits lookup_m_mid_winner; "
+                         "baseline_streamk = NVLLM_FP4_GEMM_CONFIG_M256=4 forces "
+                         "Stream-K config (the pre-Phase-6b hardcoded path); "
+                         "table_smallm = no env var, hits lookup_m_small_winner")
+    ap.add_argument("--m-band", choices=["mid", "small"], default="mid",
+                    help="Which M-band to sweep. mid = legacy [16..256]; "
+                         "small = Phase 6b [1..16].")
     args = ap.parse_args()
 
     env_idx = os.environ.get("NVLLM_FP4_GEMM_CONFIG_M256", "")
     if args.label == "baseline" and env_idx != "11":
         raise SystemExit("baseline mode requires NVLLM_FP4_GEMM_CONFIG_M256=11")
-    if args.label == "table" and env_idx != "":
-        raise SystemExit("table mode requires NVLLM_FP4_GEMM_CONFIG_M256 unset")
+    if args.label == "baseline_streamk" and env_idx != "4":
+        raise SystemExit("baseline_streamk mode requires NVLLM_FP4_GEMM_CONFIG_M256=4")
+    if args.label in ("table", "table_smallm") and env_idx != "":
+        raise SystemExit(f"{args.label} mode requires NVLLM_FP4_GEMM_CONFIG_M256 unset")
+
+    m_values = M_VALUES_SMALL if args.m_band == "small" else M_VALUES_MID
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    rows = run_grid(args.label)
+    rows = run_grid(args.label, m_values)
     with args.output.open("w") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()

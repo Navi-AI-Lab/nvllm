@@ -1,0 +1,221 @@
+[09:46:28]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi       9.7Gi        75Gi       274Mi        36Gi       109Gi
+Swap:           15Gi          0B        15Gi
+---
+[09:46:58]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        42Gi        31Gi       1.3Gi        47Gi        76Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=13.45GiB / 119.6GiB cpu=102.00%
+---
+[09:47:29]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        44Gi        29Gi       2.3Gi        48Gi        74Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=14.48GiB / 119.6GiB cpu=102.54%
+---
+[09:48:00]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        43Gi        30Gi       2.3Gi        49Gi        75Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=14.52GiB / 119.6GiB cpu=101.93%
+---
+[09:48:31]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        44Gi        28Gi       2.3Gi        49Gi        74Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=14.83GiB / 119.6GiB cpu=102.31%
+---
+[09:49:02]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        50Gi        23Gi       2.3Gi        49Gi        69Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=14.95GiB / 119.6GiB cpu=101.78%
+---
+[09:49:33]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        46Gi        27Gi       2.3Gi        49Gi        73Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=14.95GiB / 119.6GiB cpu=102.14%
+---
+[09:50:04]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        82Gi        37Gi       1.3Gi       1.7Gi        36Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=4.074GiB / 119.6GiB cpu=97.37%
+---
+[09:50:35]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        85Gi        34Gi       1.3Gi       1.7Gi        34Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=4.863GiB / 119.6GiB cpu=102.14%
+---
+[09:51:06]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        86Gi        33Gi       1.3Gi       1.7Gi        33Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=4.867GiB / 119.6GiB cpu=101.87%
+---
+[09:51:37]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        32Gi       1.3Gi       2.4Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.62GiB / 119.6GiB cpu=105.33%
+---
+[09:52:08]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       2.6Gi        31Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=106.20%
+---
+[09:52:39]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        32Gi       1.3Gi       2.8Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=105.30%
+---
+[09:53:10]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       2.8Gi        31Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=103.38%
+---
+[09:53:41]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=109.32%
+---
+[09:54:12]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=105.44%
+---
+[09:54:43]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=104.10%
+---
+[09:55:14]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=103.97%
+---
+[09:55:45]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=104.35%
+---
+[09:56:16]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.625GiB / 119.6GiB cpu=105.60%
+---
+[09:56:47]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.627GiB / 119.6GiB cpu=103.19%
+---
+[09:57:19]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.627GiB / 119.6GiB cpu=105.31%
+---
+[09:57:50]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.632GiB / 119.6GiB cpu=105.67%
+---
+[09:58:21]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.632GiB / 119.6GiB cpu=104.94%
+---
+[09:58:52]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        88Gi        30Gi       1.3Gi       3.1Gi        31Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.631GiB / 119.6GiB cpu=103.33%
+---
+[09:59:23]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.64GiB / 119.6GiB cpu=104.35%
+---
+[09:59:54]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.641GiB / 119.6GiB cpu=107.40%
+---
+[10:00:25]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.658GiB / 119.6GiB cpu=106.85%
+---
+[10:00:56]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.706GiB / 119.6GiB cpu=106.85%
+---
+[10:01:27]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.739GiB / 119.6GiB cpu=107.08%
+---
+[10:01:58]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.785GiB / 119.6GiB cpu=110.88%
+---
+[10:02:29]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.833GiB / 119.6GiB cpu=103.58%
+---
+[10:03:00]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        87Gi        31Gi       1.3Gi       3.1Gi        32Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=5.867GiB / 119.6GiB cpu=103.99%
+---
+[10:03:31]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        90Gi        28Gi       1.3Gi       3.2Gi        29Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=8.333GiB / 119.6GiB cpu=102.26%
+---
+[10:04:02]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        93Gi        24Gi       1.3Gi       3.2Gi        25Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=12.14GiB / 119.6GiB cpu=102.50%
+---
+[10:04:33]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        95Gi        23Gi       1.3Gi       3.2Gi        24Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=12.14GiB / 119.6GiB cpu=2.38%
+---
+[10:05:04]
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        93Gi        25Gi       1.3Gi       3.2Gi        25Gi
+Swap:           15Gi          0B        15Gi
+docker: nvllm mem=12.14GiB / 119.6GiB cpu=2.74%
+---

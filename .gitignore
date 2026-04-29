@@ -297,6 +297,17 @@ benchmarks/nvllm/traces/gemm_winners_table/**/*.pt.trace.json.gz
 !benchmarks/nvllm/traces/gemm_winners_table/**/*.log
 !benchmarks/nvllm/traces/gemm_winners_table/**/*.txt
 
+# Phase 6b evidence tree — same policy (small-M dispatcher refactor).
+benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.pt.trace.json.gz
+!benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.csv
+!benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.log
+!benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.md
+!benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.txt
+
+# Phase 6b supplemental microbench (GDN in_proj_qkv shape — committed CSV is
+# the deliverable; no raw traces from this dir).
+!benchmarks/nvllm/traces/gemm_sweep_sm120_phase6b_gdn/**/*.csv
+
 # Phase E evidence tree — raw .pt.trace.json.gz local-only, per-kernel CSVs
 # and serve logs committed. Reproducer: docs/research/phase_e_traces/capture_all.sh.
 benchmarks/nvllm/traces/phase_e/**/*.pt.trace.json.gz

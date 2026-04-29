@@ -338,7 +338,37 @@ void cutlass_fp4_bf16_gemm_dispatch(torch::stable::Tensor& D,
   NVLLM_NVTX_RANGE(nvtx_name);
   uint32_t const mp2 = next_pow_2(m);
   if (mp2 <= 16 && !nvllm_fp4_disable_streamk()) {
-    // Stream-K for small-M decode: better SM utilization at M=1-4
+    // Small-M decode band (Phase 6b 2026-04-29). Priority:
+    //   1. env-var override (NVLLM_FP4_GEMM_CONFIG_M256 — same var as mid-M)
+    //   2. (N, K) -> small-M bucket -> ShortlistCfg idx table
+    //   3. Stream-K fallback (sm120_fp4_config_stream_k) for shapes/configs
+    //      not in the table — preserves Phase A win for unknown shapes.
+    const char* env = std::getenv("NVLLM_FP4_GEMM_CONFIG_M256");
+    if (env && env[0] != '\0') {
+      int idx = atoi(env);
+      if (try_run_shortlist_config<cutlass::bfloat16_t>(
+              idx, D, A, B, A_sf, B_sf, alpha, m, n, k, stream)) {
+        NVLLM_NVTX_RANGE_POP();
+        return;
+      }
+      fprintf(stderr,
+              "[nvllm] NVLLM_FP4_GEMM_CONFIG_M256=%d unknown; falling through to small-M (N=%d,K=%d) table\n",
+              idx, n, k);
+    }
+
+    int tbl_idx = nvllm::fp4::lookup_m_small_winner(n, k, static_cast<int>(mp2));
+    if (tbl_idx >= 0 &&
+        try_run_shortlist_config<cutlass::bfloat16_t>(
+            tbl_idx, D, A, B, A_sf, B_sf, alpha, m, n, k, stream)) {
+      NVLLM_NVTX_RANGE_POP();
+      return;
+    }
+
+    if (const char* dbg = std::getenv("NVLLM_FP4_GEMM_LOG_TABLE"); dbg && dbg[0] == '1') {
+      std::fprintf(stderr,
+                   "[nvllm] fp4 small-M table: miss N=%d K=%d mp2=%d -> Stream-K fallback\n",
+                   n, k, static_cast<int>(mp2));
+    }
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::bfloat16_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else if (mp2 <= 256) {
@@ -387,6 +417,34 @@ void cutlass_fp4_f16_gemm_dispatch(torch::stable::Tensor& D,
   NVLLM_NVTX_RANGE(nvtx_name);
   uint32_t const mp2 = next_pow_2(m);
   if (mp2 <= 16 && !nvllm_fp4_disable_streamk()) {
+    // Small-M decode band (Phase 6b 2026-04-29). Same priority order as bf16
+    // dispatcher: env override -> small-M table -> Stream-K fallback.
+    const char* env = std::getenv("NVLLM_FP4_GEMM_CONFIG_M256");
+    if (env && env[0] != '\0') {
+      int idx = atoi(env);
+      if (try_run_shortlist_config<cutlass::half_t>(
+              idx, D, A, B, A_sf, B_sf, alpha, m, n, k, stream)) {
+        NVLLM_NVTX_RANGE_POP();
+        return;
+      }
+      fprintf(stderr,
+              "[nvllm] NVLLM_FP4_GEMM_CONFIG_M256=%d unknown; falling through to small-M (N=%d,K=%d) table\n",
+              idx, n, k);
+    }
+
+    int tbl_idx = nvllm::fp4::lookup_m_small_winner(n, k, static_cast<int>(mp2));
+    if (tbl_idx >= 0 &&
+        try_run_shortlist_config<cutlass::half_t>(
+            tbl_idx, D, A, B, A_sf, B_sf, alpha, m, n, k, stream)) {
+      NVLLM_NVTX_RANGE_POP();
+      return;
+    }
+
+    if (const char* dbg = std::getenv("NVLLM_FP4_GEMM_LOG_TABLE"); dbg && dbg[0] == '1') {
+      std::fprintf(stderr,
+                   "[nvllm] fp4 small-M table: miss N=%d K=%d mp2=%d -> Stream-K fallback\n",
+                   n, k, static_cast<int>(mp2));
+    }
     runGemm<Fp4GemmSm120StreamK<sm120_fp4_config_stream_k, cutlass::half_t>::Gemm>(
         D, A, B, A_sf, B_sf, alpha, m, n, k, stream);
   } else if (mp2 <= 256) {
