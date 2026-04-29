@@ -1,0 +1,1 @@
+{"phase": "cold", "run_id": "g1-v2-20260429-173404", "ok": true, "elapsed_s": 20.197, "n_compiled": 2, "files_before": 0, "files_after": 2, "new_files": ["6b/6b916aa206ebebfcda7fc6184c93bf2a2e953729bd06f5df0188193e529298b3.o", "8c/8c7911d6f78a8496cc2982542c78440caf86c4c9d102050cbdc5594b0617dd61.o"], "miss_count": 2, "hit_count": 0}

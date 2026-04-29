@@ -88,9 +88,8 @@ def warmup(arch: str) -> int:
                 [0, q_tokens], dtype=torch.int32, device="cuda",
             )
 
-            kernel(
+            common = dict(
                 query=q,
-                kv_cache=kv_cache,
                 page_table=page_table,
                 seq_lens=seq_lens,
                 scale=1.0 / (head_dim ** 0.5),
@@ -99,6 +98,16 @@ def warmup(arch: str) -> int:
                 page_size=page_size,
                 query_start_loc=query_start_loc,
             )
+            # Decode reads unified kv_cache; prefill expects split
+            # k_cache/v_cache (zero-copy stride addressing). Mismatch
+            # silently regressed under `|| true` in Dockerfile.gb10 —
+            # see Plan steps 4 + 5 (G1 detour).
+            if is_decode:
+                kernel(kv_cache=kv_cache, **common)
+            else:
+                k_cache = kv_cache[:, 0].contiguous()
+                v_cache = kv_cache[:, 1].contiguous()
+                kernel(k_cache=k_cache, v_cache=v_cache, **common)
             compiled += 1
             logger.info("Successfully compiled %s kernel", name)
         except Exception as e:

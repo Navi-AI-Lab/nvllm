@@ -1,0 +1,348 @@
+{
+  "run": "warm",
+  "call_index": 0,
+  "key": "6b916aa206ebebfcda7fc6184c93bf2a2e953729bd06f5df0188193e529298b3",
+  "key_prefix": "6b916aa206ebebfc",
+  "payload_hash": "6b916aa206ebebfcda7fc6184c93bf2a2e953729bd06f5df0188193e529298b3",
+  "payload_hash_matches_key": true,
+  "canonical_bytes_len": 1335,
+  "component_hashes": {
+    "func_fingerprint": "16429859bcca17e6a8f01b7b88477c210595ce6214e0853965618cc856d9a179",
+    "package_fingerprint": "3a7833b48cf332ec8e9b1bfed51ab8e5cdc57d42de1c56ec53f7ff0309c4b5fc",
+    "toolchain": "ee0e356afe20131868b9b25df3bdbccf91cc84f4a605e6ff3dfd7b261f94eef6",
+    "args": "4ca58d6dbc9d69bd336043513b6acfff4e0df8cc558987c57cd78f3d12b55f99",
+    "compile_options": "08f1dae3b825763d7faadf80200540151db6ce3c1607f433d5bce1d59f2b364c",
+    "compile_env": "0164fb7faa84e4e2b5473c778e757217ae6424a4f956e5dc989a881e05631c51"
+  },
+  "func_module": "vllm.v1.attention.backends.cute_paged.kernel",
+  "func_qualname": "PrefillKernel._jit_launch",
+  "func_slug": "vllm.v1.attention.backends.cute_paged.kernel.PrefillKernel._jit_launch",
+  "func_fingerprint": [
+    "vllm.v1.attention.backends.cute_paged.kernel",
+    "PrefillKernel._jit_launch",
+    "cute_paged:1c14c46e8ab06235b14b5aeb5a258cacd47fa0293ee98e5b52d36243238026e1"
+  ],
+  "package_fingerprint": "1c14c46e8ab06235b14b5aeb5a258cacd47fa0293ee98e5b52d36243238026e1",
+  "signature": "(query, k_cache, v_cache, page_table, seq_lens, query_start_loc, output, scale, k_scale, v_scale, num_q_heads, num_kv_heads, grid_x: 'Int32', grid_y: 'Int32', grid_z: 'Int32', stream)",
+  "unwrapped_signature": "(self, query, k_cache, v_cache, page_table, seq_lens, query_start_loc, output, scale, k_scale, v_scale, num_q_heads, num_kv_heads, grid_x: 'Int32', grid_y: 'Int32', grid_z: 'Int32', stream)",
+  "param_names": [
+    "query",
+    "k_cache",
+    "v_cache",
+    "page_table",
+    "seq_lens",
+    "query_start_loc",
+    "output",
+    "scale",
+    "k_scale",
+    "v_scale",
+    "num_q_heads",
+    "num_kv_heads",
+    "grid_x",
+    "grid_y",
+    "grid_z",
+    "stream"
+  ],
+  "bind_names_available": true,
+  "bound_args_repr": {
+    "query": "tensor([[[0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         ...,\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.]],\n\n        [[0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         ...,\n ...<+1231>",
+    "k_cache": "tensor([[[[0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          ...,\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0]],\n\n         [[0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          ...,\n          [0, 0, 0,  ..., 0, 0, 0],\n        ...<+2464>",
+    "v_cache": "tensor([[[[0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          ...,\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0]],\n\n         [[0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          ...,\n          [0, 0, 0,  ..., 0, 0, 0],\n        ...<+2464>",
+    "page_table": "tensor([[0, 0]], device='cuda:0', dtype=torch.int32)",
+    "seq_lens": "tensor([64], device='cuda:0', dtype=torch.int32)",
+    "query_start_loc": "tensor([ 0, 64], device='cuda:0', dtype=torch.int32)",
+    "output": "tensor([[[0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         ...,\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.]],\n\n        [[0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         ...,\n ...<+1231>",
+    "scale": "0.0625",
+    "k_scale": "1.0",
+    "v_scale": "1.0",
+    "num_q_heads": "Int32(32)",
+    "num_kv_heads": "Int32(8)",
+    "grid_x": "Int32(4)",
+    "grid_y": "Int32(8)",
+    "grid_z": "Int32(1)",
+    "stream": "<CUstream 0x0>"
+  },
+  "positional_names": {
+    "0": "query",
+    "1": "k_cache",
+    "2": "v_cache",
+    "3": "page_table",
+    "4": "seq_lens",
+    "5": "query_start_loc",
+    "6": "output",
+    "7": "scale",
+    "8": "k_scale",
+    "9": "v_scale",
+    "10": "num_q_heads",
+    "11": "num_kv_heads",
+    "12": "grid_x",
+    "13": "grid_y",
+    "14": "grid_z",
+    "15": "stream"
+  },
+  "components_positional": [
+    {
+      "index": 0,
+      "name": "query",
+      "type_module": "torch",
+      "type_qualname": "Tensor",
+      "is_pointer_typed": false,
+      "raw_repr": "tensor([[[0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         ...,\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.]],\n\n        [[0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         ...,\n ...<+1231>",
+      "raw_structural": "('object', 'torch', 'Tensor', ())",
+      "raw_structural_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82",
+      "canonical": "('object', 'torch', 'Tensor', ())",
+      "canonical_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82"
+    },
+    {
+      "index": 1,
+      "name": "k_cache",
+      "type_module": "torch",
+      "type_qualname": "Tensor",
+      "is_pointer_typed": false,
+      "raw_repr": "tensor([[[[0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          ...,\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0]],\n\n         [[0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          ...,\n          [0, 0, 0,  ..., 0, 0, 0],\n        ...<+2464>",
+      "raw_structural": "('object', 'torch', 'Tensor', ())",
+      "raw_structural_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82",
+      "canonical": "('object', 'torch', 'Tensor', ())",
+      "canonical_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82"
+    },
+    {
+      "index": 2,
+      "name": "v_cache",
+      "type_module": "torch",
+      "type_qualname": "Tensor",
+      "is_pointer_typed": false,
+      "raw_repr": "tensor([[[[0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          ...,\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0]],\n\n         [[0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          [0, 0, 0,  ..., 0, 0, 0],\n          ...,\n          [0, 0, 0,  ..., 0, 0, 0],\n        ...<+2464>",
+      "raw_structural": "('object', 'torch', 'Tensor', ())",
+      "raw_structural_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82",
+      "canonical": "('object', 'torch', 'Tensor', ())",
+      "canonical_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82"
+    },
+    {
+      "index": 3,
+      "name": "page_table",
+      "type_module": "torch",
+      "type_qualname": "Tensor",
+      "is_pointer_typed": false,
+      "raw_repr": "tensor([[0, 0]], device='cuda:0', dtype=torch.int32)",
+      "raw_structural": "('object', 'torch', 'Tensor', ())",
+      "raw_structural_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82",
+      "canonical": "('object', 'torch', 'Tensor', ())",
+      "canonical_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82"
+    },
+    {
+      "index": 4,
+      "name": "seq_lens",
+      "type_module": "torch",
+      "type_qualname": "Tensor",
+      "is_pointer_typed": false,
+      "raw_repr": "tensor([64], device='cuda:0', dtype=torch.int32)",
+      "raw_structural": "('object', 'torch', 'Tensor', ())",
+      "raw_structural_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82",
+      "canonical": "('object', 'torch', 'Tensor', ())",
+      "canonical_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82"
+    },
+    {
+      "index": 5,
+      "name": "query_start_loc",
+      "type_module": "torch",
+      "type_qualname": "Tensor",
+      "is_pointer_typed": false,
+      "raw_repr": "tensor([ 0, 64], device='cuda:0', dtype=torch.int32)",
+      "raw_structural": "('object', 'torch', 'Tensor', ())",
+      "raw_structural_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82",
+      "canonical": "('object', 'torch', 'Tensor', ())",
+      "canonical_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82"
+    },
+    {
+      "index": 6,
+      "name": "output",
+      "type_module": "torch",
+      "type_qualname": "Tensor",
+      "is_pointer_typed": false,
+      "raw_repr": "tensor([[[0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         ...,\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.]],\n\n        [[0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         [0., 0., 0.,  ..., 0., 0., 0.],\n         ...,\n ...<+1231>",
+      "raw_structural": "('object', 'torch', 'Tensor', ())",
+      "raw_structural_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82",
+      "canonical": "('object', 'torch', 'Tensor', ())",
+      "canonical_hash": "3bf239b49d8128ce4b9dbf66778b70115ab62205736364e5a40fc5ecf79d7f82"
+    },
+    {
+      "index": 7,
+      "name": "scale",
+      "type_module": "builtins",
+      "type_qualname": "float",
+      "is_pointer_typed": false,
+      "raw_repr": "0.0625",
+      "raw_structural": "0.0625",
+      "raw_structural_hash": "f3499b6fd23711d2e243b8074433b1e25ba1fe9f21b6040a0133d8f6ab50050c",
+      "canonical": "0.0625",
+      "canonical_hash": "f3499b6fd23711d2e243b8074433b1e25ba1fe9f21b6040a0133d8f6ab50050c"
+    },
+    {
+      "index": 8,
+      "name": "k_scale",
+      "type_module": "builtins",
+      "type_qualname": "float",
+      "is_pointer_typed": false,
+      "raw_repr": "1.0",
+      "raw_structural": "1.0",
+      "raw_structural_hash": "d0ff5974b6aa52cf562bea5921840c032a860a91a3512f7fe8f768f6bbe005f6",
+      "canonical": "1.0",
+      "canonical_hash": "d0ff5974b6aa52cf562bea5921840c032a860a91a3512f7fe8f768f6bbe005f6"
+    },
+    {
+      "index": 9,
+      "name": "v_scale",
+      "type_module": "builtins",
+      "type_qualname": "float",
+      "is_pointer_typed": false,
+      "raw_repr": "1.0",
+      "raw_structural": "1.0",
+      "raw_structural_hash": "d0ff5974b6aa52cf562bea5921840c032a860a91a3512f7fe8f768f6bbe005f6",
+      "canonical": "1.0",
+      "canonical_hash": "d0ff5974b6aa52cf562bea5921840c032a860a91a3512f7fe8f768f6bbe005f6"
+    },
+    {
+      "index": 10,
+      "name": "num_q_heads",
+      "type_module": "cutlass.base_dsl.typing",
+      "type_qualname": "Int32",
+      "is_pointer_typed": false,
+      "raw_repr": "Int32(32)",
+      "raw_structural": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 32),))",
+      "raw_structural_hash": "e38dd82f7b8af33d92e64c80753c5b64d41116a998e8e039d5fdb57f49d72430",
+      "canonical": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 32),))",
+      "canonical_hash": "e38dd82f7b8af33d92e64c80753c5b64d41116a998e8e039d5fdb57f49d72430"
+    },
+    {
+      "index": 11,
+      "name": "num_kv_heads",
+      "type_module": "cutlass.base_dsl.typing",
+      "type_qualname": "Int32",
+      "is_pointer_typed": false,
+      "raw_repr": "Int32(8)",
+      "raw_structural": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 8),))",
+      "raw_structural_hash": "1e3a2d9763822b6153973fb6237a04a3722062971724d1ccb125b77d7396b6fa",
+      "canonical": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 8),))",
+      "canonical_hash": "1e3a2d9763822b6153973fb6237a04a3722062971724d1ccb125b77d7396b6fa"
+    },
+    {
+      "index": 12,
+      "name": "grid_x",
+      "type_module": "cutlass.base_dsl.typing",
+      "type_qualname": "Int32",
+      "is_pointer_typed": false,
+      "raw_repr": "Int32(4)",
+      "raw_structural": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 4),))",
+      "raw_structural_hash": "6f20ef2f63506d33ca05446dcce83183d6880cd6b0dfeb5bd10e2048eaaf0e3e",
+      "canonical": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 4),))",
+      "canonical_hash": "6f20ef2f63506d33ca05446dcce83183d6880cd6b0dfeb5bd10e2048eaaf0e3e"
+    },
+    {
+      "index": 13,
+      "name": "grid_y",
+      "type_module": "cutlass.base_dsl.typing",
+      "type_qualname": "Int32",
+      "is_pointer_typed": false,
+      "raw_repr": "Int32(8)",
+      "raw_structural": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 8),))",
+      "raw_structural_hash": "1e3a2d9763822b6153973fb6237a04a3722062971724d1ccb125b77d7396b6fa",
+      "canonical": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 8),))",
+      "canonical_hash": "1e3a2d9763822b6153973fb6237a04a3722062971724d1ccb125b77d7396b6fa"
+    },
+    {
+      "index": 14,
+      "name": "grid_z",
+      "type_module": "cutlass.base_dsl.typing",
+      "type_qualname": "Int32",
+      "is_pointer_typed": false,
+      "raw_repr": "Int32(1)",
+      "raw_structural": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 1),))",
+      "raw_structural_hash": "f8f1cee359e44b2bb76790931cf61a084dd757bd1ecc69bf9e2ad5f2929b25bf",
+      "canonical": "('object', 'cutlass.base_dsl.typing', 'Int32', (('value', 1),))",
+      "canonical_hash": "f8f1cee359e44b2bb76790931cf61a084dd757bd1ecc69bf9e2ad5f2929b25bf"
+    },
+    {
+      "index": 15,
+      "name": "stream",
+      "type_module": "cuda.bindings.driver",
+      "type_qualname": "CUstream",
+      "is_pointer_typed": false,
+      "raw_repr": "<CUstream 0x0>",
+      "raw_structural": "('cuda_stream',)",
+      "raw_structural_hash": "328263eeafcfb530f30bde79b9fe3ea1dee0ce987a87799d5ebbe6bf0f02ef05",
+      "canonical": "('cuda_stream',)",
+      "canonical_hash": "328263eeafcfb530f30bde79b9fe3ea1dee0ce987a87799d5ebbe6bf0f02ef05"
+    }
+  ],
+  "components_keyword": [],
+  "toolchain": [
+    [
+      "python",
+      "cpython",
+      [
+        3,
+        12,
+        3
+      ]
+    ],
+    [
+      "torch",
+      "2.12.0.dev20260402+cu132"
+    ],
+    [
+      "torch_cuda",
+      "13.2"
+    ],
+    [
+      "cutlass_dsl",
+      "4.4.2"
+    ],
+    [
+      "cuda_bindings",
+      "13.2.0"
+    ]
+  ],
+  "compile_options": [
+    "opt-level=3",
+    "enable-assertions=false",
+    "preserve-line-info=false"
+  ],
+  "compile_env": [
+    [
+      "CC",
+      ""
+    ],
+    [
+      "CXX",
+      ""
+    ],
+    [
+      "CUDA_HOME",
+      "/usr/local/cuda"
+    ],
+    [
+      "CUDA_PATH",
+      ""
+    ],
+    [
+      "CUDA_TOOLKIT_PATH",
+      ""
+    ],
+    [
+      "CUDACXX",
+      ""
+    ],
+    [
+      "CUTE_DSL_ARCH",
+      ""
+    ],
+    [
+      "NVCC_APPEND_FLAGS",
+      ""
+    ],
+    [
+      "NVCC_PREPEND_FLAGS",
+      ""
+    ]
+  ]
+}

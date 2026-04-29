@@ -128,11 +128,20 @@ RUN pip install --no-cache-dir \
     ijson llvmlite \
     || true
 
-# -- Pre-compile CuTe attention kernels (non-fatal placeholder) --
+# -- Pre-compile CuTe attention kernels (fail-closed) --
+# Plan step 5: drop `|| true` now that G1 (decode/prefill cache hit)
+# passes — a silent failure here means serving will recompile on every
+# cold start, which is what the disk cache was meant to prevent. If
+# warmup fails, fail the build so the regression is caught at build
+# time, not at first inference.
 RUN B12X_CUTE_COMPILE_DISK_CACHE=1 \
     B12X_CUTE_COMPILE_CACHE_DIR=/opt/vllm/kernel_cache \
     python -m vllm.v1.attention.backends.cute_paged.warmup \
-    --arch sm_121 || true
+    --arch sm_121
+RUN B12X_CUTE_COMPILE_DISK_CACHE=1 \
+    B12X_CUTE_COMPILE_CACHE_DIR=/opt/vllm/kernel_cache \
+    python -m vllm.v1.attention.backends.cute_paged.warmup \
+    --verify-only --cache-dir /opt/vllm/kernel_cache
 
 # -- Templates --
 COPY templates/nemotron_no_think.jinja /templates/nemotron_no_think.jinja
