@@ -311,3 +311,11 @@ benchmarks/nvllm/traces/phase_e_1/**/*.pt.trace.json.gz
 !benchmarks/nvllm/traces/phase_e_1/**/*.md
 !benchmarks/nvllm/traces/phase_e_1/**/*.txt
 !benchmarks/nvllm/traces/phase_e_1/**/*.json
+
+# Phase 6a evidence tree — raw .pt.trace.json.gz local-only, per-kernel CSV
+# and serve logs committed. Reproducer: docs/research/phase_6a_traces/capture_phase_6a.sh.
+benchmarks/nvllm/traces/phase_6a/**/*.pt.trace.json.gz
+!benchmarks/nvllm/traces/phase_6a/**/*.csv
+!benchmarks/nvllm/traces/phase_6a/**/*.log
+!benchmarks/nvllm/traces/phase_6a/**/*.md
+!benchmarks/nvllm/traces/phase_6a/**/*.txt

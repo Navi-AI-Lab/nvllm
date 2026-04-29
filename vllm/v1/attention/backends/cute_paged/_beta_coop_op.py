@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """β-coop framework-output-buffer dispatch op.
 
 Mirrors `vllm::unified_attention_with_output` (vllm/model_executor/layers/
@@ -17,13 +19,21 @@ See feedback memory: feedback_splitting_op_runtime_dispatch
 
 from __future__ import annotations
 
+import os
+
 import torch
 
 from vllm.utils.torch_utils import direct_register_custom_op
 
 # Per-layer fire counter for empirical replay verification (mirrors
-# tests/compile/silly_attention.py:50). Reset by tests; in production
-# remains a debug observation point.
+# tests/compile/silly_attention.py:50). Reset by tests.
+#
+# Phase 6a: gated behind CUTE_BETA_COOP_COUNT=1. Default OFF — the
+# dict-get + dict-set ran every full-attn layer × every token despite
+# being a debug-only observation point. Local flag (not _DEBUG_FUSION)
+# avoids cross-module coupling and keeps the gate narrow: _DEBUG_FUSION
+# also enables heavier backend debug paths.
+_BETA_COOP_COUNT_FIRES: bool = os.environ.get("CUTE_BETA_COOP_COUNT", "0") == "1"
 _BETA_COOP_FIRE_COUNTER: dict[str, int] = {}
 
 
@@ -54,9 +64,10 @@ def cute_beta_coop_run(
 
     from vllm.model_executor.layers.attention.attention import get_attention_context
 
-    _BETA_COOP_FIRE_COUNTER[layer_name] = (
-        _BETA_COOP_FIRE_COUNTER.get(layer_name, 0) + 1
-    )
+    if _BETA_COOP_COUNT_FIRES:
+        _BETA_COOP_FIRE_COUNTER[layer_name] = (
+            _BETA_COOP_FIRE_COUNTER.get(layer_name, 0) + 1
+        )
 
     attn_metadata, attn_layer, kv_cache, _ = get_attention_context(layer_name)
 
@@ -66,10 +77,16 @@ def cute_beta_coop_run(
     # Done at op-body level (outside captured graphs) since we're a
     # splitting boundary; matches the canonical "minimize CPU overhead
     # from non-CUDA-graph regions" rationale.
-    query = query.view(-1, attn_layer.num_heads, attn_layer.head_size)
-    if key is not None:
+    #
+    # Phase 6a: defensive `dim() == 2` branch. Qwen3_5Attention.forward
+    # already passes 3D q/k/v on the framework route, so this skips ~3
+    # view ops per full-attn layer × per token. Legacy 2D callers (if
+    # any) still work via the fallback branch.
+    if query.dim() == 2:
+        query = query.view(-1, attn_layer.num_heads, attn_layer.head_size)
+    if key is not None and key.dim() == 2:
         key = key.view(-1, attn_layer.num_kv_heads, attn_layer.head_size)
-    if value is not None:
+    if value is not None and value.dim() == 2:
         value = value.view(-1, attn_layer.num_kv_heads, attn_layer.head_size_v)
 
     attn_layer.impl.forward(

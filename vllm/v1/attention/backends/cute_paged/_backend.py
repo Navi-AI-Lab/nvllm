@@ -41,6 +41,16 @@ logger = init_logger(__name__)
 # Set CUTE_DEBUG_FUSION=1 to enable per-call diff vs Python-dequant W_O ref.
 _DEBUG_FUSION = os.environ.get("CUTE_DEBUG_FUSION", "0") == "1"
 
+# Phase 6a hot-path cache: CUTE_DUMP_TENSORS read once at module import.
+# Disables per-forward env parsing in the β-coop branch.
+_CUTE_DUMP_TENSORS: bool = os.environ.get("CUTE_DUMP_TENSORS", "0") == "1"
+
+# Phase 6a: gate framework-route shape/dtype/contiguity asserts and the
+# one-shot phase3 diagnostic behind this flag. Default OFF in production
+# — the asserts ran every full-attn forward × every token despite never
+# firing (a successful framework route always satisfies them).
+_VERIFY_FRAMEWORK_OUTPUTS: bool = os.environ.get("CUTE_VERIFY_FW", "0") == "1"
+
 
 # ---------------------------------------------------------------------------
 # Metadata
@@ -110,6 +120,14 @@ def _phase_e_env_config() -> _PhaseEEnvConfig:
         forced_path=forced_path,
         restricted_layers=restricted_layers,
     )
+
+
+# Phase 6a hot-path cache: snapshot Phase E env once at module import.
+# Per spec — eliminates per-forward env parsing + set construction
+# (~16 forward calls / token at steady state). Runtime mutation of
+# CUTE_PHASE_E_FUSION / CUTE_PHASE_E_PATH / CUTE_PHASE_E_LAYERS is no
+# longer honored after import. Same contract as _DEBUG_FUSION (L42).
+_PHASE_E_ENV: _PhaseEEnvConfig = _phase_e_env_config()
 
 
 # ---------------------------------------------------------------------------
@@ -1050,7 +1068,11 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             and output_rmsnorm is not None and output_residual is not None
             and output_mlp is not None
         )
-        if _framework_output_route:
+        if _framework_output_route and _VERIFY_FRAMEWORK_OUTPUTS:
+            # Phase 6a: gated behind CUTE_VERIFY_FW=1. The asserts and
+            # phase3 diagnostic ran every full-attn forward × every token
+            # in production despite never firing on a healthy framework
+            # route. Set CUTE_VERIFY_FW=1 to re-enable for debugging.
             assert output_rmsnorm.shape == output_residual.shape == output_mlp.shape == residual.shape, (
                 f"Framework output shape mismatch: rmsnorm={output_rmsnorm.shape} "
                 f"residual={output_residual.shape} mlp={output_mlp.shape} "
@@ -1177,7 +1199,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._phase_e_consumed = False
         self._phase_e_use_beta_coop = False
         self._phase_e_use_beta_lite = False
-        _phase_e_env = _phase_e_env_config()
+        _phase_e_env = _PHASE_E_ENV
         # `layer.layer_name` is the canonical identifier; layer_idx isn't
         # populated, so extract via dotted-name helper.
         _layer_idx: int | None = None
@@ -1509,7 +1531,7 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 # steps × 16 full-attn layers so disk doesn't bloat. Files
                 # land in /tmp/nvllm-dumps/layer{N}_step{S}_{name}.pt.
                 # See ~/jupyterlab/beta_coop_kernel_dump_compare.ipynb.
-                if os.environ.get("CUTE_DUMP_TENSORS", "0") == "1":
+                if _CUTE_DUMP_TENSORS:
                     _dump_dir = "/tmp/nvllm-dumps"
                     os.makedirs(_dump_dir, exist_ok=True)
                     _step_counter = getattr(self, "_dump_step_counter", 0)
