@@ -1,0 +1,1 @@
+{"phase": "cold", "run_id": "smoke-1777492816", "ok": true, "elapsed_s": 21.203, "n_compiled": 2, "files_before": 0, "files_after": 2, "new_files": ["6d/6d2a120c65a30728ef2b350fe7ddc33e322b27ccbe9452519f15b39afa934390.o", "97/977267e3e7ff886e6bafc0c4956efd98f7aa85b1db7bc7d19c2dd1371f006aa4.o"], "miss_count": 2, "hit_count": 0}

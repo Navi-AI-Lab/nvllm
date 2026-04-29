@@ -1,0 +1,1 @@
+{"phase": "warm", "run_id": "smoke-1777492816", "ok": false, "elapsed_s": 20.203, "n_compiled": 2, "files_before": 2, "files_after": 3, "new_files": ["92/9210947419f81b2117c37d9c4b1884374883cc18fbad1542555c744c3bec4791.o"], "miss_count": 1, "hit_count": 1, "err": "warm wallclock 20.2s > 5s; cache likely missed"}

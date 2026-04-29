@@ -66,6 +66,15 @@ for t in "${TARGETS[@]}"; do
   echo "[sync] docker cp gpu/model_runner.py → $t/v1/worker/gpu/model_runner.py"
   docker cp "$REPO_ROOT/vllm/v1/worker/gpu/model_runner.py" \
     "nvllm:$t/v1/worker/gpu/model_runner.py"
+  # cache-cache branch additions: disk_cache.py + phase_e_kernel.py.
+  # Without these, Gate G2 cannot positively verify HIT lines, and the
+  # heartbeat / compile_only kwarg from Tasks 7+8 are absent at serve.
+  echo "[sync] docker cp disk_cache.py → $t/v1/attention/backends/cute_paged/disk_cache.py"
+  docker cp "$REPO_ROOT/vllm/v1/attention/backends/cute_paged/disk_cache.py" \
+    "nvllm:$t/v1/attention/backends/cute_paged/disk_cache.py"
+  echo "[sync] docker cp phase_e_kernel.py → $t/v1/attention/backends/cute_paged/phase_e_kernel.py"
+  docker cp "$REPO_ROOT/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py" \
+    "nvllm:$t/v1/attention/backends/cute_paged/phase_e_kernel.py"
 done
 
 echo "[sync] deleting stale pyc"
@@ -90,6 +99,17 @@ for t in "${TARGETS[@]}"; do
   if ! docker exec nvllm grep -q "CUTE_FULL_GRAPH_PROBE" \
        "$t/v1/worker/gpu/model_runner.py"; then
     echo "FAIL: CUTE_FULL_GRAPH_PROBE marker missing in $t after docker cp"
+    exit 1
+  fi
+  # cache-cache markers
+  if ! docker exec nvllm grep -q "CuTe disk cache HIT" \
+       "$t/v1/attention/backends/cute_paged/disk_cache.py"; then
+    echo "FAIL: 'CuTe disk cache HIT' marker missing in $t after docker cp"
+    exit 1
+  fi
+  if ! docker exec nvllm grep -q "_coop_full_compile_heartbeat" \
+       "$t/v1/attention/backends/cute_paged/phase_e_kernel.py"; then
+    echo "FAIL: _coop_full_compile_heartbeat marker missing in $t after docker cp"
     exit 1
   fi
 done

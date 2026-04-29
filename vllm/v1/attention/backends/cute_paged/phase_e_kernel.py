@@ -17,8 +17,11 @@ Plan: docs/superpowers/plans/2026-04-22-unreal-kernel-phase-e-d25.md
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import threading
+import time as _time_mod
 from typing import Optional
 
 import torch
@@ -115,6 +118,44 @@ except ImportError:
             "PhaseE_Beta_Kernel requires CUTLASS; _resolve_tile_preset "
             "unavailable."
         )
+
+
+# --- Task 7: cold-compile heartbeat (operator-visibility) --------------------
+# β-coop full compile can take >95min cold on Spark (per
+# project_beta_coop_full_compile_wall.md). Without a heartbeat, a stuck
+# cute.compile() looks indistinguishable from a deadlock to the operator
+# tailing docker logs. This context manager spawns a daemon thread that
+# prints ``[β-coop compile] t=Xs alive (#N)`` every ``period_s`` seconds.
+@contextlib.contextmanager
+def _coop_full_compile_heartbeat(period_s: float = 300.0):
+    """Daemon-thread heartbeat that prints ``[β-coop compile] t=Xs alive (#N)``
+    every ``period_s`` seconds while inside the context.
+
+    Design risk: if cute.compile holds the GIL the entire time, the daemon
+    thread will never run. This is verified empirically on first invocation;
+    the fallback if needed is a subprocess-based watchdog (file follow-on).
+    """
+    counter = {"n": 0}
+    stop = threading.Event()
+    t0 = _time_mod.monotonic()
+
+    def _beat():
+        while not stop.wait(period_s):
+            counter["n"] += 1
+            elapsed = int(_time_mod.monotonic() - t0)
+            logger.info(
+                "[β-coop compile] t=%ds alive (#%d)", elapsed, counter["n"]
+            )
+
+    thread = threading.Thread(
+        target=_beat, daemon=True, name="beta-coop-compile-heartbeat",
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=period_s + 1.0)
 
 
 # --- Phase E.1 follow-up #1: process-wide β-coop compile cache --------------
@@ -2730,6 +2771,12 @@ class PhaseE_Beta_Kernel:
         # per-head attn output by sigmoid(gate) before the W_O GEMV —
         # mirrors paged kernel.py:1555-1569.
         gate_buf: Optional[torch.Tensor] = None,
+        # When True, prime the disk cache for this config and return
+        # immediately after _compile_coop_full. The actual launch
+        # (self._compiled_phase_coop_full) is skipped. Used by
+        # scripts/precompile-cute-coop-full.py to populate the cache
+        # without booting vLLM.
+        compile_only: bool = False,
     ) -> None:
         """Launch the unified β-coop kernel for a single fusion-active decoder layer.
 
@@ -2944,6 +2991,8 @@ class PhaseE_Beta_Kernel:
         )
 
         self._compile_coop_full(*all_args)
+        if compile_only:
+            return None
         self._compiled_phase_coop_full(*all_args)
         return None
 
@@ -3008,10 +3057,11 @@ class PhaseE_Beta_Kernel:
                 "Compiling PhaseE_Beta_Kernel β-coop full (first call for "
                 "this config)…"
             )
-            cached = cute.compile(
-                self._jit_launch_phase_0_to_4,
-                *compile_args,
-            )
+            with _coop_full_compile_heartbeat():
+                cached = cute.compile(
+                    self._jit_launch_phase_0_to_4,
+                    *compile_args,
+                )
             _PHASE_E_COOP_FULL_COMPILE_CACHE[key] = cached
         self._compiled_phase_coop_full = cached
         return cached

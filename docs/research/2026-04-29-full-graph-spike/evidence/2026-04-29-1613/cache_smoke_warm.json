@@ -1,0 +1,6 @@
+INFO 04-29 20:19:05 [disk_cache.py:557] CuTe DSL disk cache enabled: /opt/vllm/kernel_cache/smoke-postfix-v2-1777493912
+INFO 04-29 20:19:05 [kernel.py:2087] Compiling CuTe decode kernel (first call)...
+INFO 04-29 20:19:05 [disk_cache.py:509] CuTe disk cache HIT (native) key=ea57a0c6edf419a1
+INFO 04-29 20:19:05 [kernel.py:2203] Compiling CuTe prefill kernel (first call)...
+INFO 04-29 20:19:05 [disk_cache.py:509] CuTe disk cache HIT (native) key=bea46b694461b1f3
+{"phase": "warm", "run_id": "smoke-postfix-v2-1777493912", "ok": true, "elapsed_s": 0.083, "n_compiled": 2, "files_before": 2, "files_after": 2, "new_files": [], "miss_count": 0, "hit_count": 2}

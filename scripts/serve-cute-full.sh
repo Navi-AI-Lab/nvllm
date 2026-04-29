@@ -42,6 +42,11 @@ nvllm_cleanup_container "$CONTAINER"
 nvllm_check_port "$PORT"
 nvllm_check_free_mem "${NVLLM_MIN_FREE_GB:-90}"
 
+# β-coop FULL kernel cache — see docs/superpowers/specs/2026-04-29-cute-full-compile-cache-design.md §4
+CUTE_COMPILE_HOST_CACHE_DIR="${CUTE_COMPILE_HOST_CACHE_DIR:-/tmp/nvllm-cute-cache}"
+mkdir -p "$CUTE_COMPILE_HOST_CACHE_DIR"
+echo "  Cute cache:  $CUTE_COMPILE_HOST_CACHE_DIR -> /opt/vllm/kernel_cache"
+
 # CuTe backend requires fp8_e4m3 KV cache
 KV_CACHE="fp8_e4m3"
 ATTN_BACKEND="CUTE_PAGED"
@@ -74,6 +79,9 @@ docker run -d \
   --network host \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
+  -v "$CUTE_COMPILE_HOST_CACHE_DIR:/opt/vllm/kernel_cache" \
+  -e B12X_CUTE_COMPILE_DISK_CACHE=1 \
+  -e B12X_CUTE_COMPILE_CACHE_DIR=/opt/vllm/kernel_cache \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \

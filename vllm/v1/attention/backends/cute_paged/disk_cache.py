@@ -294,6 +294,73 @@ def _structural_cache_key(value: Any, visited: set[int] | None = None) -> Any:
     return ("repr", type_module, type_name, repr(value))
 
 
+# ---------------------------------------------------------------------------
+# Pointer-arg canonicalization for compile-cache key stability
+# ---------------------------------------------------------------------------
+#
+# JIT functions invoked under cute.compile receive runtime *pointer* args
+# whose Python value is a fresh per-process address (e.g. Int64(t.data_ptr())).
+# These pointers MUST NOT participate in the compile cache key, otherwise
+# every fresh container computes a different key for the same kernel and the
+# disk cache always misses. Generated PTX depends on pointer *type and signature*,
+# not on the actual address.
+#
+# Convention in our CuTe kernels: cutlass `Int64` is used exclusively for
+# runtime pointer args (data_ptr() values), while `Int32` is used for shapes
+# and flags (num_q_heads, kv_page_stride, grid_x, wo_fused_flag, ...). Real
+# shape-bearing scalars therefore stay in the key.
+#
+# We can NOT rely on parameter-name binding via inspect.signature because
+# `cute.jit`-decorated bound methods report `self` as a positional parameter
+# even when called as a bound method, shifting every name by one position
+# (verified empirically with B12X_CUTE_COMPILE_KEY_DEBUG=1 — the cold/warm
+# args_key showed `query` bound to an Int64 with a different `value` per
+# process). So we instead canonicalize by VALUE TYPE: any cutlass Int64
+# becomes a type-only placeholder, regardless of where in the arg list
+# it sits.
+
+_POINTER_TYPE_MODULE = "cutlass.base_dsl.typing"
+_POINTER_TYPE_QUALNAMES = ("Int64",)
+
+
+def _is_runtime_pointer_value(value: Any) -> bool:
+    """Detect cutlass Int64-shaped values that hold runtime pointer addresses.
+
+    By convention every Int64 in our cute.compile arg lists is a pointer
+    (data_ptr() output). Int32 stays for shapes/flags. This avoids depending
+    on parameter-name binding, which is unreliable for cute.jit methods.
+    """
+    cls = type(value)
+    if cls.__module__ != _POINTER_TYPE_MODULE:
+        return False
+    return cls.__qualname__ in _POINTER_TYPE_QUALNAMES
+
+
+def _canonicalize_arg(value: Any) -> Any:
+    """Apply pointer canonicalization on top of structural hashing."""
+    if _is_runtime_pointer_value(value):
+        return ("runtime_ptr", type(value).__module__, type(value).__qualname__)
+    return _structural_cache_key(value)
+
+
+def _structural_args_cache_key(
+    func: Any,  # kept for signature compatibility / KEY_DEBUG callers
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> Any:
+    """Structural cache key for compile args, with pointer canonicalization.
+
+    Walks args/kwargs and replaces any cutlass Int64-shaped value with a
+    type-only placeholder. Real shape scalars (Int32) and tensors keep their
+    structural key.
+    """
+    args_key = tuple(_canonicalize_arg(v) for v in args)
+    kwargs_key = tuple(sorted(
+        (k, _canonicalize_arg(v)) for k, v in kwargs.items()
+    ))
+    return ("ptr_canonical_v1", args_key, kwargs_key)
+
+
 def _compile_options_cache_key(compile_callable: Any) -> tuple[str, ...]:
     """Extract serialized compile options from a CompileCallable."""
     compile_options = getattr(compile_callable, "_compile_options", None)
@@ -320,12 +387,11 @@ def _build_full_cache_key(
     compile arguments, compile options, and environment variables.
     """
     payload = (
-        "nvllm_cute_compile_cache_v1",
+        "nvllm_cute_compile_cache_v2_ptr_canonical",
         _function_fingerprint(func),
         _package_fingerprint(),
         _runtime_toolchain_key(),
-        _structural_cache_key(args),
-        _structural_cache_key(kwargs),
+        _structural_args_cache_key(func, args, kwargs),
         _compile_options_cache_key(compile_callable),
         _compile_environment_key(),
     )
@@ -423,20 +489,53 @@ def apply_disk_cache_patch(cache_dir: str, enabled: bool = True) -> None:
         @wraps(original_compile)
         def _cached_compile(self, func, *args, **kwargs):
             key = _build_full_cache_key(self, func, args, kwargs)
-            # Try native CUTLASS format first, then pickle fallback
+            if os.environ.get("B12X_CUTE_COMPILE_KEY_DEBUG", "0") == "1":
+                # Per-component dump for diagnosing key drift between cold/warm.
+                func_fp = _function_fingerprint(func)
+                pkg_fp = _package_fingerprint()
+                tk = _runtime_toolchain_key()
+                args_key = _structural_args_cache_key(func, args, kwargs)
+                opts_key = _compile_options_cache_key(self)
+                env_key = _compile_environment_key()
+                logger.info(
+                    "CuTe disk cache KEY_DEBUG key=%s func_fp=%r pkg_fp=%s "
+                    "toolchain=%r args_key=%r opts=%r env=%r",
+                    key[:16], func_fp, pkg_fp[:16], tk, args_key, opts_key,
+                    env_key,
+                )
+            # Try native CUTLASS format first, then fallback format
             cached = _load_native(cache_dir, key)
             if cached is not None:
+                logger.info(
+                    "CuTe disk cache HIT (native) key=%s", key[:16]
+                )
                 return cached
             cached = load_from_disk(cache_dir, key)
             if cached is not None:
+                logger.info(
+                    "CuTe disk cache HIT (fallback) key=%s",
+                    key[:16],
+                )
                 return cached
+            logger.info("CuTe disk cache MISS key=%s - compiling", key[:16])
             result = original_compile(self, func, *args, **kwargs)
-            # Try native store, fall back to pickle
-            if not _store_native(cache_dir, key, result):
+            stored_native = _store_native(cache_dir, key, result)
+            if not stored_native:
                 try:
                     store_to_disk(cache_dir, key, result)
+                    logger.info(
+                        "CuTe disk cache stored (fallback) key=%s",
+                        key[:16],
+                    )
                 except Exception:
-                    pass
+                    logger.warning(
+                        "CuTe disk cache STORE FAILED key=%s - next "
+                        "process will recompile", key[:16],
+                    )
+            else:
+                logger.info(
+                    "CuTe disk cache stored (native) key=%s", key[:16]
+                )
             return result
 
         @wraps(original_print_warning)

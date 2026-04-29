@@ -51,6 +51,25 @@ _CUTE_DUMP_TENSORS: bool = os.environ.get("CUTE_DUMP_TENSORS", "0") == "1"
 # firing (a successful framework route always satisfies them).
 _VERIFY_FRAMEWORK_OUTPUTS: bool = os.environ.get("CUTE_VERIFY_FW", "0") == "1"
 
+# CuTe DSL disk cache — runtime hookup. Without this call, the env vars
+# B12X_CUTE_COMPILE_DISK_CACHE and B12X_CUTE_COMPILE_CACHE_DIR are inert
+# at serve time. apply_disk_cache_patch() monkey-patches
+# CompileCallable._compile so that subsequent cute.compile() calls
+# consult the on-disk cache before invoking NVRTC.
+#
+# Build-time warmup (vllm/v1/attention/backends/cute_paged/warmup.py:43)
+# already calls this; the runtime path historically did not, which is why
+# the runtime container could not benefit from a build-time-warmed cache.
+if os.environ.get("B12X_CUTE_COMPILE_DISK_CACHE", "0") == "1":
+    from vllm.v1.attention.backends.cute_paged.disk_cache import (
+        apply_disk_cache_patch,
+    )
+    apply_disk_cache_patch(
+        cache_dir=os.environ.get(
+            "B12X_CUTE_COMPILE_CACHE_DIR", "/opt/vllm/kernel_cache",
+        )
+    )
+
 
 # ---------------------------------------------------------------------------
 # Metadata
