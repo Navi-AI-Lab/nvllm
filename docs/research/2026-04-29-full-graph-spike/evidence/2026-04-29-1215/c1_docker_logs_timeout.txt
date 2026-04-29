@@ -1,0 +1,100 @@
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:874] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256 resident_cap=96
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:915] CuTe MLP fusion attached: layer=language_model.model.layers.43 hidden=5120 interm=17408 num_k_tiles=8 tile_s=64 tile_k=640 slice_ctas=8 op_key=language_model.model.layers.43.mlp
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:272] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:477] CuTe fusion attached: layer=language_model.model.layers.47 max_num_seqs=1 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=183) INFO 04-29 16:16:10 [_tile_presets.py:134] Phase D MLP tile preset: decode-mini → tile_s=64 tile_k=640 slice_ctas=8
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:874] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256 resident_cap=96
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:915] CuTe MLP fusion attached: layer=language_model.model.layers.47 hidden=5120 interm=17408 num_k_tiles=8 tile_s=64 tile_k=640 slice_ctas=8 op_key=language_model.model.layers.47.mlp
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:272] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:477] CuTe fusion attached: layer=language_model.model.layers.51 max_num_seqs=1 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=183) INFO 04-29 16:16:10 [_tile_presets.py:134] Phase D MLP tile preset: decode-mini → tile_s=64 tile_k=640 slice_ctas=8
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:874] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256 resident_cap=96
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:915] CuTe MLP fusion attached: layer=language_model.model.layers.51 hidden=5120 interm=17408 num_k_tiles=8 tile_s=64 tile_k=640 slice_ctas=8 op_key=language_model.model.layers.51.mlp
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:272] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:477] CuTe fusion attached: layer=language_model.model.layers.55 max_num_seqs=1 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=183) INFO 04-29 16:16:10 [_tile_presets.py:134] Phase D MLP tile preset: decode-mini → tile_s=64 tile_k=640 slice_ctas=8
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:874] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256 resident_cap=96
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:915] CuTe MLP fusion attached: layer=language_model.model.layers.55 hidden=5120 interm=17408 num_k_tiles=8 tile_s=64 tile_k=640 slice_ctas=8 op_key=language_model.model.layers.55.mlp
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:272] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:477] CuTe fusion attached: layer=language_model.model.layers.59 max_num_seqs=1 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=183) INFO 04-29 16:16:10 [_tile_presets.py:134] Phase D MLP tile preset: decode-mini → tile_s=64 tile_k=640 slice_ctas=8
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:874] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256 resident_cap=96
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:915] CuTe MLP fusion attached: layer=language_model.model.layers.59 hidden=5120 interm=17408 num_k_tiles=8 tile_s=64 tile_k=640 slice_ctas=8 op_key=language_model.model.layers.59.mlp
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:272] CutePagedAttention initialized: 24 Q heads, 4 KV heads, head_dim=256, GQA ratio=6
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:477] CuTe fusion attached: layer=language_model.model.layers.63 max_num_seqs=1 hidden_dim=5120 q_size=6144 attn_output_gate=True
+(EngineCore pid=183) INFO 04-29 16:16:10 [_tile_presets.py:134] Phase D MLP tile preset: decode-mini → tile_s=64 tile_k=640 slice_ctas=8
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:874] CuTe Phase E β-coop kernel attached: hidden=5120 intermediate=17408 num_q_heads=24 num_kv_heads=4 head_dim=256 resident_cap=96
+(EngineCore pid=183) INFO 04-29 16:16:10 [_backend.py:915] CuTe MLP fusion attached: layer=language_model.model.layers.63 hidden=5120 interm=17408 num_k_tiles=8 tile_s=64 tile_k=640 slice_ctas=8 op_key=language_model.model.layers.63.mlp
+(EngineCore pid=183) INFO 04-29 16:16:11 [weight_utils.py:659] No model.safetensors.index.json found in remote.
+(EngineCore pid=183) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore pid=183) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:01<00:00,  1.40s/it]
+(EngineCore pid=183) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:01<00:00,  1.40s/it]
+(EngineCore pid=183) 
+(EngineCore pid=183) INFO 04-29 16:16:12 [default_loader.py:384] Loading weights took 1.50 seconds
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.3 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.7 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.11 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.15 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.19 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.23 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.27 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.31 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.35 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.39 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.43 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.47 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.51 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.55 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.59 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:12 [_backend.py:697] CuTe fusion resolved: layer=language_model.model.layers.63 wo_weight=[5120, 3072] rmsnorm_gamma=[5120]
+(EngineCore pid=183) INFO 04-29 16:16:13 [gpu_model_runner.py:4820] Model loading took 25.07 GiB memory and 2.937029 seconds
+(EngineCore pid=183) INFO 04-29 16:16:13 [interface.py:484] Setting kv cache block size to 64 for CUTE_PAGED backend.
+(EngineCore pid=183) INFO 04-29 16:16:13 [interface.py:601] Setting attention block size to 1600 tokens to ensure that attention page size is >= mamba page size.
+(EngineCore pid=183) INFO 04-29 16:16:13 [interface.py:625] Padding mamba page size by 2.17% to ensure that mamba page size and attention page size are exactly equal.
+(EngineCore pid=183) WARNING 04-29 16:16:18 [backends.py:1010] Failed to read file <frozen os>
+(EngineCore pid=183) INFO 04-29 16:16:18 [backends.py:1051] Using cache directory: /root/.cache/vllm/torch_compile_cache/5978fa443d/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore pid=183) INFO 04-29 16:16:18 [backends.py:1111] Dynamo bytecode transform time: 4.75 s
+(EngineCore pid=183) [rank0]:W0429 16:16:18.994000 183 torch/_inductor/utils.py:1707] Not enough SMs to use max_autotune_gemm mode
+(EngineCore pid=183) INFO 04-29 16:17:41 [backends.py:390] Compiling a graph for compile range (1, 65536) takes 82.87 s
+(EngineCore pid=183) INFO 04-29 16:17:45 [backends.py:895] collected artifacts: 65 entries, 21 artifacts, 62138559 bytes total
+(EngineCore pid=183) INFO 04-29 16:17:45 [decorators.py:655] saved AOT compiled function to /root/.cache/vllm/torch_compile_cache/torch_aot_compile/10340f559d5976136132daa2993c5684e19fcce20a816b2a4d0d3aff9de5e69e/rank_0_0/model
+(EngineCore pid=183) INFO 04-29 16:17:45 [monitor.py:48] torch.compile took 92.15 s in total
+(EngineCore pid=183) /opt/venv/lib/python3.12/site-packages/triton/language/core.py:2284: UserWarning: tl.make_block_ptr is deprecated. Use TensorDescriptor or tl.make_tensor_descriptor instead.
+(EngineCore pid=183)   warn("tl.make_block_ptr is deprecated. Use TensorDescriptor or tl.make_tensor_descriptor instead.")
+(EngineCore pid=183) INFO 04-29 16:18:23 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=3.0000e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:25 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=5.0750e+01 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:27 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.5688e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:27 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.1562e+01 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:29 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=4.1562e+00 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:29 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=2.6000e+01 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:31 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.3125e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:31 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.3375e+01 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:34 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.3875e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:34 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=6.2812e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:36 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=9.1875e+00 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:36 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.4688e+01 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:38 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=5.5938e+00 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:38 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=9.0625e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:41 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.4750e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:41 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=6.5000e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:43 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.8750e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:43 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=6.5938e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:45 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=2.3000e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:45 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.1000e+01 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:47 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=3.5500e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:48 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=7.1875e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:50 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=3.0500e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:50 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=4.6250e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:52 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=4.6000e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:52 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=4.3125e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:54 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=3.5250e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:54 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=4.6562e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:57 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.8875e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:57 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=4.4375e+00 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:59 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=3.5500e+01 buf_shape=(1, 5120) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:59 [_mlp_op.py:288] [RES_MIRROR_OP] nat=1 residual_absmax=1.0375e+01 buf_shape=(1, 6144) buf_pre_absmax=0.0000e+00
+(EngineCore pid=183) INFO 04-29 16:18:59 [monitor.py:76] Initial profiling/warmup run took 74.08 s
+(EngineCore pid=183) INFO 04-29 16:19:00 [kv_cache_utils.py:833] Overriding num_gpu_blocks=0 with num_gpu_blocks_override=1
+(EngineCore pid=183) INFO 04-29 16:19:00 [_backend.py:2082] CutePagedMetadataBuilder: block_size=64, layers=16
+(EngineCore pid=183) INFO 04-29 16:19:00 [gpu_model_runner.py:5883] Profiling CUDA graph memory: PIECEWISE=1 (largest=1), FULL=1 (largest=1)
+(EngineCore pid=183) INFO 04-29 16:19:01 [phase_e_kernel.py:3007] Compiling PhaseE_Beta_Kernel β-coop full (first call for this config)…

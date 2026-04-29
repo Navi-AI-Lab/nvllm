@@ -130,6 +130,21 @@ def _phase_e_env_config() -> _PhaseEEnvConfig:
 _PHASE_E_ENV: _PhaseEEnvConfig = _phase_e_env_config()
 
 
+# Spike/debug guard — when set, β-coop failures raise instead of falling
+# through to the legacy split path. Intentionally hostile to recovery; not
+# a serving safety mode. See:
+#   docs/superpowers/specs/2026-04-29-full-and-piecewise-cute-spike-design.md
+_PHASE_E_FALLBACK_RAISE: bool = (
+    os.environ.get("CUTE_PHASE_E_FALLBACK_RAISE", "0") == "1"
+)
+if _PHASE_E_FALLBACK_RAISE:
+    logger.warning(
+        "CUTE_PHASE_E_FALLBACK_RAISE=1 — β-coop fallback is fail-fast. "
+        "Any β-coop failure will raise rather than fall through to legacy. "
+        "Spike/debug guard only; do NOT enable in serving."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Backend
 # ---------------------------------------------------------------------------
@@ -1595,6 +1610,8 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         res_b, res_p,
                     )
             except Exception as e:  # noqa: BLE001 — fail-closed, fall through to β-lite
+                if _PHASE_E_FALLBACK_RAISE:
+                    raise
                 logger.warning(
                     "CuTe Phase E β-coop launch failed (falling back to "
                     "β-lite) layer=%s nat=%d %s: %r",
@@ -1995,6 +2012,34 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
             layer._v_scale,
         )
 
+    def _assert_spike_invariant(self) -> None:
+        """Spike post-condition: when FULL_AND_PIECEWISE + Phase E ON +
+        max_num_seqs=1, _beta_coop_framework_output_bound MUST be True.
+        Otherwise the FULL graph would emit the legacy fall-through path.
+        Outside the spike config this is a no-op. Spec §2.4."""
+        try:
+            from vllm.config import CUDAGraphMode  # local import — avoid cycles
+            from vllm.config import get_current_vllm_config
+            _vllm_config = get_current_vllm_config()
+            _cg_mode = _vllm_config.compilation_config.cudagraph_mode
+            _max_seqs = _vllm_config.scheduler_config.max_num_seqs
+            _spike_config = (
+                _cg_mode == CUDAGraphMode.FULL_AND_PIECEWISE
+                and _PHASE_E_ENV.enabled
+                and _max_seqs == 1
+            )
+        except Exception:  # noqa: BLE001 — config introspection best-effort
+            _spike_config = False
+        if _spike_config and not self._beta_coop_framework_output_bound:
+            raise AssertionError(
+                "Spike config (FULL_AND_PIECEWISE + CUTE_PHASE_E_FUSION=1 "
+                "+ max_num_seqs=1) requires β-coop framework-output route "
+                "bound after process_weights_after_loading. Got "
+                "_beta_coop_framework_output_bound=False. The FULL graph "
+                "would otherwise emit the legacy fall-through path. Spec: "
+                "2026-04-29-full-and-piecewise-cute-spike-design.md §2.4."
+            )
+
     def process_weights_after_loading(self, act_dtype: torch.dtype) -> None:
         """Invoked by vLLM's weight loader for each Attention module AFTER
         all quant methods have processed weights (swizzle, pad, invert GS).
@@ -2005,6 +2050,10 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         """
         self._resolve_fusion_weights()
         self._resolve_mlp_weights()
+        # Spike-only post-condition: covers every early-return path in
+        # both resolvers in one place. Outside the spike config,
+        # _beta_coop_framework_output_bound=False is legal.
+        self._assert_spike_invariant()
 
 
 # ---------------------------------------------------------------------------

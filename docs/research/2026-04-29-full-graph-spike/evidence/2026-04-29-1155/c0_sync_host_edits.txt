@@ -1,0 +1,8 @@
+[sync] docker cp _backend.py → /app/nvllm/vllm/v1/attention/backends/cute_paged/_backend.py
+[sync] docker cp gpu/model_runner.py → /app/nvllm/vllm/v1/worker/gpu/model_runner.py
+[sync] deleting stale pyc
+[sync] restarting container
+nvllm
+[sync] waiting for /v1/models after restart...
+[sync] ready after 38s
+[sync] done

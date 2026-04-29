@@ -102,6 +102,7 @@ docker run -d \
   -e CUTE_PHASE_E_FUSION="${CUTE_PHASE_E_FUSION:-0}" \
   -e CUTE_PHASE_E_PATH="${CUTE_PHASE_E_PATH:-auto}" \
   -e CUTE_PHASE_E_LAYERS="${CUTE_PHASE_E_LAYERS:-}" \
+  -e CUTE_PHASE_E_FALLBACK_RAISE="${CUTE_PHASE_E_FALLBACK_RAISE:-0}" \
   "$NVLLM_IMAGE" \
   serve \
   --model "$HF_MODEL" \

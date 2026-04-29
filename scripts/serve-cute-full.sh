@@ -2,14 +2,20 @@
 # nvllm -- Serve Qwen3.5-27B-NVFP4 with CuTe Paged Attention
 # in FULL_AND_PIECEWISE CUDA graph mode.
 #
-# Test-only script: validates the stream-threading fix in kernel.py that makes
-# CuTe kernel launches capturable by torch CUDA graph. Before the fix, FULL mode
-# produced gibberish because CuTe launches were invisible to the captured graph.
+# SPIKE PROFILE (n=1 only). Configured per spec:
+#   docs/superpowers/specs/2026-04-29-full-and-piecewise-cute-spike-design.md
+#
+# Forces:
+#   - MAX_NUM_SEQS=1 (single-seq batch — uniform UNIFORM_SINGLE_TOKEN_DECODE)
+#   - cudagraph_capture_sizes=[1] (only the n=1 FULL graph is captured)
+#   - CUTE_PHASE_E_FUSION=1 (β-coop ON; spike target)
+#   - CUTE_PHASE_E_FALLBACK_RAISE=1 (fail-fast on β-coop except)
+#   - CUTE_FULL_GRAPH_PROBE=1 (log first-N FULL dispatches; C1 gate proof)
 #
 # Default checkpoint: ig1/Qwen3.5-27B-NVFP4. Override via HF_MODEL env var.
 #
 # Usage:
-#   ./scripts/serve-cute-full.sh          # Standard launch (FULL_AND_PIECEWISE)
+#   ./scripts/serve-cute-full.sh          # Standard launch (FULL_AND_PIECEWISE, n=1)
 #   ./scripts/serve-cute-full.sh --debug  # Eager mode, no CUDA graphs
 
 set -euo pipefail
@@ -41,14 +47,14 @@ KV_CACHE="fp8_e4m3"
 ATTN_BACKEND="CUTE_PAGED"
 # FULL_AND_PIECEWISE capture needs extra workspace — halved from prod 65536.
 MAX_MODEL_LEN=16384
-MAX_NUM_SEQS=4
+MAX_NUM_SEQS=1
 
 # Build extra args
 EXTRA_ARGS=()
 if [ "$DEBUG" -eq 1 ]; then
   EXTRA_ARGS+=(--enforce-eager)
 else
-  EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE"}')
+  EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE","cudagraph_capture_sizes":[1]}')
 fi
 
 echo "=== Launching Qwen3.5-27B-NVFP4 ($HF_MODEL) — CuTe + FULL_AND_PIECEWISE ==="
@@ -74,6 +80,9 @@ docker run -d \
   -e CUTE_MLP_FUSION="${CUTE_MLP_FUSION:-1}" \
   -e CUTE_ATTN_FUSION="${CUTE_ATTN_FUSION:-1}" \
   -e CUTE_BETA_MIN_FREE_GB="${CUTE_BETA_MIN_FREE_GB:-8}" \
+  -e CUTE_PHASE_E_FUSION=1 \
+  -e CUTE_PHASE_E_FALLBACK_RAISE=1 \
+  -e CUTE_FULL_GRAPH_PROBE=1 \
   "$NVLLM_IMAGE" \
   serve \
   --model "$HF_MODEL" \

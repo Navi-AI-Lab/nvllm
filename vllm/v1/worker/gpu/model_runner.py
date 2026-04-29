@@ -19,6 +19,7 @@ instead of embedding feature-specific logic directly.
 
 import functools
 import gc
+import os
 import time
 from copy import deepcopy
 from typing import Any, NamedTuple
@@ -1047,6 +1048,24 @@ class GPUModelRunner(LoRAModelRunnerMixin):
             del intermediate_tensors
 
         # Run model.
+        # Spike probe: log first-N batch_desc.cg_mode dispatches when
+        # CUTE_FULL_GRAPH_PROBE=1. Source-of-truth for "did batch-1 decode
+        # actually replay FULL?" — required by spike C1 gate. Spec §3 / C1.
+        if os.environ.get("CUTE_FULL_GRAPH_PROBE", "0") == "1":
+            _probe_count = getattr(self, "_cute_full_graph_probe_count", 0)
+            if _probe_count < 32:
+                _cg_name = (
+                    batch_desc.cg_mode.name
+                    if batch_desc.cg_mode is not None else "None"
+                )
+                logger.info(
+                    "CUTE_FULL_GRAPH_PROBE: batch_desc.cg_mode=%s "
+                    "num_tokens=%s call#%d",
+                    _cg_name,
+                    getattr(input_batch, "num_tokens_after_padding", "?"),
+                    _probe_count + 1,
+                )
+                self._cute_full_graph_probe_count = _probe_count + 1
         if batch_desc.cg_mode == CUDAGraphMode.FULL:
             # Use explicit cudagraph replay for FULL mode.
             # NOTE(woosuk): Here, we don't need to pass the input tensors,

@@ -1,0 +1,6 @@
+[sync] waiting for container to be addressable...
+[sync] container addressable after 1s
+[sync] docker cp _backend.py → /app/nvllm/vllm/v1/attention/backends/cute_paged/_backend.py
+[sync] docker cp gpu/model_runner.py → /app/nvllm/vllm/v1/worker/gpu/model_runner.py
+[sync] deleting stale pyc
+[sync] done — caller is responsible for waiting on /v1/models
