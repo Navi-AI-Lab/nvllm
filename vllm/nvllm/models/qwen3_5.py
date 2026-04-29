@@ -34,6 +34,27 @@ from itertools import islice
 import torch
 from torch import nn
 
+# Side-effect import: registers torch.ops.vllm.cute_beta_coop_run.
+# Mirrors vllm/nvllm/layers/mlp.py:21 pattern. Importing here ensures
+# the op exists at torch.compile trace time even for the attached-fusion
+# branch.
+import vllm.v1.attention.backends.cute_paged._beta_coop_op  # noqa: F401
+
+# C2 diag env load (vLLM's EngineCore subprocess strips most of pid-1's env;
+# source the gate config from a sentinel file written by serve-cute.sh).
+# No-op when the file is absent (production behavior unchanged).
+# See docs/research/uber_kernel_migration/2026-04-26-c2-diagnostic-plan.md.
+_C2_ENV_FILE = "/tmp/c2_diag/ENV"
+if os.path.isfile(_C2_ENV_FILE):
+    with open(_C2_ENV_FILE) as _c2_f:
+        for _c2_ln in _c2_f:
+            if "=" in _c2_ln and _c2_ln.startswith("CUTE_C2_"):
+                _c2_k, _c2_v = _c2_ln.strip().split("=", 1)
+                if _c2_v:  # skip empty values so we don't shadow real env
+                    os.environ.setdefault(_c2_k, _c2_v)
+    del _c2_f, _c2_ln, _c2_k, _c2_v
+del _C2_ENV_FILE
+
 # Per-step instrumentation. Env-gated (CUTE_DEBUG_TIMING=1) so production
 # stays untouched. CUTE_DEBUG_TIMING_BUDGET caps total log lines to avoid
 # 65k-token spam at long contexts.
@@ -45,6 +66,7 @@ _CUTE_DEBUG_TIMING_STATE = {"emitted": 0}
 def _cute_tlog(msg: str) -> None:
     sys.stderr.write(f"[CUTE_TIMING] {msg}\n")
     sys.stderr.flush()
+
 
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import VllmConfig
@@ -222,6 +244,12 @@ class Qwen3_5Attention(nn.Module):
         positions: torch.Tensor,
         output: torch.Tensor,
         hidden_states: torch.Tensor,
+        # NEW (Phase 3): framework-output route. When all three non-None,
+        # β-coop / fall-through writes through these (output is reused
+        # as output_rmsnorm).
+        residual: torch.Tensor | None = None,
+        output_residual: torch.Tensor | None = None,
+        output_mlp: torch.Tensor | None = None,
     ):
         qkv, _ = self.qkv_proj(hidden_states)
 
@@ -253,21 +281,86 @@ class Qwen3_5Attention(nn.Module):
         # is a cheap one-off BF16 memcpy; it avoids the old model->impl flag
         # side-channel that was flagged as fragile.
         if gate is not None:
-            from vllm.forward_context import get_forward_context
-
+            # 2026-04-26: gate_buf mirror via the same opaque op as
+            # residual_buf — the prior plain-Python .copy_() inside
+            # try/except (which protected the trace-time-failing
+            # `attn_metadata[...]` lookup) was being dead-eliminated by
+            # @support_torch_compile dynamo. Same root cause, same fix.
             impl = self.attn.impl
             gate_buf = getattr(impl, "gate_buf", None)
             if gate_buf is not None:
-                try:
-                    nat = (
-                        get_forward_context()
-                        .attn_metadata[self.attn.layer_name]
-                        .num_actual_tokens
-                    )
-                    gate_buf[:nat].copy_(gate[:nat])
-                except (RuntimeError, KeyError, AttributeError, TypeError):
-                    pass
+                torch.ops.vllm.cute_residual_mirror(gate_buf, gate)
 
+        # ---- β-coop framework-output route (Phase 3+) ----
+        # _beta_coop_framework_output_bound is set in
+        # _resolve_mlp_weights when ALL three pre-conditions hold
+        # (attn fusion + MLP fusion + coop kernel attached).
+        # See feedback_splitting_op_runtime_dispatch.
+        impl = self.attn.impl
+        _use_framework_output = (
+            getattr(impl, "_beta_coop_framework_output_bound", False)
+            and residual is not None
+            and output_residual is not None
+            and output_mlp is not None
+        )
+        if _use_framework_output:
+            # FIX #2 (2026-04-27, friend's analysis): reshape Q/K/V to 3D
+            # BEFORE unified_kv_cache_update. This mirrors canonical
+            # Attention.forward (vllm/model_executor/layers/attention/
+            # attention.py:451-468): query/key/value are reshaped to 3D
+            # `[num_tokens, n_heads, head_size]` BEFORE the kv-cache update
+            # op AND before the attention op. Our prior version called
+            # unified_kv_cache_update with 2D K/V — even if it didn't crash,
+            # it bypasses the canonical contract and could write the cache
+            # at the wrong stride. The reshape inside _beta_coop_op.py is
+            # now redundant (Q/K/V already 3D when the op receives them).
+            inner_attn = self.attn  # the framework-side `Attention` instance
+            q3d = q.view(-1, inner_attn.num_heads, inner_attn.head_size)
+            k3d = k.view(-1, inner_attn.num_kv_heads, inner_attn.head_size)
+            v3d = v.view(-1, inner_attn.num_kv_heads, inner_attn.head_size_v)
+
+            # KV-cache update (cute_paged backend has
+            # forward_includes_kv_cache_update = False at _backend.py:124,
+            # so caller must do this).
+            #
+            # PHASE 4 BISECT FIX (2026-04-28, friend's analysis):
+            # Canonical Attention.forward dispatches `unified_kv_cache_update`
+            # via use_direct_call (attention.py:458-487). On CUDA-opaque-attn
+            # platforms (our case, cute_paged is opaque), use_direct_call=False
+            # → must call via `torch.ops.vllm.unified_kv_cache_update`.
+            # The prior unconditional direct Python call was being DCE'd by
+            # torch.compile (no graph-op marker for the side effect),
+            # corrupting KV cache for every layer of every forward → byte-
+            # identical "rome?" gibberish across all Phase 4 configurations.
+            if inner_attn.use_direct_call:
+                from vllm.model_executor.layers.attention.attention import (
+                    unified_kv_cache_update,
+                )
+                kv_cache_dummy_dep = unified_kv_cache_update(
+                    k3d, v3d, inner_attn.layer_name
+                )
+            else:
+                kv_cache_dummy_dep = torch.ops.vllm.unified_kv_cache_update(
+                    k3d, v3d, inner_attn.layer_name
+                )
+            # `attn_input` for β-coop is the post-input-LN hidden_states
+            # (already computed by the caller before this forward).
+            torch.ops.vllm.cute_beta_coop_run(
+                q3d,
+                k3d,
+                v3d,
+                residual,
+                hidden_states,  # attn_input
+                gate if self.attn_output_gate else torch.empty(0, device=q.device, dtype=torch.bfloat16),
+                output,         # → output_rmsnorm
+                output_residual,
+                output_mlp,
+                inner_attn.layer_name,
+                kv_cache_dummy_dep=kv_cache_dummy_dep,
+            )
+            return  # Decoder layer reads `output`, `output_residual`, `output_mlp`.
+
+        # ---- Legacy path (unchanged) ----
         attn_output = self.attn(q, k, v)
 
         # Apply gate + o_proj in Python when the kernel did not fuse them.
@@ -413,32 +506,16 @@ class Qwen3_5DecoderLayer(nn.Module):
             _ct_t = _now
 
         if residual is None:
-            # First-layer case: no residual to add. Phase F.1 skip-op only
-            # applies when there's a residual + we're past layer 0.
+            # First-layer case: no residual to add.
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
             _ct_mark("input_ln_first")
         else:
-            # Phase F.1: use opaque skip op if MLP fusion is attached on
-            # THIS layer (attach-time constant, trace-safe). Op body reads
-            # impl._phase_e_skip_next_ln at runtime → passes through when
-            # the previous layer's β ε epilogue already ran input_layernorm.
-            _mlp_layer_name = getattr(self.mlp, "_cute_layer_name", None)
-            if _mlp_layer_name is not None:
-                out_x = torch.empty_like(hidden_states)
-                out_residual = torch.empty_like(residual)
-                _ct_mark("ln_skip_alloc")
-                torch.ops.vllm.cute_phase_e_skip_input_layernorm(
-                    hidden_states, residual, out_x, out_residual,
-                    _mlp_layer_name,
-                )
-                hidden_states, residual = out_x, out_residual
-                _ct_mark("ln_skip_op")
-            else:
-                hidden_states, residual = self.input_layernorm(
-                    hidden_states, residual
-                )
-                _ct_mark("input_ln")
+            # C1.5: Phase F.1 skip-op deleted. The previous layer's β-coop
+            # kernel ends at Phase 3 (no input_LN bake), so every layer
+            # entry runs input_layernorm unconditionally.
+            hidden_states, residual = self.input_layernorm(hidden_states, residual)
+            _ct_mark("input_ln")
 
         # Impl decides fusion per-forward. We mirror residual into impl's
         # persistent buffer unconditionally when fusion could run (full
@@ -448,19 +525,68 @@ class Qwen3_5DecoderLayer(nn.Module):
         impl = None
         if self.layer_type == "full_attention":
             impl = self.self_attn.attn.impl
-            fusion_could_run = getattr(impl, "_fusion_bound", False)
-            if fusion_could_run:
-                try:
-                    from vllm.forward_context import get_forward_context
-
-                    attn_md = get_forward_context().attn_metadata[
-                        self.self_attn.attn.layer_name
-                    ]
-                    nat = attn_md.num_actual_tokens
-                    impl.residual_buf[:nat].copy_(residual[:nat])
-                except (RuntimeError, KeyError, AttributeError, TypeError):
-                    pass
+            # 2026-04-26: residual mirror via opaque custom op. The prior
+            # plain-Python .copy_(residual) was inside a try/except whose
+            # protected lookup `get_forward_context().attn_metadata[...]`
+            # threw at torch.compile trace time. dynamo concluded the
+            # try body was always-caught dead code and the captured
+            # graph dropped the .copy_. At runtime residual_buf stayed at
+            # the CUDA-graph-allocator-zeroed value → β-coop read zeros
+            # → gibberish.
+            #
+            # The opaque op preserves the side effect across graph capture.
+            # `residual_buf` is a declared mutates_args so torch.compile
+            # tracks the mutation as a real side effect (the prior op
+            # version with `mutates_args=[]` was still dead-eliminated).
+            if getattr(impl, "_fusion_bound", False):
+                torch.ops.vllm.cute_residual_mirror(impl.residual_buf, residual)
         _ct_mark("residual_mirror")
+
+        # ---- Phase 4 framework-output route gate (trace-static only) ----
+        # Phase 3 had this gate also check `_framework_decode_only` (Python
+        # read of attn_metadata.is_decode_only at this point) and
+        # `nat <= _fusion_max_num_seqs`. Both are runtime-only signals that
+        # torch.compile bakes to False at trace time → captured graph never
+        # entered the framework-output route, only the legacy fall-through
+        # ran. Phase 4 makes the gate trace-static so the graph emits
+        # `torch.ops.vllm.cute_beta_coop_run` unconditionally. The op's
+        # eager body (splitting boundary at compilation.py:722) handles
+        # runtime dispatch — β-coop, β-lite, or full-legacy fallback —
+        # inside _backend.forward (writer-invariant per Edit 4 below).
+        #
+        # PHASE 3 ORIGINAL (commented per feedback_comment_not_delete; may
+        # be re-enabled if Phase 4 architecture is rolled back):
+        # _framework_decode_only = False
+        # if self.layer_type == "full_attention" and impl is not None:
+        #     try:
+        #         from vllm.forward_context import get_forward_context
+        #
+        #         _attn_md = get_forward_context().attn_metadata
+        #         if isinstance(_attn_md, dict):
+        #             _attn_md = _attn_md.get(self.self_attn.attn.layer_name)
+        #         _framework_decode_only = bool(
+        #             getattr(_attn_md, "is_decode_only", False)
+        #         )
+        #     except (RuntimeError, KeyError, AttributeError, TypeError):
+        #         _framework_decode_only = False
+        # _framework_output_route = (
+        #     self.layer_type == "full_attention"
+        #     and impl is not None
+        #     and getattr(impl, "_beta_coop_framework_output_bound", False)
+        #     and _framework_decode_only
+        #     and nat <= getattr(impl, "_fusion_max_num_seqs", 0)
+        # )
+        _framework_output_route = (
+            self.layer_type == "full_attention"
+            and impl is not None
+            and getattr(impl, "_beta_coop_framework_output_bound", False)
+        )
+        if _framework_output_route:
+            output_residual = torch.empty_like(residual)
+            output_mlp = torch.empty_like(residual)
+        else:
+            output_residual = None
+            output_mlp = None
 
         self_attention_output = torch.empty_like(hidden_states)
         _ct_mark("attn_out_alloc")
@@ -477,9 +603,23 @@ class Qwen3_5DecoderLayer(nn.Module):
                 hidden_states=hidden_states,
                 output=self_attention_output,
                 positions=positions,
+                residual=residual if _framework_output_route else None,
+                output_residual=output_residual,
+                output_mlp=output_mlp,
             )
             _ct_mark("self_attn")
-            if impl is not None and getattr(impl, "_fusion_active", False):
+            # Phase 3 (2026-04-27): when framework-output route is active,
+            # the kernel wrote output_rmsnorm (= self_attention_output) and
+            # output_residual directly. Skip the legacy `impl.X` consume —
+            # it would copy stale impl-attribute data (impl.rmsnorm_output
+            # is unwritten under the framework-output route) over the good
+            # framework values, corrupting them until rebound at line ~577.
+            # Functionally harmless but wastes compute and obscures intent.
+            if (
+                impl is not None
+                and getattr(impl, "_fusion_active", False)
+                and not _framework_output_route
+            ):
                 # Kernel already did gate*attn, W_O GEMV, residual+RMSNorm.
                 self_attention_output[:nat].copy_(impl.rmsnorm_output[:nat])
                 if nat < num_tokens:
@@ -503,6 +643,16 @@ class Qwen3_5DecoderLayer(nn.Module):
                     self.attn_layer_scale.to(hidden_states.dtype) + 1
                 )
 
+        if _framework_output_route:
+            # β-coop / fall-through wrote through self_attention_output
+            # (= output_rmsnorm), output_residual, output_mlp.
+            # Decoder layer consumes them directly — no Python
+            # post-attn-LN, no Python MLP.
+            hidden_states = output_mlp
+            residual = output_residual
+            return hidden_states, residual
+
+        # ---- Legacy path (unchanged below) ----
         if not getattr(impl, "_fusion_active", False):
             hidden_states, residual = self.post_attention_layernorm(
                 hidden_states, residual
@@ -510,6 +660,55 @@ class Qwen3_5DecoderLayer(nn.Module):
             _ct_mark("post_attn_ln")
         else:
             _ct_mark("post_attn_skip")
+
+        # --- C2 DIAG (env-gated, per spec
+        # docs/research/uber_kernel_migration/2026-04-26-c2-diagnostic-spec.md)
+        # Compares β-coop's outputs (impl.rmsnorm_output/residual_output)
+        # against the legacy post-attn-LN outputs (hidden_states/residual)
+        # in dual-fire mode under PIECEWISE+graphs. Off by default.
+        #
+        # ARCHITECTURAL LIMIT (2026-04-27, results doc):
+        # `direct_register_custom_op` runs the op's Python body once at
+        # graph capture, then captured CUDA ops replay on every step —
+        # the body never re-runs during steady-state decode. Combined
+        # with the impl's required capture-skip (host-sync inside the op
+        # body raises `cudaErrorStreamCaptureInvalidated`), this means
+        # the diag fundamentally cannot fire under captured PIECEWISE
+        # decode. It can only fire during eager warmup iters, where
+        # β-coop's own fire-gate (is_decode_only + cooperative-fitness)
+        # often gates it off — yielding spurious `legacy vs 0` verdicts.
+        # Use `CUTE_DUMP_TENSORS=1` (in _backend.py) for offline forensics
+        # of real β-coop outputs. Tightening the gate with
+        # `_phase_e_consumed` was attempted and reverted: under fullgraph
+        # compile the attribute is False at trace time → Dynamo DCE'd
+        # the entire diag block. The current loose gate at least lets
+        # the eager warmup paths fire (uninformative but doesn't crash).
+        if (
+            os.getenv("CUTE_C2_DIAG") == "1"
+            and impl is not None
+            and getattr(impl, "_fusion_bound", False)
+            and self.layer_type == "full_attention"
+            and nat > 0
+        ):
+            from vllm.v1.attention.backends.cute_paged import _c2_diag
+
+            step_idx = (
+                _c2_diag.next_step_idx()
+                if self.layer_idx == 0
+                else max(0, _c2_diag._STEP_COUNTER - 1)
+            )
+            # Custom-op call (positional args). The op is opaque to Dynamo
+            # via the registered fake_impl returning None — see
+            # _c2_diag.py for the registration + rationale.
+            torch.ops.vllm.cute_c2_diag_compare(
+                self.layer_idx,
+                step_idx,
+                nat,
+                hidden_states,
+                residual,
+                impl.rmsnorm_output,
+                impl.residual_output,
+            )
 
         # Phase E β-lite consume. When the CuTe backend launched the
         # β-lite dispatch inside its forward, the MLP kernel's ε epilogue
@@ -544,7 +743,10 @@ class Qwen3_5DecoderLayer(nn.Module):
             residual_out = torch.empty_like(residual)
             _ct_mark("mlp_alloc")
             torch.ops.vllm.cute_phase_e_dispatch(
-                hidden_states, hidden_out, residual_out, residual,
+                hidden_states,
+                hidden_out,
+                residual_out,
+                residual,
                 _mlp_layer_name,
             )
             hidden_states, residual = hidden_out, residual_out
@@ -574,8 +776,7 @@ class Qwen3_5DecoderLayer(nn.Module):
             _CUTE_DEBUG_TIMING_STATE["emitted"] += 1
             _cute_tlog(
                 f"step_emit={_CUTE_DEBUG_TIMING_STATE['emitted']} "
-                f"layer={self.layer_type} prefix={self.prefix} "
-                + " ".join(_ct_marks)
+                f"layer={self.layer_type} prefix={self.prefix} " + " ".join(_ct_marks)
             )
 
         return hidden_states, residual
@@ -624,56 +825,14 @@ class Qwen3_5Model(nn.Module, EagleModelMixin):
             config.num_hidden_layers, get_layer, prefix=f"{prefix}.layers"
         )
 
-        # Phase F.1 cross-layer binding (always-on when MLP fusion is
-        # attached). Cheap module-ref attach; cute_phase_e_skip_input_layernorm
-        # opaque op needs this present even when β kernels are disabled,
-        # because the op call site fires whenever _cute_layer_name is set
-        # (gated by CUTE_MLP_FUSION, not CUTE_PHASE_E_FUSION). Without
-        # this attach, the op's non-skip branch raises fail-loud.
-        import os
-        layer_types = config.layer_types
-        num_layers = config.num_hidden_layers
-        for idx, layer in enumerate(self.layers):
-            if idx < self.start_layer or idx >= self.end_layer:
-                continue
-            if layer_types[idx] != "full_attention":
-                continue
-            attn = getattr(layer.self_attn, 'attn', None)
-            impl = getattr(attn, 'impl', None)
-            if impl is None or not hasattr(impl, 'attach_input_layernorm'):
-                continue
-            impl.attach_input_layernorm(
-                getattr(layer, 'input_layernorm', None)
-            )
-
-        # Phase E cross-layer binding (gated): every fusion-active
-        # (full_attention) decoder layer receives a ref to the NEXT decoder
-        # layer's input_layernorm module. Last layer (idx 63) passes None
-        # so the β kernel's ε epilogue omits the next-layer norm pull.
-        # ALSO allocates β kernel scratch buffers (heavy), so this stays
-        # gated by CUTE_PHASE_E_FUSION.
-        # Spec: docs/superpowers/specs/2026-04-22-unreal-kernel-phase-e-d25-design.md §5.3
-        if os.environ.get("CUTE_PHASE_E_FUSION", "0") == "1":
-            for idx, layer in enumerate(self.layers):
-                if idx < self.start_layer or idx >= self.end_layer:
-                    continue
-                if layer_types[idx] != "full_attention":
-                    continue
-                # impl lives on the inner Attention module, not on the
-                # Qwen3_5Attention wrapper: Qwen3_5Attention.attn is
-                # Attention, Attention.impl is CutePagedAttentionImpl.
-                # Existing pattern: see self_attn.attn.impl at L243, 361, 395.
-                attn = getattr(layer.self_attn, 'attn', None)
-                impl = getattr(attn, 'impl', None)
-                if impl is None or not hasattr(impl, 'attach_next_input_layernorm'):
-                    continue  # non-CuTe backend
-                # getattr tolerates PPMissingLayer (no input_layernorm attr)
-                next_norm = (
-                    getattr(self.layers[idx + 1], 'input_layernorm', None)
-                    if idx + 1 < num_layers
-                    else None
-                )
-                impl.attach_next_input_layernorm(next_norm)
+        # C1.5: Phase F.1 cross-layer binding loops (per-layer + next-layer
+        # LN bake) deleted. The skip-op they enabled (cute_phase_e_skip_*)
+        # was permanently retired in C1.5 along with β-coop's Phase 4
+        # epilogue — every layer now runs input_layernorm unconditionally
+        # at layer entry from Python (see Qwen3_5DecoderLayer.forward).
+        # The corresponding attach_*  methods on CutePagedAttentionImpl
+        # are commented-out (not deleted) in _backend.py per the
+        # comment-out-kernel-code rule.
 
         self.make_empty_intermediate_tensors = make_empty_intermediate_tensors_factory(
             ["hidden_states", "residual"], config.hidden_size

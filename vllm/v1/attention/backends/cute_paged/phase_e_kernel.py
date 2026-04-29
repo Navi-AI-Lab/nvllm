@@ -2706,36 +2706,45 @@ class PhaseE_Beta_Kernel:
         down_w_fp4: torch.Tensor,
         down_w_scale: torch.Tensor,
         mlp_output: torch.Tensor,       # [nat, hidden] BF16
-        # Phase 4 inputs (mirror run_phase_4_only):
-        next_input_layernorm_gamma: Optional[torch.Tensor],
-        next_hidden_output: torch.Tensor,
+        # C1.5: Phase 4 inputs (next-LN gamma, next-hidden output, emit
+        # flag) deleted — kernel returns at end of Phase 3.
         # Scalars / flags:
         scale: float = None,
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         gate_up_global_scale: float = 1.0,
         down_global_scale: float = 1.0,
-        emit_next_layernorm: bool = True,
         # Task 16: allow caller to supply a pre-allocated residual_output.
         # When None (default), allocated internally — backward-compatible
         # with the standalone test. When provided, the kernel writes the
         # Phase 1 Phase-C residual (= old_residual + attn_out) into this
-        # buffer, then Phase 4 mutates it in-place to residual_final so
-        # the backend's self.residual_output reflects post-layer state.
+        # buffer.
+        # C1.5 NOTE: pre-C1.5 Phase 4 mutated residual_output in-place to
+        # residual_final (= residual_post + mlp_out). Phase 4 is now gone,
+        # so residual_output here holds residual_post_attn (the Phase-C
+        # residual = old_residual + attn_out). The next layer's input_LN
+        # in Python takes care of adding mlp_out.
         residual_output: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        # C2: Qwen3.5 attn output gate. When supplied (BF16
+        # [nat, num_q_heads * head_dim]), the kernel multiplies the
+        # per-head attn output by sigmoid(gate) before the W_O GEMV —
+        # mirrors paged kernel.py:1555-1569.
+        gate_buf: Optional[torch.Tensor] = None,
+    ) -> None:
         """Launch the unified β-coop kernel for a single fusion-active decoder layer.
 
-        All 5 phases execute in one cooperative kernel launch. Uses a
-        single grid barrier between attn and MLP, and the Phase D
-        secondary-barrier pattern for Phase 4 election. Returns
-        next_hidden_output (also mutates attn_input_bf16, attn_output,
-        residual_output [via in-place update to residual_in]).
+        Phases 0 → 1 → grid barrier → 3 execute in one cooperative kernel
+        launch. Returns None (mutates attn_input_bf16, attn_output,
+        mlp_output, residual_output).
+
+        C1.5 NOTE: Phase 4 (ε epilogue / next-layer input_LN bake) was
+        removed. The kernel now ends at Phase 3 (MLP write). The next
+        layer's input_LN runs from Python at layer entry instead of
+        being baked into the previous layer's epilogue.
 
         NOTE: like run_phase_01_only, `residual_in` is NOT mutated — the
-        in-place `residual_final = residual_post + mlp_out` in Phase 4
-        writes to the INTERNAL residual_output buffer (allocated here,
-        matches the β-lite dispatch in _backend.py).
+        Phase-C residual `residual_post = residual_in + attn_out` is
+        written to `residual_output`.
         """
         if not _CUTE_AVAILABLE:
             raise RuntimeError(
@@ -2749,7 +2758,6 @@ class PhaseE_Beta_Kernel:
         assert attn_input_bf16.shape == hidden_in.shape
         assert attn_output.shape == hidden_in.shape
         assert mlp_output.shape == hidden_in.shape
-        assert next_hidden_output.shape == hidden_in.shape
         assert query.shape == (nat, self.num_attn_heads, self.head_dim)
         for t in (
             hidden_in, residual_in, input_gamma, post_attn_gamma,
@@ -2757,22 +2765,13 @@ class PhaseE_Beta_Kernel:
             kv_cache, page_table, seq_lens,
             wo_weight, wo_scales, wo_global_scale,
             gate_w_fp4, gate_w_scale, up_w_fp4, up_w_scale,
-            down_w_fp4, down_w_scale, mlp_output, next_hidden_output,
+            down_w_fp4, down_w_scale, mlp_output,
         ):
             assert t.is_contiguous(), f"{t.shape} must be contiguous"
         assert hidden_in.dtype == torch.bfloat16
         assert query.dtype == torch.bfloat16
         assert gate_w_fp4.dtype == torch.uint8
         assert gate_w_scale.dtype == torch.uint8
-
-        if emit_next_layernorm:
-            assert next_input_layernorm_gamma is not None
-            assert next_input_layernorm_gamma.shape == (hidden,)
-            assert next_input_layernorm_gamma.dtype == torch.bfloat16
-            assert next_input_layernorm_gamma.is_contiguous()
-            gamma_ptr_val = next_input_layernorm_gamma.data_ptr()
-        else:
-            gamma_ptr_val = 0
 
         if scale is None:
             scale = 1.0 / (self.head_dim ** 0.5)
@@ -2784,8 +2783,10 @@ class PhaseE_Beta_Kernel:
             nat, total_ctas_per_seq_attn, hidden,
             dtype=torch.float32, device=hidden_in.device,
         )
-        # residual_output: written by Phase 1 Phase C + mutated in place
-        # by Phase 4 (residual_final). Task 16: allow caller-supplied.
+        # residual_output: written by Phase 1 Phase C (residual_post =
+        # residual_in + attn_out). Task 16: allow caller-supplied.
+        # C1.5: Phase 4 deletion ended in-place mutation; residual_output
+        # is now write-once during Phase C.
         if residual_output is None:
             residual_output = torch.empty(
                 nat, hidden, dtype=torch.bfloat16, device=hidden_in.device,
@@ -2811,10 +2812,7 @@ class PhaseE_Beta_Kernel:
         phase1_arrival_count = torch.zeros(
             nat, dtype=torch.int32, device=hidden_in.device,
         )
-        # Secondary barrier for Phase 4 (num_k_tiles last-CTAs arrive).
-        secondary_barrier_i32 = torch.zeros(
-            nat, dtype=torch.int32, device=hidden_in.device,
-        )
+        # C1.5: secondary_barrier removed with Phase 4.
 
         # --- Flatten (DSL cannot flat-index >1D multidim tensors) --------
         q_flat = query.view(-1)
@@ -2854,19 +2852,33 @@ class PhaseE_Beta_Kernel:
         mlp_output_ptr = Int64(mlp_output.data_ptr())
 
         grid_barrier_ptr = Int64(grid_barrier_i32.data_ptr())
-        secondary_barrier_ptr = Int64(secondary_barrier_i32.data_ptr())
-
-        next_gamma_ptr = Int64(gamma_ptr_val)
-        next_hidden_ptr = Int64(next_hidden_output.data_ptr())
+        # C1.5: secondary_barrier_ptr / next_gamma_ptr / next_hidden_ptr /
+        # emit_next_ln_i32 dropped with Phase 4.
 
         wo_K = self.num_attn_heads * self.head_dim
         wo_nkt = Int32((wo_K // 16 + 3) // 4)
         wo_row_stride = Int32(wo_weight.shape[1])
 
+        # C2: gate_buf optional — back-compat for callers that don't pass it
+        # (gate_fused == 0 disables the multiply inside the kernel).
+        if gate_buf is not None:
+            assert gate_buf.dtype == torch.bfloat16
+            assert gate_buf.is_contiguous()
+            assert gate_buf.shape[-1] == self.num_attn_heads * self.head_dim
+            gate_ptr = Int64(gate_buf.data_ptr())
+            gate_fused_flag = Int32(1)
+        else:
+            gate_ptr = Int64(0)
+            gate_fused_flag = Int32(0)
+
+        # C2 DIAG removed: the host-side gate_buf check fires at trace time
+        # (compile path) and reads the uninitialised buffer, not the
+        # runtime-populated one. Misleading — keep diagnostics inside the
+        # CUTE kernel proper if needed (write-then-read via a debug global).
+
         rms_eps_f32 = Float32(float(self.rms_eps))
         gate_up_gs_f32 = Float32(float(gate_up_global_scale))
         down_gs_f32 = Float32(float(down_global_scale))
-        emit_next_ln_i32 = Int32(1 if emit_next_layernorm else 0)
 
         stream_arg = _cuda_driver.CUstream(
             int(torch.cuda.current_stream().cuda_stream)
@@ -2921,11 +2933,11 @@ class PhaseE_Beta_Kernel:
             Int32(self.num_k_tiles),
             Int32(self.slice_ctas),
             gate_up_gs_f32, down_gs_f32,
-            # Phase 4 args
-            secondary_barrier_ptr,
-            next_gamma_ptr,
-            next_hidden_ptr,
-            emit_next_ln_i32,
+            # C2: Qwen3.5 attn output gate.
+            gate_ptr,
+            gate_fused_flag,
+            # C1.5: Phase 4 args (secondary_barrier_ptr, next_gamma_ptr,
+            # next_hidden_ptr, emit_next_ln_i32) dropped.
             # Grid z-dim
             Int32(nat),
             stream_arg,
@@ -2933,7 +2945,7 @@ class PhaseE_Beta_Kernel:
 
         self._compile_coop_full(*all_args)
         self._compiled_phase_coop_full(*all_args)
-        return next_hidden_output
+        return None
 
     # -----------------------------------------------------------------
     # Phase E.1 follow-up #1 — shared β-coop compile cache.
@@ -3057,11 +3069,12 @@ class PhaseE_Beta_Kernel:
             slice_ctas: Int32,
             gate_up_gs: Float32,
             down_gs: Float32,
-            # Phase 4
-            secondary_barrier_ptr: Int64,
-            next_gamma_ptr: Int64,
-            next_hidden_ptr: Int64,
-            emit_next_ln: Int32,
+            # C2: Qwen3.5 attn output gate (BF16 [nat, num_q_heads*hd]).
+            gate_ptr: Int64,
+            gate_fused: Int32,
+            # C1.5: Phase 4 args (secondary_barrier_ptr, next_gamma_ptr,
+            # next_hidden_ptr, emit_next_ln) dropped — kernel ends at
+            # Phase 3 (MLP write).
             # Grid z
             nat: Int32,
             stream,
@@ -3118,10 +3131,8 @@ class PhaseE_Beta_Kernel:
                 slice_ctas,
                 gate_up_gs,
                 down_gs,
-                secondary_barrier_ptr,
-                next_gamma_ptr,
-                next_hidden_ptr,
-                emit_next_ln,
+                gate_ptr,
+                gate_fused,
             ).launch(
                 grid=[self.slice_ctas, self.num_k_tiles, nat],
                 block=[self.num_threads, 1, 1],
@@ -3181,13 +3192,15 @@ class PhaseE_Beta_Kernel:
             slice_ctas: Int32,
             gate_up_gs: Float32,
             down_gs: Float32,
-            # Phase 4
-            secondary_barrier_ptr: Int64,
-            next_gamma_ptr: Int64,
-            next_hidden_ptr: Int64,
-            emit_next_ln: Int32,
+            # C2: Qwen3.5 attn output gate (BF16 [nat, num_q_heads*hd]).
+            # gate_fused == 0 disables the multiply (back-compat for
+            # callers that don't supply gate_buf).
+            gate_ptr: Int64,
+            gate_fused: Int32,
+            # C1.5: Phase 4 params (secondary_barrier_ptr, next_gamma_ptr,
+            # next_hidden_ptr, emit_next_ln) dropped.
         ):
-            """β-coop unified kernel — Phase 0 → 1 → grid barrier → 3 → 4."""
+            """β-coop unified kernel — Phase 0 → 1 → grid barrier → 3."""
             bx, by, bz = cute.arch.block_idx()
             lane = cute.arch.lane_idx()
             warp = cute.arch.warp_idx()
@@ -3698,6 +3711,26 @@ class PhaseE_Beta_Kernel:
                                 if red_row < group_size_p1:
                                     out_idx = (seq_idx * num_q_heads * hd
                                                + out_head * hd + g_col)
+                                    # C2: Qwen3.5 attn output gate fusion —
+                                    # mirrors paged kernel.py:1555-1569.
+                                    # gate_buf layout matches `output`:
+                                    # [num_seqs, num_q_heads * head_dim] BF16
+                                    if gate_fused != Int32(0):
+                                        gate_elem_idx = (
+                                            seq_idx * num_q_heads * hd
+                                            + out_head * hd + g_col)
+                                        gate_f32 = _ld_global_b16_to_f32(
+                                            gate_ptr + Int64(
+                                                gate_elem_idx * Int32(2)))
+                                        # sigmoid(x) = 1/(1+exp2(-x*LOG2E))
+                                        neg_x_log2e = (
+                                            Float32(0.0) - gate_f32
+                                            * Float32(1.4426950408889634))
+                                        exp_val = exp2_approx_ftz_f32(
+                                            neg_x_log2e)
+                                        sigmoid_val = _rcp_approx_f32(
+                                            Float32(1.0) + exp_val)
+                                        o_final = o_final * sigmoid_val
                                     _st_global_bf16_from_f32(
                                         attn_output_ptr
                                         + Int64(out_idx * Int32(2)),
@@ -4522,152 +4555,16 @@ class PhaseE_Beta_Kernel:
                         )
 
             # =================================================================
-            # SECONDARY BARRIER (Phase D pattern) → Phase 4 ε epilogue.
-            # Each k-tile's local-last CTA (the `is_last` branch above)
-            # increments `secondary_barrier_ptr[bz]`. The globally-last
-            # CTA (atomic returns num_k_tiles-1) runs Phase 4.
+            # C1.5: Phase 4 (secondary barrier + ε epilogue + next-layer
+            # input_LN bake) deleted. Kernel ends at the Phase 3 MLP write
+            # above. The next layer's input_LN runs from Python at layer
+            # entry (see _backend.py + qwen3_5.py:Qwen3_5DecoderLayer.forward).
+            #
+            # Counter reset: pre-C1.5 the globally-last CTA reset
+            # secondary_barrier and grid_barrier here. Both buffers are
+            # now allocated fresh (torch.zeros) per call in
+            # run_beta_coop_full, so no in-kernel reset is required.
+            # phase3_arrival_count is reset inline by per-k-tile last-CTA
+            # writers above; phase1_arrival_count is reset inside Phase 1
+            # Phase C (see _kernel_phase_01).
             # =================================================================
-            is_global_last_local = Int32(0)
-            if is_last:
-                _threadfence()  # flush mlp_output slice writes
-                cute.arch.sync_threads()
-                if tid == Int32(0):
-                    old2 = _atomic_add_u32(
-                        secondary_barrier_ptr + Int64(bz) * Int64(4),
-                        Int32(1),
-                    )
-                    gl_flag = Int32(0)
-                    if old2 == (num_k_tiles - Int32(1)):
-                        gl_flag = Int32(1)
-                    _st_shared_b32(
-                        smem_last_flag + Int64(0),
-                        Uint32(gl_flag),
-                    )
-                cute.arch.sync_threads()
-                gl_u32 = _ld_shared_b32(smem_last_flag + Int64(0))
-                is_global_last_local = Int32(gl_u32)
-
-            # =================================================================
-            # Phase 4: ε epilogue. Port of mlp_kernel.py:1355 body.
-            # Globally-last CTA per seq runs this block.
-            # =================================================================
-            if is_global_last_local == Int32(1):
-                n_per_thr_ep = self.hidden_size // self.num_threads
-
-                res_base_ep = (
-                    residual_output_ptr
-                    + Int64(bz * self.hidden_size) * Int64(2)
-                )
-                mlp_base_ep = (
-                    mlp_output_ptr
-                    + Int64(bz * self.hidden_size) * Int64(2)
-                )
-                next_hidden_base_ep = (
-                    next_hidden_ptr
-                    + Int64(bz * self.hidden_size) * Int64(2)
-                )
-
-                # Pass 1: residual_final in-place + sum_of_squares
-                ss_ep = Float32(0.0)
-                for _i in cutlass.range_constexpr(n_per_thr_ep):
-                    idx = tid + Int32(_i * self.num_threads)
-                    res_f32 = _ld_global_b16_to_f32(
-                        res_base_ep + Int64(idx) * Int64(2)
-                    )
-                    mlp_f32 = _ld_global_b16_to_f32(
-                        mlp_base_ep + Int64(idx) * Int64(2)
-                    )
-                    rf = res_f32 + mlp_f32
-                    _st_global_bf16_from_f32(
-                        res_base_ep + Int64(idx) * Int64(2),
-                        rf,
-                    )
-                    ss_ep = ss_ep + rf * rf
-
-                # Pass 2: cross-warp reduce. Re-use smem_reduce (Phase 3
-                # layout; is_last already kept smem_last_flag in sync).
-                ss_ep = ss_ep + shfl_xor_sync(ss_ep, Int32(1))
-                ss_ep = ss_ep + shfl_xor_sync(ss_ep, Int32(2))
-                ss_ep = ss_ep + shfl_xor_sync(ss_ep, Int32(4))
-                ss_ep = ss_ep + shfl_xor_sync(ss_ep, Int32(8))
-                ss_ep = ss_ep + shfl_xor_sync(ss_ep, Int32(16))
-
-                if lane == Int32(0):
-                    _st_shared_f32(
-                        smem_reduce + Int64(warp) * Int64(4),
-                        ss_ep,
-                    )
-                cute.arch.sync_threads()
-
-                if warp == Int32(0):
-                    if lane == Int32(0):
-                        total_ss_ep = _ld_shared_f32(
-                            smem_reduce + Int64(0) * Int64(4)
-                        )
-                        total_ss_ep = total_ss_ep + _ld_shared_f32(
-                            smem_reduce + Int64(1) * Int64(4)
-                        )
-                        total_ss_ep = total_ss_ep + _ld_shared_f32(
-                            smem_reduce + Int64(2) * Int64(4)
-                        )
-                        total_ss_ep = total_ss_ep + _ld_shared_f32(
-                            smem_reduce + Int64(3) * Int64(4)
-                        )
-                        variance_ep = total_ss_ep / Float32(
-                            float(self.hidden_size)
-                        )
-                        inv_rms_ep = _rsqrt_approx_f32(
-                            variance_ep + rms_eps
-                        )
-                        _st_shared_f32(
-                            smem_reduce + Int64(0),
-                            inv_rms_ep,
-                        )
-                cute.arch.sync_threads()
-
-                inv_rms_val_ep = _ld_shared_f32(smem_reduce + Int64(0))
-
-                # Pass 3: write next_hidden — two paths
-                if emit_next_ln == Int32(1):
-                    for _i in cutlass.range_constexpr(n_per_thr_ep):
-                        idx = tid + Int32(_i * self.num_threads)
-                        rf = _ld_global_b16_to_f32(
-                            res_base_ep + Int64(idx) * Int64(2)
-                        )
-                        gamma_f32 = _ld_global_b16_to_f32(
-                            next_gamma_ptr + Int64(idx) * Int64(2)
-                        )
-                        normed_f32 = rf * inv_rms_val_ep
-                        normed_bf16_u32 = _cvt_2f32_to_bf16x2(
-                            normed_f32, Float32(0.0)
-                        )
-                        low16 = normed_bf16_u32 & Uint32(0xFFFF)
-                        as_bits = Int32(low16 << Uint32(16))
-                        normed_round = _bitcast_i32_to_f32(as_bits)
-                        # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
-                        out_f32 = normed_round * (Float32(1.0) + gamma_f32)
-                        _st_global_bf16_from_f32(
-                            next_hidden_base_ep + Int64(idx) * Int64(2),
-                            out_f32,
-                        )
-                else:
-                    for _i in cutlass.range_constexpr(n_per_thr_ep):
-                        idx = tid + Int32(_i * self.num_threads)
-                        rf = _ld_global_b16_to_f32(
-                            res_base_ep + Int64(idx) * Int64(2)
-                        )
-                        _st_global_bf16_from_f32(
-                            next_hidden_base_ep + Int64(idx) * Int64(2),
-                            rf,
-                        )
-
-                # Self-reset secondary barrier + grid barrier for next call.
-                if tid == Int32(0):
-                    _atomic_add_u32(
-                        secondary_barrier_ptr + Int64(bz) * Int64(4),
-                        Int32(0) - num_k_tiles,
-                    )
-                    _atomic_add_u32(
-                        grid_barrier_ptr + Int64(bz) * Int64(4),
-                        Int32(0) - total_ctas_per_seq_grid,
-                    )

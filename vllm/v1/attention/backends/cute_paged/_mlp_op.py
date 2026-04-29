@@ -186,8 +186,8 @@ direct_register_custom_op(
 # qwen3_5.py:473. Op body reads impl._phase_e_consumed at call time (runtime,
 # not trace time), branches to consume β output or delegate to cute_mlp_forward.
 #
-# Pairs with cute_phase_e_skip_input_layernorm — dispatcher sets
-# impl._phase_e_skip_next_ln=True when consumed, skip-op reads it on layer N+1.
+# Post-C1.5: the consume branch reads impl.mlp_output (raw post-MLP hidden);
+# layer N+1's input_layernorm runs from Python at layer entry (no F.1 bake).
 
 def _cute_phase_e_dispatch_impl(
     x: torch.Tensor,
@@ -206,16 +206,14 @@ def _cute_phase_e_dispatch_impl(
 
     if getattr(impl, "_phase_e_consumed", False):
         # Consume β output. Fail-loud — no try/except per spec Decision 5.
-        hidden_out[:nat].copy_(impl.next_hidden_scratch[:nat])
+        hidden_out[:nat].copy_(impl.mlp_output[:nat])
         residual_out[:nat].copy_(impl.residual_output[:nat])
         impl._phase_e_consumed = False
-        impl._phase_e_skip_next_ln = True
         return
 
     # Not-consumed: β did not run this layer; delegate to regular MLP op.
     torch.ops.vllm.cute_mlp_forward(x, hidden_out, layer_name)
     residual_out.copy_(residual_in)
-    impl._phase_e_skip_next_ln = False
 
 
 def _cute_phase_e_dispatch_fake(
@@ -236,66 +234,78 @@ direct_register_custom_op(
 )
 
 
-# --- Phase F.1: cute_phase_e_skip_input_layernorm --------------------------
-# Opaque wrap of layer N+1's self.input_layernorm(hidden_states, residual)
-# call at qwen3_5.py:386. Reads impl._phase_e_skip_next_ln (set by the
-# previous layer's cute_phase_e_dispatch when it consumed β output) and
-# either passes through (skip) or runs the module normally.
+# --- Phase F.1: cute_phase_e_skip_input_layernorm — DELETED (C1.5) ---------
+# The skip-op + bake-into-previous-layer scheme was removed in C1.5 because
+# it corrupted the residual stream at non-fusion-active layers (linear-attn
+# layers in Qwen3.5's stride-4 pattern do not honor the skip flag). Layer
+# input_layernorm now runs unconditionally at every layer entry; β-coop's
+# ε epilogue (Phase 4) was deleted in the same commit.
 #
-# State flows ACROSS a layer boundary (layer N writes, N+1 reads). Ordering
-# is guaranteed by the decoder's sequential forward() calls.
+# See docs/research/uber_kernel_migration/q4_brainstorm_layer_LN_2026-04-25.md.
 
-def _cute_phase_e_skip_input_layernorm_impl(
-    x: torch.Tensor,
+
+# --- 2026-04-26: cute_residual_mirror -----------------------------------------
+# Opaque op for the residual mirror copy that qwen3_5.py's decoder forward
+# does at layer entry: `impl.residual_buf[:nat].copy_(residual[:nat])`.
+#
+# Why an op: the prior plain-Python `.copy_()` was inside an `if fusion_could_run:
+# try: ... attn_md = get_forward_context().attn_metadata[layer_name] ...`
+# block. Under @support_torch_compile (model.forward), dynamo traced the
+# get_forward_context lookup (None at trace time) → TypeError → except
+# pass. The captured graph then dropped the `.copy_` because (a) the
+# inferred trace path always took the except branch and (b) `impl.residual_buf`
+# is mutated state torch.compile doesn't track as a graph output. Result at
+# runtime: residual_buf stayed at the CUDA-graph-allocator-zeroed value;
+# β-coop read zeros; gibberish. (Verified 2026-04-26 via /tmp/nvllm-dumps —
+# residual_in absmax=0.0000 across all 16 full-attn layers.)
+#
+# Wrapping the copy in an opaque custom op makes it a black-box side-effect
+# from torch.compile's perspective — it's preserved across graph capture and
+# always runs at runtime.
+
+_RES_MIRROR_DIAG_SEEN: set[int] = set()
+
+
+def _cute_residual_mirror_impl(
+    residual_buf: torch.Tensor,
     residual: torch.Tensor,
-    out_x: torch.Tensor,
-    out_residual: torch.Tensor,
-    layer_name: str,
 ) -> None:
-    impl = _CUTE_MLP_REGISTRY.get(layer_name)
-    if impl is None:
-        raise RuntimeError(
-            f"cute_phase_e_skip_input_layernorm called for unregistered "
-            f"layer {layer_name!r}"
-        )
-    nat = x.shape[0]
+    """Copy `residual` into `residual_buf` (in-place mutation).
 
-    if getattr(impl, "_phase_e_skip_next_ln", False):
-        # Skip: previous layer's β ε epilogue already applied THIS layer's
-        # input_layernorm. Pass-through.
-        out_x[:nat].copy_(x[:nat])
-        out_residual[:nat].copy_(residual[:nat])
-        impl._phase_e_skip_next_ln = False
+    Direct buffer-passing replaces the prior registry-lookup design:
+    `mutates_args=["residual_buf"]` tells torch.compile the op has a
+    real side effect on a tracked tensor, so it isn't dead-eliminated.
+    """
+    nat = residual.shape[0]
+    if nat == 0:
         return
-
-    # Normal path: run input_layernorm.
-    input_ln = getattr(impl, "_input_layernorm_module", None)
-    if input_ln is None:
-        raise RuntimeError(
-            f"cute_phase_e_skip_input_layernorm: layer {layer_name!r} "
-            f"has no _input_layernorm_module attached. Check that "
-            f"attach_input_layernorm was called at model init."
+    nat = min(nat, residual_buf.shape[0])
+    # 2026-04-26 DIAG: one-shot per residual_buf identity. Logs whether
+    # the op fires at runtime + the input magnitude. Remove after ship.
+    _key = id(residual_buf)
+    if _key not in _RES_MIRROR_DIAG_SEEN:
+        _RES_MIRROR_DIAG_SEEN.add(_key)
+        logger.info(
+            "[RES_MIRROR_OP] nat=%d residual_absmax=%.4e "
+            "buf_shape=%s buf_pre_absmax=%.4e",
+            nat,
+            residual.float().abs().max().item(),
+            tuple(residual_buf.shape),
+            residual_buf.float().abs().max().item(),
         )
-    ln_out, ln_residual = input_ln._forward_static_with_residual(
-        input_ln.weight.data, input_ln.variance_epsilon, x, residual
-    )
-    out_x[:nat].copy_(ln_out[:nat])
-    out_residual[:nat].copy_(ln_residual[:nat])
+    residual_buf[:nat].copy_(residual[:nat])
 
 
-def _cute_phase_e_skip_input_layernorm_fake(
-    x: torch.Tensor,
+def _cute_residual_mirror_fake(
+    residual_buf: torch.Tensor,
     residual: torch.Tensor,
-    out_x: torch.Tensor,
-    out_residual: torch.Tensor,
-    layer_name: str,
 ) -> None:
     return
 
 
 direct_register_custom_op(
-    op_name="cute_phase_e_skip_input_layernorm",
-    op_func=_cute_phase_e_skip_input_layernorm_impl,
-    mutates_args=["out_x", "out_residual"],
-    fake_impl=_cute_phase_e_skip_input_layernorm_fake,
+    op_name="cute_residual_mirror",
+    op_func=_cute_residual_mirror_impl,
+    mutates_args=["residual_buf"],
+    fake_impl=_cute_residual_mirror_fake,
 )

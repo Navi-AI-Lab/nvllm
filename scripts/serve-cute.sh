@@ -63,6 +63,19 @@ echo ""
 
 # NOTE: --enable-prefix-caching removed — corrupts SSM state in hybrid attention models.
 # Re-evaluate when upstream vLLM explicitly supports prefix caching + FLA/mamba.
+
+# C2 diag env file: vLLM's EngineCore subprocess strips most env vars from its
+# parent. Write a sentinel file the model code can read at module import time.
+# (See docs/research/uber_kernel_migration/2026-04-26-c2-diagnostic-plan.md.)
+mkdir -p /tmp/c2_diag
+{
+  echo "CUTE_C2_DIAG=${CUTE_C2_DIAG:-}"
+  echo "CUTE_C2_DIAG_INJECT_NOISE=${CUTE_C2_DIAG_INJECT_NOISE:-}"
+  echo "CUTE_C2_DIAG_DUMP_DIR=${CUTE_C2_DIAG_DUMP_DIR:-}"
+  echo "CUTE_C2_DIAG_TOL_ATOL=${CUTE_C2_DIAG_TOL_ATOL:-}"
+  echo "CUTE_C2_DIAG_TOL_RTOL=${CUTE_C2_DIAG_TOL_RTOL:-}"
+} > /tmp/c2_diag/ENV
+
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -70,13 +83,21 @@ docker run -d \
   --network host \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
+  -v "/tmp/nvllm-dumps:/tmp/nvllm-dumps" \
+  -v "/tmp/c2_diag:/tmp/c2_diag" \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -e CUTE_DEBUG_FUSION="${CUTE_DEBUG_FUSION:-0}" \
+  -e CUTE_DUMP_TENSORS="${CUTE_DUMP_TENSORS:-0}" \
   -e CUTE_MLP_FUSION="${CUTE_MLP_FUSION:-1}" \
   -e CUTE_ATTN_FUSION="${CUTE_ATTN_FUSION:-1}" \
   -e CUTE_DEBUG_MLP_FUSION="${CUTE_DEBUG_MLP_FUSION:-0}" \
+  -e CUTE_C2_DIAG="${CUTE_C2_DIAG:-}" \
+  -e CUTE_C2_DIAG_INJECT_NOISE="${CUTE_C2_DIAG_INJECT_NOISE:-}" \
+  -e CUTE_C2_DIAG_DUMP_DIR="${CUTE_C2_DIAG_DUMP_DIR:-}" \
+  -e CUTE_C2_DIAG_TOL_ATOL="${CUTE_C2_DIAG_TOL_ATOL:-}" \
+  -e CUTE_C2_DIAG_TOL_RTOL="${CUTE_C2_DIAG_TOL_RTOL:-}" \
   -e CUTE_BETA_MIN_FREE_GB="${CUTE_BETA_MIN_FREE_GB:-8}" \
   -e CUTE_PHASE_E_FUSION="${CUTE_PHASE_E_FUSION:-0}" \
   -e CUTE_PHASE_E_PATH="${CUTE_PHASE_E_PATH:-auto}" \
@@ -96,6 +117,7 @@ docker run -d \
   --trust-remote-code \
   --gpu-memory-utilization "${SERVE_GPU_UTIL:-0.70}" \
   --max-num-batched-tokens 65536 \
+  --kernel-config '{"enable_flashinfer_autotune":false}' \
   "${EXTRA_ARGS[@]}"
 
 echo "Container started: $CONTAINER"

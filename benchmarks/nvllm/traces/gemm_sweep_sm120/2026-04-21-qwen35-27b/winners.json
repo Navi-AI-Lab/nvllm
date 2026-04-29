@@ -1,7 +1,7 @@
 {
   "model_tag": "qwen35_27b",
   "source_sweep": "2026-04-21-qwen35-27b",
-  "source_ranking_rule": "shortlist.json top-1 per (shape, bucket) from analyze.py::shortlist_top3() -> ranked by bucket_min_us",
+  "source_ranking_rule": "mid-M (16-32, 64-128, 192-256): shortlist.json top-1 from analyze.py::shortlist_top3(); small-M (1-2, 4-8, 16): per-bucket avg min_us across microbench.csv, top-1 picked directly (Phase 6b 2026-04-29)",
   "by_shape": {
     "qkv_proj": {
       "N": 8192,
@@ -17,6 +17,18 @@
       "192-256": {
         "cfg": "Cfg_128x128x128_TmaWSPing_Pers",
         "idx": 1
+      },
+      "1-2": {
+        "cfg": "Cfg_128x256x128_TmaWSCoop_Pers",
+        "idx": 7
+      },
+      "4-8": {
+        "cfg": "Cfg_128x256x128_Auto_Pers",
+        "idx": 6
+      },
+      "16": {
+        "cfg": "Cfg_128x256x128_Auto_Pers",
+        "idx": 6
       }
     },
     "o_proj": {
@@ -33,6 +45,18 @@
       "192-256": {
         "cfg": "Cfg_256x128x128_TmaWSCoop_Pers",
         "idx": 10
+      },
+      "1-2": {
+        "cfg": "Cfg_128x256x128_TmaWSCoop_Pers",
+        "idx": 7
+      },
+      "4-8": {
+        "cfg": "Cfg_128x256x128_TmaWSCoop_Pers",
+        "idx": 7
+      },
+      "16": {
+        "cfg": "Cfg_128x256x128_Auto_Pers",
+        "idx": 6
       }
     },
     "gate_up_proj": {
@@ -49,6 +73,18 @@
       "192-256": {
         "cfg": "Cfg_128x128x256_Auto_Pers",
         "idx": 2
+      },
+      "1-2": {
+        "cfg": "Cfg_128x128x256_Auto_Pers",
+        "idx": 2
+      },
+      "4-8": {
+        "cfg": "Cfg_128x128x256_TmaWSCoop_Pers",
+        "idx": 3
+      },
+      "16": {
+        "cfg": "Cfg_128x128x256_Auto_Pers",
+        "idx": 2
       }
     },
     "down_proj": {
@@ -63,6 +99,46 @@
         "idx": 2
       },
       "192-256": {
+        "cfg": "Cfg_128x128x256_Auto_Pers",
+        "idx": 2
+      },
+      "1-2": {
+        "cfg": "Cfg_128x128x256_TmaWSCoop_Pers",
+        "idx": 3
+      },
+      "4-8": {
+        "cfg": "Cfg_128x128x256_Auto_Pers",
+        "idx": 2
+      },
+      "16": {
+        "cfg": "Cfg_128x128x256_Auto_Pers",
+        "idx": 2
+      }
+    },
+    "gdn_in_proj_qkv": {
+      "N": 14336,
+      "K": 5120,
+      "16-32": {
+        "cfg": "(none)",
+        "idx": -1
+      },
+      "64-128": {
+        "cfg": "(none)",
+        "idx": -1
+      },
+      "192-256": {
+        "cfg": "(none)",
+        "idx": -1
+      },
+      "1-2": {
+        "cfg": "Cfg_128x128x256_Auto_Pers",
+        "idx": 2
+      },
+      "4-8": {
+        "cfg": "Cfg_128x128x256_TmaWSCoop_Pers",
+        "idx": 3
+      },
+      "16": {
         "cfg": "Cfg_128x128x256_Auto_Pers",
         "idx": 2
       }
