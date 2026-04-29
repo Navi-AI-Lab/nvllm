@@ -17,9 +17,11 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import inspect
+import json
 import logging
 import os
 import pickle
+import re
 import sys
 import threading
 from functools import lru_cache, wraps
@@ -375,6 +377,33 @@ def _compile_options_cache_key(compile_callable: Any) -> tuple[str, ...]:
     return tuple(serialized)
 
 
+_CACHE_KEY_VERSION = "nvllm_cute_compile_cache_v2_ptr_canonical"
+
+
+def _build_full_cache_payload(
+    compile_callable: Any,
+    func: Any,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> tuple:
+    """Build the structured payload that becomes the cache key.
+
+    Single source of truth for what goes into the hash. ``_build_full_cache_key``
+    hashes ``repr(...)`` of this tuple into a hex digest; the KEY_DEBUG probe
+    reuses this function so its ``payload_hash_matches_key`` check is a real
+    invariant rather than an independent re-derivation that could drift.
+    """
+    return (
+        _CACHE_KEY_VERSION,
+        _function_fingerprint(func),
+        _package_fingerprint(),
+        _runtime_toolchain_key(),
+        _structural_args_cache_key(func, args, kwargs),
+        _compile_options_cache_key(compile_callable),
+        _compile_environment_key(),
+    )
+
+
 def _build_full_cache_key(
     compile_callable: Any,
     func: Any,
@@ -386,16 +415,287 @@ def _build_full_cache_key(
     Includes function fingerprint, package state, toolchain versions,
     compile arguments, compile options, and environment variables.
     """
-    payload = (
-        "nvllm_cute_compile_cache_v2_ptr_canonical",
-        _function_fingerprint(func),
-        _package_fingerprint(),
-        _runtime_toolchain_key(),
-        _structural_args_cache_key(func, args, kwargs),
-        _compile_options_cache_key(compile_callable),
-        _compile_environment_key(),
-    )
+    payload = _build_full_cache_payload(compile_callable, func, args, kwargs)
     return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# KEY_DEBUG probe — structural payload dump for cold/warm key drift diagnosis
+# ---------------------------------------------------------------------------
+#
+# Gated on B12X_CUTE_COMPILE_KEY_DEBUG=1. Run is labeled via
+# B12X_CUTE_COMPILE_KEY_DEBUG_RUN (e.g. "cold"|"warm" set by cache_smoke.py).
+# Files land under <cache_dir>/_debug/<func-slug>.<call_index>.<run>.json.
+#
+# Each dump captures both the raw component values AND the canonicalized form,
+# so a cold-vs-warm diff can distinguish "we normalized too much" (canonical
+# forms identical, but a real shaping constant collapsed) from "we normalized
+# too little" (raw forms differ in a non-pointer field that survives into the
+# canonical form). The ``canonical_bytes_len`` and ``payload_hash`` fields
+# reflect what _build_full_cache_key actually feeds into sha256, so
+# ``payload_hash_matches_key == True`` is a real invariant.
+#
+# Per-component and top-level component hashes are sha256(repr(...)) over the
+# FULL pre-truncation value, so a 500-char tensor repr difference cannot hide
+# inside a truncated display field.
+#
+# Pairing across runs uses (func_slug, call_index), not the cache key prefix,
+# so cold/warm dumps remain pairable when the key itself drifts.
+#
+# The probe MUST NEVER break the cache path: any failure during dump is logged
+# and swallowed.
+
+_KEY_DEBUG_DIR_NAME = "_debug"
+_KEY_DEBUG_REPR_LIMIT = 400
+_FILENAME_SAFE_RE = re.compile(r"[^A-Za-z0-9_.\-]")
+
+_CALL_INDEX_LOCK = threading.Lock()
+_CALL_INDEX_COUNTERS: dict[tuple[str, str], int] = {}
+
+
+def _key_debug_enabled() -> bool:
+    return os.environ.get("B12X_CUTE_COMPILE_KEY_DEBUG", "0") == "1"
+
+
+def _key_debug_run_label() -> str:
+    raw = os.environ.get("B12X_CUTE_COMPILE_KEY_DEBUG_RUN", "") or "unlabeled"
+    sanitized = _FILENAME_SAFE_RE.sub("_", raw)[:32]
+    return sanitized or "unlabeled"
+
+
+def _sanitize_for_filename(name: str) -> str:
+    return _FILENAME_SAFE_RE.sub("_", name)[:128]
+
+
+def _next_call_index(func_slug: str, run: str) -> int:
+    """Per-(func_slug, run) counter for stable cold/warm pairing.
+
+    The same kernel may be compiled multiple times within a single run (e.g.
+    different shapes or specializations). Pairing dumps by ``(func_slug,
+    call_index)`` instead of by key prefix means the i-th cold compile pairs
+    with the i-th warm compile for the same kernel even when the cache key
+    itself drifts between runs.
+    """
+    counter_key = (func_slug, run)
+    with _CALL_INDEX_LOCK:
+        idx = _CALL_INDEX_COUNTERS.get(counter_key, 0)
+        _CALL_INDEX_COUNTERS[counter_key] = idx + 1
+        return idx
+
+
+def _hash_repr_str(text: str) -> str:
+    """SHA256 of an already-computed repr string."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _safe_repr(value: Any) -> str:
+    try:
+        return repr(value)
+    except Exception as exc:
+        return f"<repr-failed: {type(exc).__name__}: {exc}>"
+
+
+def _truncate_str(text: str, limit: int = _KEY_DEBUG_REPR_LIMIT) -> str:
+    if len(text) > limit:
+        return text[:limit] + f"...<+{len(text) - limit}>"
+    return text
+
+
+def _truncate_repr(value: Any, limit: int = _KEY_DEBUG_REPR_LIMIT) -> str:
+    return _truncate_str(_safe_repr(value), limit)
+
+
+def _component_summary(
+    index: int,
+    name: str | None,
+    value: Any,
+) -> dict[str, Any]:
+    cls = type(value)
+    raw_structural_repr = _safe_repr(_structural_cache_key(value))
+    canonical_repr = _safe_repr(_canonicalize_arg(value))
+    return {
+        "index": index,
+        "name": name,
+        "type_module": cls.__module__,
+        "type_qualname": cls.__qualname__,
+        "is_pointer_typed": _is_runtime_pointer_value(value),
+        "raw_repr": _truncate_repr(value),
+        "raw_structural": _truncate_str(raw_structural_repr),
+        "raw_structural_hash": _hash_repr_str(raw_structural_repr),
+        "canonical": _truncate_str(canonical_repr),
+        "canonical_hash": _hash_repr_str(canonical_repr),
+    }
+
+
+def _signature_summary(
+    func: Any,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """Capture inspect.signature data for both the wrapped and unwrapped func.
+
+    The cute.jit decorator commonly wraps the underlying kernel function; the
+    wrapped signature may report ``(*args, **kwargs)`` while the unwrapped one
+    has real parameter names. Capture both so the diff explains whether
+    name-based canonicalization is even available.
+    """
+    summary: dict[str, Any] = {
+        "signature": "<unavailable>",
+        "unwrapped_signature": "<unavailable>",
+        "param_names": [],
+        "bind_names_available": False,
+        "bound_args_repr": {},
+        "positional_names": {},
+    }
+    try:
+        sig = inspect.signature(func)
+        summary["signature"] = str(sig)
+        params = list(sig.parameters.values())
+        summary["param_names"] = [p.name for p in params]
+        positional_names: dict[int, str] = {}
+        for i in range(len(args)):
+            if i < len(params) and params[i].kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ):
+                positional_names[i] = params[i].name
+            else:
+                positional_names[i] = ""
+        summary["positional_names"] = {
+            str(k): v for k, v in positional_names.items()
+        }
+        try:
+            bound = sig.bind_partial(*args, **kwargs)
+            summary["bind_names_available"] = True
+            summary["bound_args_repr"] = {
+                name: _truncate_repr(value)
+                for name, value in bound.arguments.items()
+            }
+        except TypeError as exc:
+            summary["bound_args_repr"] = {"_bind_error": str(exc)}
+    except (TypeError, ValueError) as exc:
+        summary["signature"] = f"<unavailable: {exc}>"
+
+    try:
+        unwrapped = inspect.unwrap(func)
+        summary["unwrapped_signature"] = str(inspect.signature(unwrapped))
+    except (TypeError, ValueError) as exc:
+        summary["unwrapped_signature"] = f"<unavailable: {exc}>"
+
+    return summary
+
+
+def _write_key_debug_payload(
+    cache_dir: str,
+    key: str,
+    compile_callable: Any,
+    func: Any,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> Path | None:
+    """Dump a structured cold/warm payload for cache-key drift diagnosis.
+
+    Returns the dump path on success, None if the probe is disabled or any
+    failure occurred. Failures are logged but never propagated.
+    """
+    if not _key_debug_enabled():
+        return None
+    try:
+        run = _key_debug_run_label()
+        unwrapped = inspect.unwrap(func)
+        module = getattr(unwrapped, "__module__", "") or ""
+        qualname = getattr(
+            unwrapped,
+            "__qualname__",
+            getattr(unwrapped, "__name__", type(unwrapped).__qualname__),
+        )
+        func_slug = _sanitize_for_filename(f"{module}.{qualname}") or "unknown"
+        key_prefix = key[:16]
+        call_index = _next_call_index(func_slug, run)
+
+        sig_summary = _signature_summary(func, args, kwargs)
+
+        positional = [
+            _component_summary(
+                i,
+                sig_summary["positional_names"].get(str(i)) or None,
+                v,
+            )
+            for i, v in enumerate(args)
+        ]
+        keyword = [
+            _component_summary(-1, k, v) for k, v in sorted(kwargs.items())
+        ]
+
+        # Reuse the canonical payload builder so the invariant is real.
+        payload = _build_full_cache_payload(
+            compile_callable, func, args, kwargs,
+        )
+        canonical_bytes = repr(payload).encode("utf-8")
+        payload_hash = hashlib.sha256(canonical_bytes).hexdigest()
+
+        # Slot indices match _build_full_cache_payload's tuple order.
+        func_fp = payload[1]
+        pkg_fp = payload[2]
+        toolchain = payload[3]
+        args_key_payload = payload[4]
+        opts_key = payload[5]
+        env_key = payload[6]
+
+        # Top-level component hashes — sha256(repr(...)) over the FULL value
+        # so cold/warm diff says "args changed" or "func_fingerprint changed"
+        # at a glance, without scanning per-component fields.
+        component_hashes = {
+            "func_fingerprint": _hash_repr_str(_safe_repr(func_fp)),
+            "package_fingerprint": _hash_repr_str(_safe_repr(pkg_fp)),
+            "toolchain": _hash_repr_str(_safe_repr(toolchain)),
+            "args": _hash_repr_str(_safe_repr(args_key_payload)),
+            "compile_options": _hash_repr_str(_safe_repr(opts_key)),
+            "compile_env": _hash_repr_str(_safe_repr(env_key)),
+        }
+
+        record: dict[str, Any] = {
+            "run": run,
+            "call_index": call_index,
+            "key": key,
+            "key_prefix": key_prefix,
+            "payload_hash": payload_hash,
+            "payload_hash_matches_key": payload_hash == key,
+            "canonical_bytes_len": len(canonical_bytes),
+            "component_hashes": component_hashes,
+            "func_module": module,
+            "func_qualname": qualname,
+            "func_slug": func_slug,
+            "func_fingerprint": list(func_fp),
+            "package_fingerprint": pkg_fp,
+            "signature": sig_summary["signature"],
+            "unwrapped_signature": sig_summary["unwrapped_signature"],
+            "param_names": sig_summary["param_names"],
+            "bind_names_available": sig_summary["bind_names_available"],
+            "bound_args_repr": sig_summary["bound_args_repr"],
+            "positional_names": sig_summary["positional_names"],
+            "components_positional": positional,
+            "components_keyword": keyword,
+            "toolchain": [list(t) for t in toolchain],
+            "compile_options": list(opts_key),
+            "compile_env": [list(e) for e in env_key],
+        }
+
+        debug_dir = Path(cache_dir) / _KEY_DEBUG_DIR_NAME
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        out_path = (
+            debug_dir / f"{func_slug}.{call_index:03d}.{run}.json"
+        )
+        tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2, default=repr)
+        os.replace(tmp_path, out_path)
+        return out_path
+    except Exception:
+        logger.exception(
+            "CuTe disk cache KEY_DEBUG dump failed (non-fatal)"
+        )
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -489,19 +789,13 @@ def apply_disk_cache_patch(cache_dir: str, enabled: bool = True) -> None:
         @wraps(original_compile)
         def _cached_compile(self, func, *args, **kwargs):
             key = _build_full_cache_key(self, func, args, kwargs)
-            if os.environ.get("B12X_CUTE_COMPILE_KEY_DEBUG", "0") == "1":
-                # Per-component dump for diagnosing key drift between cold/warm.
-                func_fp = _function_fingerprint(func)
-                pkg_fp = _package_fingerprint()
-                tk = _runtime_toolchain_key()
-                args_key = _structural_args_cache_key(func, args, kwargs)
-                opts_key = _compile_options_cache_key(self)
-                env_key = _compile_environment_key()
+            dump_path = _write_key_debug_payload(
+                cache_dir, key, self, func, args, kwargs,
+            )
+            if dump_path is not None:
                 logger.info(
-                    "CuTe disk cache KEY_DEBUG key=%s func_fp=%r pkg_fp=%s "
-                    "toolchain=%r args_key=%r opts=%r env=%r",
-                    key[:16], func_fp, pkg_fp[:16], tk, args_key, opts_key,
-                    env_key,
+                    "CuTe disk cache KEY_DEBUG dump=%s key=%s",
+                    dump_path.name, key[:16],
                 )
             # Try native CUTLASS format first, then fallback format
             cached = _load_native(cache_dir, key)

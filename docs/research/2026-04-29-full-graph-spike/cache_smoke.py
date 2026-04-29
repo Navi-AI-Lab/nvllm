@@ -66,14 +66,23 @@ class _LineCapture(logging.Handler):
         self.lines.append(record.getMessage())
 
 
+_DEBUG_DIR_NAME = "_debug"
+
+
 def _find_artifacts(cache_dir: Path) -> list[tuple[str, float, int]]:
     out = []
     if not cache_dir.exists():
         return out
     for p in cache_dir.rglob("*"):
-        if p.is_file():
-            st = p.stat()
-            out.append((str(p.relative_to(cache_dir)), st.st_mtime, st.st_size))
+        if not p.is_file():
+            continue
+        rel = p.relative_to(cache_dir)
+        # Exclude probe debug dumps (B12X_CUTE_COMPILE_KEY_DEBUG=1) so they
+        # don't show up as new compile artifacts in cold/warm counts.
+        if rel.parts and rel.parts[0] == _DEBUG_DIR_NAME:
+            continue
+        st = p.stat()
+        out.append((str(rel), st.st_mtime, st.st_size))
     return sorted(out)
 
 
@@ -184,6 +193,14 @@ def main() -> int:
     # per-run subdir, not the shared serve cache.
     os.environ["B12X_CUTE_COMPILE_DISK_CACHE"] = "1"
     os.environ["B12X_CUTE_COMPILE_CACHE_DIR"] = str(cache_dir)
+
+    # Enable the structural KEY_DEBUG probe so each compile dumps a per-call
+    # JSON payload under <cache_dir>/_debug/<func-slug>.<key-prefix>.<run>.json.
+    # The phase tag is what makes cold/warm pairing unambiguous: a follow-up
+    # diff over the same <func-slug>.<key-prefix> reveals which payload field
+    # drifts between runs.
+    os.environ["B12X_CUTE_COMPILE_KEY_DEBUG"] = "1"
+    os.environ["B12X_CUTE_COMPILE_KEY_DEBUG_RUN"] = args.phase
 
     # Import vllm BEFORE attaching the capture handler. vllm's logging
     # init clears handlers on its named loggers, so any handler attached
