@@ -883,6 +883,30 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 self._phase_e_coop_input_gamma = torch.ones(
                     hidden_dim, dtype=torch.bfloat16, device="cuda",
                 )
+                # Persistent β-coop workspace buffers (spec 2026-04-30
+                # §4.1, §4.2). Hoisted from per-call torch.zeros inside
+                # run_beta_coop_full to fix the FULL graph capture
+                # replay-divergence bug (vLLM #35175 analog). Allocated
+                # inside this `try:` so an OOM trips the except handler
+                # that nulls _phase_e_coop_kernel.
+                self._phase_e_coop_wo_output = torch.zeros(
+                    max_num_seqs, 4, hidden_dim,
+                    dtype=torch.float32, device="cuda",
+                )
+                self._phase_e_coop_mlp_partial_fp32 = torch.zeros(
+                    max_num_seqs, self._mlp_slice_ctas, hidden_dim,
+                    dtype=torch.float32, device="cuda",
+                )
+                self._phase_e_coop_mlp_arrival_count = torch.zeros(
+                    max_num_seqs, self._mlp_num_k_tiles,
+                    dtype=torch.uint32, device="cuda",
+                )
+                self._phase_e_coop_grid_barrier_i32 = torch.zeros(
+                    max_num_seqs, dtype=torch.int32, device="cuda",
+                )
+                self._phase_e_coop_phase1_arrival_count = torch.zeros(
+                    max_num_seqs, dtype=torch.int32, device="cuda",
+                )
                 # C1.5: probe resident-CTA cap here (was previously inside
                 # attach_next_input_layernorm). 45568 B matches the β kernel
                 # SMEM footprint (spec §6). Read by the β-coop dispatch
@@ -1478,11 +1502,13 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 #     _next_gamma = None
                 #     _rms_eps = 1e-6
 
-                # run_beta_coop_full allocates its own internal MLP partial/
-                # arrival/grid-barrier buffers — unlike β-lite we do NOT
-                # zero self.mlp_partial_fp32 / self.mlp_arrival_count.
-                # Future optimization: hoist those into pre-allocated
-                # per-impl buffers (task-21 perf work).
+                # β-coop reads its workspace buffers from persistent
+                # impl attributes (self._phase_e_coop_*) — separate from
+                # β-lite's self.mlp_partial_fp32 / self.mlp_arrival_count
+                # because β-coop's slice_ctas / num_k_tiles can differ.
+                # Counter zero_() before launch happens inside
+                # run_beta_coop_full at phase_e_kernel.py:3036-3038.
+                # Spec: docs/superpowers/specs/2026-04-30-beta-coop-persistent-buffers-design.md
                 # C1.5: rms_eps no longer read by β-coop (Phase 4 deleted),
                 # but the kernel still has the attribute so leave default.
                 # self._phase_e_coop_kernel.rms_eps = _rms_eps
@@ -1557,6 +1583,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         # qwen3_5.py:267 from the q_proj's gate slice. Mirrors
                         # the paged kernel's `gate_buf=` plumbing.
                         gate_buf=_gate_buf,
+                        # Persistent workspace buffers (spec §4.3):
+                        wo_output=self._phase_e_coop_wo_output[:nat],
+                        mlp_partial_fp32=self._phase_e_coop_mlp_partial_fp32[:nat],
+                        mlp_arrival_count=self._phase_e_coop_mlp_arrival_count[:nat],
+                        grid_barrier_i32=self._phase_e_coop_grid_barrier_i32[:nat],
+                        phase1_arrival_count=self._phase_e_coop_phase1_arrival_count[:nat],
                     )
                 self._phase_e_consumed = True
                 self._phase_e_use_beta_coop = True

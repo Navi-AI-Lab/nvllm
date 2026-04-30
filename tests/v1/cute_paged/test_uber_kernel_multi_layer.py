@@ -112,3 +112,55 @@ def test_dispatch_op_consumes_mlp_output_not_next_hidden_scratch():
         "impl.mlp_output[:nat] for hidden_out. C1.5 must keep this read "
         "active — see _mlp_op.py consume branch."
     )
+
+
+def test_run_beta_coop_full_no_internal_workspace_zeros():
+    """The five workspace buffers are caller-supplied; alloc inside the
+    captured FULL graph region was the replay-divergence root cause —
+    vLLM upstream #35175 analog (see spec §1).
+    """
+    from vllm.v1.attention.backends.cute_paged import phase_e_kernel
+
+    src = inspect.getsource(
+        phase_e_kernel.PhaseE_Beta_Kernel.run_beta_coop_full
+    )
+    forbidden = [
+        "wo_output = torch.zeros",
+        "mlp_partial_fp32 = torch.zeros",
+        "mlp_arrival_count = torch.zeros",
+        "grid_barrier_i32 = torch.zeros",
+        "phase1_arrival_count = torch.zeros",
+    ]
+    for f in forbidden:
+        assert f not in src, (
+            f"{f!r} is a per-call alloc that must be hoisted to "
+            f"persistent buffers on CutePagedAttentionImpl. "
+            f"See spec §4.3."
+        )
+
+
+def test_attach_mlp_fusion_allocates_persistent_beta_coop_buffers():
+    """attach_mlp_fusion creates the five _phase_e_coop_* persistent
+    workspace tensors when CUTE_PHASE_E_FUSION=1 (spec §4.1, §4.2).
+
+    Allocation is inside the same `try:` block as the kernel construction
+    so an OOM trips the same except handler that nulls
+    _phase_e_coop_kernel — dispatch never fires against half-init state.
+    """
+    from vllm.v1.attention.backends.cute_paged import _backend
+
+    src = inspect.getsource(
+        _backend.CutePagedAttentionImpl.attach_mlp_fusion
+    )
+    expected_attrs = [
+        "self._phase_e_coop_wo_output",
+        "self._phase_e_coop_mlp_partial_fp32",
+        "self._phase_e_coop_mlp_arrival_count",
+        "self._phase_e_coop_grid_barrier_i32",
+        "self._phase_e_coop_phase1_arrival_count",
+    ]
+    for attr in expected_attrs:
+        assert attr in src, (
+            f"{attr} = torch.zeros(...) must be allocated in "
+            f"attach_mlp_fusion (spec §4.1)."
+        )

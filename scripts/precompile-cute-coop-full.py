@@ -201,6 +201,26 @@ def main() -> int:
     # gate_buf: BF16, [nat, num_attn_heads * head_dim], contiguous
     gate_buf = torch.zeros(nat, H * hd, dtype=bf, device=dev)
 
+    # Persistent β-coop workspace buffers (spec 2026-04-30 §4.3).
+    # Per-call alloc fine here — this script runs without CUDA graph
+    # capture, so the FULL-graph stale-address bug doesn't apply.
+    wo_output_dummy = torch.zeros(
+        nat, 4, hidden, dtype=torch.float32, device=dev,
+    )
+    mlp_partial_fp32_dummy = torch.zeros(
+        nat, kernel.slice_ctas, hidden,
+        dtype=torch.float32, device=dev,
+    )
+    mlp_arrival_count_dummy = torch.zeros(
+        nat, kernel.num_k_tiles, dtype=torch.uint32, device=dev,
+    )
+    grid_barrier_i32_dummy = torch.zeros(
+        nat, dtype=torch.int32, device=dev,
+    )
+    phase1_arrival_count_dummy = torch.zeros(
+        nat, dtype=torch.int32, device=dev,
+    )
+
     t0 = time.monotonic()
     logger.info("starting compile_only=True (heartbeat fires every 5min)…")
     try:
@@ -227,6 +247,11 @@ def main() -> int:
             mlp_output=mlp_output,
             residual_output=residual_output,
             gate_buf=gate_buf,
+            wo_output=wo_output_dummy,
+            mlp_partial_fp32=mlp_partial_fp32_dummy,
+            mlp_arrival_count=mlp_arrival_count_dummy,
+            grid_barrier_i32=grid_barrier_i32_dummy,
+            phase1_arrival_count=phase1_arrival_count_dummy,
             compile_only=True,
         )
     except (TypeError, AssertionError, RuntimeError) as e:

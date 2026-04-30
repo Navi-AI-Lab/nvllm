@@ -2771,6 +2771,17 @@ class PhaseE_Beta_Kernel:
         # per-head attn output by sigmoid(gate) before the W_O GEMV —
         # mirrors paged kernel.py:1555-1569.
         gate_buf: Optional[torch.Tensor] = None,
+        # Spec 2026-04-30 §4.3: five workspace buffers are caller-supplied
+        # (persistent on CutePagedAttentionImpl) to keep the captured
+        # FULL CUDA graph from baking per-call addresses. `*,` separator
+        # is required because Python forbids non-default after defaulted
+        # params. Loud TypeError on omission (no-silent-fallback).
+        *,
+        wo_output: torch.Tensor,            # [nat, 4, hidden]            f32
+        mlp_partial_fp32: torch.Tensor,     # [nat, slice_ctas, hidden]   f32
+        mlp_arrival_count: torch.Tensor,    # [nat, num_k_tiles]          u32
+        grid_barrier_i32: torch.Tensor,     # [nat]                       i32
+        phase1_arrival_count: torch.Tensor, # [nat]                       i32
         # When True, prime the disk cache for this config and return
         # immediately after _compile_coop_full. The actual launch
         # (self._compiled_phase_coop_full) is skipped. Used by
@@ -2823,13 +2834,32 @@ class PhaseE_Beta_Kernel:
         if scale is None:
             scale = 1.0 / (self.head_dim ** 0.5)
 
-        # --- Workspace buffers -------------------------------------------
-        # wo_output: 4 attn CTAs per seq — matches Phase 1 of phase_01.
+        # --- Workspace buffers (caller-supplied; persistent on impl) -----
+        # Spec 2026-04-30 §4.3: hoisted to CutePagedAttentionImpl in
+        # attach_mlp_fusion. Per-call alloc here was unsafe under FULL
+        # graph capture (vLLM #35175 analog).
         total_ctas_per_seq_attn = 4  # bx==0 && by<4
-        wo_output = torch.zeros(
-            nat, total_ctas_per_seq_attn, hidden,
-            dtype=torch.float32, device=hidden_in.device,
+        assert wo_output.shape == (nat, total_ctas_per_seq_attn, hidden), (
+            f"wo_output shape {wo_output.shape} != "
+            f"({nat}, {total_ctas_per_seq_attn}, {hidden})"
         )
+        assert wo_output.dtype == torch.float32
+        assert wo_output.is_contiguous()
+        assert mlp_partial_fp32.shape == (nat, self.slice_ctas, hidden), (
+            f"mlp_partial_fp32 shape {mlp_partial_fp32.shape} != "
+            f"({nat}, {self.slice_ctas}, {hidden})"
+        )
+        assert mlp_partial_fp32.dtype == torch.float32
+        assert mlp_partial_fp32.is_contiguous()
+        assert mlp_arrival_count.shape == (nat, self.num_k_tiles), (
+            f"mlp_arrival_count shape {mlp_arrival_count.shape} != "
+            f"({nat}, {self.num_k_tiles})"
+        )
+        assert mlp_arrival_count.dtype == torch.uint32
+        assert grid_barrier_i32.shape == (nat,)
+        assert grid_barrier_i32.dtype == torch.int32
+        assert phase1_arrival_count.shape == (nat,)
+        assert phase1_arrival_count.dtype == torch.int32
         # residual_output: written by Phase 1 Phase C (residual_post =
         # residual_in + attn_out). Task 16: allow caller-supplied.
         # C1.5: Phase 4 deletion ended in-place mutation; residual_output
@@ -2842,23 +2872,6 @@ class PhaseE_Beta_Kernel:
             assert residual_output.shape == hidden_in.shape
             assert residual_output.dtype == torch.bfloat16
             assert residual_output.is_contiguous()
-        # MLP partials + arrival counter (Phase D):
-        mlp_partial_fp32 = torch.zeros(
-            nat, self.slice_ctas, hidden,
-            dtype=torch.float32, device=hidden_in.device,
-        )
-        mlp_arrival_count = torch.zeros(
-            nat, self.num_k_tiles, dtype=torch.uint32,
-            device=hidden_in.device,
-        )
-        # Grid-barrier counter: 64 CTAs per seq arrive.
-        grid_barrier_i32 = torch.zeros(
-            nat, dtype=torch.int32, device=hidden_in.device,
-        )
-        # Phase 1 Phase C last-CTA election (4 attn CTAs per seq arrive).
-        phase1_arrival_count = torch.zeros(
-            nat, dtype=torch.int32, device=hidden_in.device,
-        )
         # C1.5: secondary_barrier removed with Phase 4.
 
         # --- Flatten (DSL cannot flat-index >1D multidim tensors) --------
@@ -2993,6 +3006,39 @@ class PhaseE_Beta_Kernel:
         self._compile_coop_full(*all_args)
         if compile_only:
             return None
+
+        # --- Explicit graph-safe workspace reset (C2 multi-token fix) ----
+        # `torch.zeros(...)` allocation at L2829-2861 can be optimized to
+        # skip the cudaMemsetAsync under graph-pool reuse — the captured
+        # FULL graph then has no memset node, and each replay sees the
+        # previous decode step's writes. `.zero_()` on existing tensors
+        # unconditionally issues cudaMemsetAsync on the current stream,
+        # which IS the capture stream during graph capture, so it becomes
+        # a captured graph node and fires every replay.
+        # Order = priority of suspected stale-state contributors: counter
+        # carryover alters last-CTA election + reduction timing first,
+        # FP32 partials accumulate next, output blob last.
+        # NOTE: Do NOT move this reset INSIDE the cooperative kernel —
+        # grid_barrier_i32 is needed for grid sync inside that kernel and
+        # would race against in-kernel arrivals. The reset MUST be a
+        # separate captured op BEFORE the launch.
+        # NARROWING (2026-04-30):
+        #   v1 (all 5):                    capture HUNG (≥20min silent post first-FULL)
+        #   v2 (counters only):            capture PASS, single-tok PASS, multi-tok FAIL (3/8)
+        #   v3 (counters + mlp_partial):   capture HUNG
+        # Conclusion: large FP32 tensor.zero_() in this region during
+        # graph capture deadlocks; small counter .zero_() is graph-safe.
+        # The α-strategy with .zero_() cannot fix C2 — large workspace
+        # reset needs a different mechanism (single explicit reset kernel
+        # captured as one op, OR persistent buffers allocated outside
+        # this function).
+        # Reverted to counters-only — partial fix, capture-safe.
+        phase1_arrival_count.zero_()
+        grid_barrier_i32.zero_()
+        mlp_arrival_count.zero_()
+        # mlp_partial_fp32.zero_()  # large FP32 — hangs capture
+        # wo_output.zero_()         # large FP32 — hangs capture (presumed)
+
         self._compiled_phase_coop_full(*all_args)
         return None
 
@@ -3789,6 +3835,14 @@ class PhaseE_Beta_Kernel:
                         cute.arch.sync_threads()
                     # end _md loop
 
+                    # NOTE (2026-04-30 v5): in-kernel wo_output CTA-local
+                    # reset attempted here HUNG graph capture (15+min
+                    # silent post first-FULL, same shape as host-side
+                    # FP32 .zero_() hangs). Backed out — wo_output reset
+                    # is not viable via this mechanism. Per friend's
+                    # plan, next escalation is grid_barrier_i32 lifecycle
+                    # / reset ordering inside the cooperative kernel.
+
                     # === Phase B: Fused W_O GEMV ===
                     _threadfence()
                     cute.arch.sync_threads()
@@ -4132,6 +4186,42 @@ class PhaseE_Beta_Kernel:
                 )
                 _i3 = _i3 + Int32(1)
 
+            cute.arch.sync_threads()
+
+            # === Phase 3.2.5: Reset this CTA's mlp_partial_fp32 slot ===
+            # Required under FULL graph replay: torch.zeros() allocation
+            # freshness is not valid; host-side .zero_() on the full
+            # buffer hangs capture (see project_full_graph_blocked
+            # 2026-04-30). Each CTA owns disjoint partial rows by (bx,by);
+            # reset locally before atomic_add accumulation in Phase 3.3.
+            # mlp_partial_fp32 shape: [nat, slice_ctas, hidden]; this CTA
+            # owns rows [by*tile_k, (by+1)*tile_k) of [bz, bx, :].
+            if cutlass.const_expr(self._threads_per_row == 1):
+                rows_per_thread = Int32(self._rows_per_thread)
+                row_base_local = tid * rows_per_thread
+                for r in cutlass.range_constexpr(self._rows_per_thread):
+                    k_row_global = by * tile_k + row_base_local + Int32(r)
+                    partial_idx = (
+                        bz * slice_ctas * hidden_p3
+                        + bx * hidden_p3
+                        + k_row_global
+                    )
+                    _st_global_f32(
+                        mlp_partial_ptr + Int64(partial_idx) * Int64(4),
+                        Float32(0.0),
+                    )
+            else:
+                k_row_global = by * tile_k + tid
+                if tid < tile_k:
+                    partial_idx = (
+                        bz * slice_ctas * hidden_p3
+                        + bx * hidden_p3
+                        + k_row_global
+                    )
+                    _st_global_f32(
+                        mlp_partial_ptr + Int64(partial_idx) * Int64(4),
+                        Float32(0.0),
+                    )
             cute.arch.sync_threads()
 
             # === Phase 3.3: Iterate slices assigned to this CTA ===
@@ -4604,6 +4694,24 @@ class PhaseE_Beta_Kernel:
                             val_f32,
                         )
 
+                # Reset mlp_arrival_count for FULL graph replay safety
+                # (2026-04-30). The comment block below claimed this was
+                # reset inline by per-k-tile last-CTA writers, but the
+                # code only incremented (L~4619); no decrement existed
+                # after Phase 4 deletion (C1.5). Decrement by slice_ctas
+                # returns the counter to 0 for the next replay. Safe
+                # because we're past the L4614 threadfence + L4619
+                # atomic_add, so all slice_ctas incrementers have
+                # finished and no other CTAs are still incrementing this
+                # (bz, by) slot.
+                if tid == Int32(0):
+                    count_idx_reset = bz * num_k_tiles + by
+                    _atomic_add_u32(
+                        mlp_arrival_ptr
+                        + Int64(count_idx_reset) * Int64(4),
+                        Int32(0) - slice_ctas,
+                    )
+
             # =================================================================
             # C1.5: Phase 4 (secondary barrier + ε epilogue + next-layer
             # input_LN bake) deleted. Kernel ends at the Phase 3 MLP write
@@ -4615,6 +4723,7 @@ class PhaseE_Beta_Kernel:
             # now allocated fresh (torch.zeros) per call in
             # run_beta_coop_full, so no in-kernel reset is required.
             # phase3_arrival_count is reset inline by per-k-tile last-CTA
-            # writers above; phase1_arrival_count is reset inside Phase 1
+            # writers above (last-CTA decrement just before this block,
+            # 2026-04-30); phase1_arrival_count is reset inside Phase 1
             # Phase C (see _kernel_phase_01).
             # =================================================================
