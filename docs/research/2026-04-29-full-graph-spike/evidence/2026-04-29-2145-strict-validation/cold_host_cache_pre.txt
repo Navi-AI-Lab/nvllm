@@ -1,0 +1,2 @@
+=== host cache BEFORE cold (must be empty) ===
+FILE_COUNT=0

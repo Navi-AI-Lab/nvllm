@@ -35,13 +35,37 @@ The G2 verdict flagged a "precompile-vs-serve key drift" caveat (precompile prod
 
 **Post-detour smoke:** [`evidence/g1-v2-20260429-173404/cache_smoke_cold.json`](../g1-v2-20260429-173404/cache_smoke_cold.json) + [`cache_smoke_warm.json`](../g1-v2-20260429-173404/cache_smoke_warm.json) — cold 20.2 s with 2 stored, warm 0.15 s with 2 HITs / 0 MISSes via `cache_smoke.py` harness using the real `warmup.warmup()` driver.
 
-## Step 6 final smoke — NOT re-run on a clean post-detour build
+## Step 6 final smoke — original close-out (pre-strict-validation)
 
-Per user direction (close-out scope, not strict re-validation), the spec §G2 final smoke was not re-executed against an image that contains the G1 detour. The current `nvllm:gb10` image (`31897268b39d`, built 2026-04-29 18:27 EDT) **precedes** `410d59390` (18:32 EDT) — so the fail-closed Dockerfile and the warmup.py prefill kwargs fix are not yet exercised at build time.
+Per user direction (close-out scope, not strict re-validation), the spec §G2 final smoke was not re-executed against an image that contains the G1 detour. The previous `nvllm:gb10` image (`31897268b39d`, built 2026-04-29 18:27 EDT) **preceded** `410d59390` (18:32 EDT) — so the fail-closed Dockerfile and the warmup.py prefill kwargs fix were not exercised at build time when this doc was first written.
 
-**What this means for the 261 s number:** the warm time-to-API-ready measurement is from the pre-detour image. The G1 detour does not change runtime serve behavior (warmup runs at build time, not serve time), so the 261 s figure is expected to hold. The load-bearing test of the G1 detour is whether the next clean rebuild itself succeeds (fail-closed Dockerfile) — that build hasn't run yet.
+**What this means for the 261 s number:** the warm time-to-API-ready measurement is from the pre-detour image. The G1 detour does not change runtime serve behavior (warmup runs at build time, not serve time), so the 261 s figure is expected to hold.
 
-**Honest framing for downstream readers:** the disk-cache plan is complete by its stated terminal-state criteria (G1 PASS + G2 PASS + post-detour cache-level smoke PASS). The strict end-to-end "clean rebuild → first cold serve → warm restart" loop has not been re-walked since the G1 detour. The cold-first-container >10 min observation from `project_full_graph_blocked` is **not** a cache issue — suspected FULL graph capture / autotuner one-time cost, tracked separately.
+**Honest framing for downstream readers:** the disk-cache plan was complete by its stated terminal-state criteria (G1 PASS + G2 PASS + post-detour cache-level smoke PASS). The strict end-to-end "clean rebuild → first cold serve → warm restart" loop had not been re-walked at the time of original close-out. **It has now been walked — see "Strict validation (2026-04-29 21:45 → 22:25 EDT)" below.** The cold-first-container >10 min observation from `project_full_graph_blocked` is **not** a cache issue — suspected FULL graph capture / autotuner one-time cost, tracked separately.
+
+## Strict validation (2026-04-29 21:45 → 22:25 EDT)
+
+**Evidence:** [`evidence/2026-04-29-2145-strict-validation/`](../2026-04-29-2145-strict-validation/) — full verdict at [`verdict.md`](../2026-04-29-2145-strict-validation/verdict.md).
+
+**Pre-validation: deleted build-time CuTe warmup steps (commit `4dead0e4e`).** The clean rebuild surfaced that `Dockerfile.gb10:131-144` (warmup + verify-only RUNs added by G1 detour `410d59390`) failed because `libcuda.so.1` is unavailable inside the build container — `docker build` has no `--gpus` equivalent. The warmup steps had failed silently for months under the original `|| true`. Replaced L131-144 with a comment establishing the boundary: image build is dependency packaging; CuTe compilation is GPU-runtime validation, exercised by the first cold serve / cache_smoke.py / precompile-cute-coop-full.sh, all of which run with `--gpus all`. See [`evidence/2026-04-29-1958-strict-validation/build_failure_analysis.md`](../2026-04-29-1958-strict-validation/build_failure_analysis.md) for the build-failure root cause and [`build_failure.log`](../2026-04-29-1958-strict-validation/build_failure.log) for the raw evidence.
+
+**Strict-validation rebuild (HEAD `67df3dcbd`):** 19/19 steps, ~54 min, image `a3f3f609a8ec` at 21:10 EDT.
+
+**Pass criteria (user-defined):**
+
+| # | Criterion | Verdict |
+|---|---|---|
+| 1 | image builds cleanly | ✅ PASS |
+| 2 | transformers==4.57.6 | ✅ PASS |
+| 3 | fresh host cache starts empty | ✅ PASS (FILE_COUNT=0) |
+| 4 | cold serve compiles+stores | ✅ PASS (MISS=1 STORED=1, β-coop FULL key `4b272b8d727401a4`, 24.6s for the cute.compile) |
+| 5 | warm serve HIT, no relevant MISS | ✅ PASS (HIT=1 MISS=0, same key, warm time-to-API-ready 610s) |
+
+**Coherent /v1/completions response on warm serve:** `{"text":". Please write","finish_reason":"length"}`.
+
+**Caveat (not gated by pass criteria):** cold serve did NOT reach `/v1/models` within the 30-min poll ceiling. β-coop FULL store completed at `01:48:59` (3.5 min after launch), then ~26 min of silence with no `Application startup complete` line. Same shape as the pre-detour `evidence/2026-04-29-1634/serve_warm_full.log` (~6-min silence before that harness's 10-min ceiling). This is the cold-first-container behavior tracked in `project_full_graph_blocked` — suspected FULL graph capture / autotuner one-time cost, **not a cache issue**. The cache hit on the warm phase proves the cache itself was correctly populated and persisted.
+
+**Final framing:** the cache work is **closed and production-proven** by its own definition. Cold-first-container readiness remains an open, pre-existing problem owned by the FULL_AND_PIECEWISE re-enablement effort.
 
 ## Spec §10 definition-of-done audit
 

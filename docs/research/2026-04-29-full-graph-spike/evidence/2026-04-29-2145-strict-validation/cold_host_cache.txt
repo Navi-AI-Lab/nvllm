@@ -1,0 +1,3 @@
+=== host cache AFTER cold ===
+/tmp/nvllm-strict-validation-cache-1777513520/4b/4b272b8d727401a44d83f73aeb9e1f597a44cf6587871508b58b584fe390599f.o
+FILE_COUNT=1

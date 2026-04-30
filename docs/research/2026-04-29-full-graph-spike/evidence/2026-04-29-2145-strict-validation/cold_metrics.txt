@@ -1,0 +1,10 @@
+TIME_TO_API_READY=0s
+READY=0
+MISS_count=1
+STORED_count=1
+HIT_count=0
+0
+=== unique MISS keys ===
+MISS key=4b272b8d727401a4
+=== unique STORED keys ===
+stored (native) key=4b272b8d727401a4

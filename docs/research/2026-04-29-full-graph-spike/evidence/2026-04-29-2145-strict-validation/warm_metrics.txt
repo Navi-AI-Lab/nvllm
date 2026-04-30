@@ -1,0 +1,10 @@
+TIME_TO_API_READY=610s
+READY=1
+MISS_count=0
+0
+STORED_count=0
+0
+HIT_count=1
+=== HIT lines ===
+(EngineCore pid=145) INFO 04-30 02:19:14 [disk_cache.py:803] CuTe disk cache HIT (native) key=4b272b8d727401a4
+=== unique MISS keys (must be empty for PASS) ===

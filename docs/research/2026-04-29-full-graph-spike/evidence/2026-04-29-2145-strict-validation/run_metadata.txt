@@ -1,0 +1,4 @@
+HEAD=67df3dcbd162651554ddb74754bb9e507083402c
+HOST_CACHE=/tmp/nvllm-strict-validation-cache-1777513520
+EVDIR=docs/research/2026-04-29-full-graph-spike/evidence/2026-04-29-2145-strict-validation
+STARTED=2026-04-29T21:45:20-04:00

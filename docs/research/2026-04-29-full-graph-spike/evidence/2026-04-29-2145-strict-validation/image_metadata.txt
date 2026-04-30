@@ -1,0 +1,8 @@
+=== docker images nvllm:gb10 ===
+id=a3f3f609a8ec created=2026-04-29 21:10:32 -0400 EDT size=23.9GB
+=== docker inspect ===
+2026-04-29T21:10:32.310244996-04:00 sha256:a3f3f609a8ec873b0c8f6ddeb71573514eb84bf41b814ac82303d998a6ac5b88
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: exec: "/workspace/.venv/bin/python": stat /workspace/.venv/bin/python: no such file or directory
+
+Run 'docker run --help' for more information
+transformers== 4.57.6
