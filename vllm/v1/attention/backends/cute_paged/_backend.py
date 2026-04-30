@@ -1537,6 +1537,12 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                     gate[:nat] if _framework_output_route
                     else self.gate_buf[:nat]
                 )
+                # v2 captured pre-launch reset of wo_output
+                # (spec docs/superpowers/specs/2026-04-30-beta-coop-persistent-buffers-v2-design.md §4.3):
+                # zeroes [:nat] before Phase 1 atomic_add re-accumulates.
+                torch.ops.vllm.cute_paged_reset_wo_output(
+                    self._phase_e_coop_wo_output, nat
+                )
                 with record_function(
                     f"PhaseE_Beta.coop.{_layer_name}"
                 ):

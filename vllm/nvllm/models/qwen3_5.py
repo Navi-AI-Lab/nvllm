@@ -39,6 +39,7 @@ from torch import nn
 # the op exists at torch.compile trace time even for the attached-fusion
 # branch.
 import vllm.v1.attention.backends.cute_paged._beta_coop_op  # noqa: F401
+import vllm.v1.attention.backends.cute_paged._wo_output_reset_op  # noqa: F401
 
 # C2 diag env load (vLLM's EngineCore subprocess strips most of pid-1's env;
 # source the gate config from a sentinel file written by serve-cute.sh).
