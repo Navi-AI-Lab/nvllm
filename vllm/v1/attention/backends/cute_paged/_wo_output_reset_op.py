@@ -14,8 +14,9 @@ naming all candidates if the lookup fails.
 Per feedback_op_body_capture_only: op body runs once at FULL-graph
 capture; the cudaMemsetAsync issued on the current capture stream
 becomes a graph node and replays at every FULL-graph replay.
-mutates_args declares the side effect; downstream run_beta_coop_full
-also reads wo_output, doubly preventing DCE.
+The call runs inside the eager body of the existing cute_beta_coop_run
+splitting boundary, so Dynamo/FX does not trace through or DCE it.
+mutates_args keeps the op schema honest if it is ever traced elsewhere.
 """
 
 from __future__ import annotations
@@ -121,7 +122,7 @@ def cute_paged_reset_wo_output(
         nat * wo_output.shape[1] * wo_output.shape[2]
         * wo_output.element_size()
     )
-    stream_handle = torch.cuda.current_stream().cuda_stream
+    stream_handle = int(torch.cuda.current_stream().cuda_stream)
     err = _cudaMemsetAsync(
         wo_output.data_ptr(), 0, nbytes, stream_handle
     )
