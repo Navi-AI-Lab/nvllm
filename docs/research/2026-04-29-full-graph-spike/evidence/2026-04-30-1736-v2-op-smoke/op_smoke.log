@@ -1,0 +1,1 @@
+OK: op zeroes [:nat] only, leaves [nat:] intact, nat=0 is no-op
