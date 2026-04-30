@@ -2,23 +2,26 @@
 
 ## Verdict
 
-**Patch v2 does not close the FULL+β-coop blocker.** The captured
-`cudaMemsetAsync` graph node for `_phase_e_coop_wo_output[:nat]` is
-wired correctly and fires on every attached layer at FULL-graph
-capture time (8 unique stable data_ptrs in the `[CUTE_WO_RESET]`
-runtime log), but Gate 1 still FAILs with `unique=4` same-prompt,
-cross-prompt dependent. The "stale content at stable address"
-hypothesis from the v1 closeout — i.e. that zeroing `wo_output`
-before each cooperative launch would close the bug — is
-**insufficient**. Some other source of divergence remains.
+**Patch v2 does not close the FULL+β-coop blocker.** The
+`cudaMemsetAsync` for `_phase_e_coop_wo_output[:nat]` is issued
+during FULL-graph capture on the current stream (expected to be
+captured as a graph memset node, but per-replay graph-node
+ordering was not independently proven due to the nsys
+child-process limitation) and the op fires on every attached
+layer (8 unique stable data_ptrs in the `[CUTE_WO_RESET]` runtime
+log). Gate 1 still FAILs with `unique=4` same-prompt, cross-prompt
+dependent. The "stale content at stable address" hypothesis from
+the v1 closeout — i.e. that zeroing `wo_output` before each
+cooperative launch would close the bug — is **insufficient**.
+Some other source of divergence remains.
 
 **Production recommendation: PIECEWISE + β-coop remains the
 supported path** (v0.3.0 status quo). PIECEWISE C0 GSM8K-sanity 8/8
 and C2 replay coherence (unique=1, cross-indep) both PASS — no
 PIECEWISE regression from v2. FULL+β-coop blocker remains OPEN; v2
-is shippable as a no-op-for-FULL but PIECEWISE-clean
-infrastructure layer (persistent buffers + captured reset op are
-ready for any further v3 attempt).
+is **not sufficient to enable FULL; PIECEWISE-clean
+infrastructure/refactor remains shippable** (persistent buffers +
+captured reset op are ready for any further v3 attempt).
 
 ## Evidence table
 
@@ -27,21 +30,21 @@ Code commit: `e24c819a3` on branch
 
 | Configuration | Result | Evidence |
 |---|---|---|
-| Op-level functional CUDA smoke | PASS | `evidence/2026-04-30-1736-v2-op-smoke/op_smoke.log` |
-| C0 PIECEWISE+β-coop GSM8K-sanity (8/8) | PASS | `evidence/2026-04-30-1742/c0_summary.md` |
-| C2 PIECEWISE+β-coop replay coherence | PASS (unique=1, cross indep) | `evidence/2026-04-30-1752/c2_replay_coherence.md` |
-| **C2 FULL+β-coop lower-8 (Gate 1)** | **FAIL (unique=4, cross dep)** | `evidence/2026-04-30-1805/c2_replay_coherence.md` |
-| `[CUTE_WO_RESET]` capture-side log | 8 unique lines (one per attached layer) | `evidence/2026-04-30-1805/cute_wo_reset_log.txt` |
+| Op-level functional CUDA smoke | PASS | `../2026-04-30-1736-v2-op-smoke/op_smoke.log` |
+| C0 PIECEWISE+β-coop GSM8K-sanity (8/8) | PASS | `../2026-04-30-1742/c0_summary.md` |
+| C2 PIECEWISE+β-coop replay coherence | PASS (unique=1, cross indep) | `../2026-04-30-1752/c2_replay_coherence.md` |
+| **C2 FULL+β-coop lower-8 (Gate 1)** | **FAIL (unique=4, cross dep)** | `../2026-04-30-1805/c2_replay_coherence.md` |
+| `[CUTE_WO_RESET]` capture-side log | 8 unique lines (one per attached layer) | `../2026-04-30-1805/cute_wo_reset_log.txt` |
 | C2 FULL+β-coop all-16 (Gate 2) | not run (Gate 1 FAIL) | — |
-| nsys trace (host-side limitation) | DONE_WITH_CONCERNS | `benchmarks/nvllm/traces/cute_paged_attn/2026-04-30-coop-wo-reset/` |
+| nsys trace (host-side limitation) | DONE_WITH_CONCERNS | `<repo-root>/benchmarks/nvllm/traces/cute_paged_attn/2026-04-30-coop-wo-reset/` |
 
 ### Comparison with prior baselines
 
 | Patch state | Same-prompt unique (8 replays) | Cross-prompt | Note |
 |---|---|---|---|
-| Pre-v1 (no patch) | 3 | dep | `evidence/2026-04-30-1311/` (FULL lower-8) |
-| v1 (`1cc51ab95`) | 2 | dep | `evidence/2026-04-30-1548/` (post-patch v1) |
-| **v2 (this commit)** | **4** | **dep** | `evidence/2026-04-30-1805/` |
+| Pre-v1 (no patch) | 3 | dep | `../2026-04-30-1311/` (FULL lower-8) |
+| v1 (`1cc51ab95`) | 2 | dep | `../2026-04-30-1548/` (post-patch v1) |
+| **v2 (this commit)** | **4** | **dep** | `../2026-04-30-1805/` |
 
 **Important framing of the v1 → v2 unique-count change.** v2's
 unique=4 is numerically larger than v1's unique=2, but **this is
@@ -95,10 +98,14 @@ The `[CUTE_WO_RESET]` runtime log shows the op fires exactly 8
 times during FULL-graph capture, one per attached β-coop layer in
 the lower-8 set, each on a stable persistent data_ptr at strided
 offsets (e.g. `0x3047c9e00`, `0x304b7c800`, …) with
-`nat=1, shape=(1, 4, 5120)`. Each such call becomes a captured
-`cudaMemsetAsync` graph node ordered before the corresponding
-β-coop kernel launch — exactly as designed. So the patch is
-mechanically correct.
+`nat=1, shape=(1, 4, 5120)`. Each such call is issued during
+FULL-graph capture on the current stream and is expected to be
+captured as a graph memset node before the corresponding β-coop
+kernel launch, though per-replay graph-node ordering could not be
+independently proven (nsys child-process limitation, see below).
+So the patch is mechanically wired as designed; the limitation is
+that we have not closed the loop on the captured-node ordering
+proof.
 
 That the patch is mechanically correct **and** the bug is
 unfixed implies one of:
@@ -115,9 +122,10 @@ unfixed implies one of:
    capture time but should re-evaluate per replay. Could be a
    downgrade-mode quirk in `gpu_model_runner.py`'s
    `dispatch_cudagraph` that quietly turns FULL into a hybrid
-   PIECEWISE on a per-step basis. Could be related to the open
-   upstream #40969 (same hardware, same cudagraph_mode, same
-   intermittent flake pattern).
+   PIECEWISE on a per-step basis. Could be related to upstream
+   #40969 (OPEN as of 2026-04-30; last upstream activity
+   2026-04-28T11:06:08Z — recheck before relying on this) — same
+   hardware, same cudagraph_mode, same intermittent flake pattern.
 3. **Reset ordering may interact poorly with Phase 0 inputs.** The
    reset zeros `wo_output[:nat]` immediately before the cooperative
    launch. If any Phase 0 data flow assumes `wo_output` carries
@@ -154,10 +162,10 @@ proof, which is moot when the op fires but the bug is unfixed.
 ## Status
 
 - Branch `feat/cute-beta-coop-persistent-buffers` HEAD: `e24c819a3`
-- Patch v1 + v2 are **shippable as a no-op-for-FULL but
-  PIECEWISE-clean refactor**. PIECEWISE production path is intact;
-  the persistent-buffer + captured-reset scaffolding is ready for
-  any further v3 attempt.
+- Patch v1 + v2 are **not sufficient to enable FULL;
+  PIECEWISE-clean infrastructure/refactor remains shippable**.
+  PIECEWISE production path is intact; the persistent-buffer +
+  captured-reset scaffolding is ready for any further v3 attempt.
 - FULL+β-coop blocker (`project_full_graph_blocked.md`): still
   OPEN. v2 hypothesis insufficient.
 - Production path: PIECEWISE + β-coop (v0.3.0 status quo).
@@ -171,9 +179,11 @@ The v1 closeout's pre-emptive escalation candidate. Replace the
 in-kernel CTA-local reset (Phase 3.2.5) with a host-captured
 `cudaMemsetAsync` graph node, mirroring v2's pattern but on
 `_phase_e_coop_mlp_partial_fp32[:nat]`. Cheap to implement
-(reuses v2's `_wo_output_reset_op.py` shape). Risk: same
-"hypothesis is wrong" failure mode if mlp_partial isn't the load
-bearer either.
+(reuses v2's `_wo_output_reset_op.py` op pattern; note that
+`mlp_partial_fp32`'s buffer shape differs from `wo_output`'s, so
+only the op pattern carries over, not the literal byte-count or
+slice math). Risk: same "hypothesis is wrong" failure mode if
+mlp_partial isn't the load bearer either.
 
 **B. Re-evaluate the diagnosis.** v2's "wired correctly but
 unfixed" result is a strong signal that the workspace-residue
@@ -184,14 +194,17 @@ patch attempt:
   re-evaluate per replay?
 - Is `dispatch_cudagraph` quietly downgrading FULL to a hybrid
   mode on per-step basis under specific batch shapes?
-- Does upstream #40969 (open, same hardware) provide new
-  diagnostic clues?
+- Does upstream #40969 (OPEN as of 2026-04-30; last upstream
+  activity 2026-04-28T11:06:08Z — recheck before relying on
+  this; same hardware) provide new diagnostic clues?
 
-**C. Defer to upstream.** #40969 is OPEN and matches our hardware
-+ cudagraph_mode + intermittent flake pattern. May get fixed by
-upstream first; our spike effort could be redirected to other
-priorities (FULL_AND_PIECEWISE re-enablement is one of three
-candidates per `project_strategy_priorities`).
+**C. Defer to upstream.** #40969 is OPEN as of 2026-04-30 (last
+upstream activity 2026-04-28T11:06:08Z — recheck before relying
+on this) and matches our hardware + cudagraph_mode + intermittent
+flake pattern. May get fixed by upstream first; our spike effort
+could be redirected to other priorities (FULL_AND_PIECEWISE
+re-enablement is one of three candidates per
+`project_strategy_priorities`).
 
 Per the user's pre-departure instruction: do **not** auto-escalate
 to v3. v2 closeout stops here. Human review decides path A/B/C.
@@ -207,6 +220,8 @@ to v3. v2 closeout stops here. Human review decides path A/B/C.
    exactly that for `wo_output`; either the pattern needs to
    extend to other workspaces, or the analog doesn't apply
    directly here.
-3. **Track #40969** — still OPEN upstream. Same hardware
-   (GB10/SM12.1), same `cudagraph_mode FULL_AND_PIECEWISE`. Watch
-   for an upstream fix that may inform our approach.
+3. **Track #40969** — OPEN upstream as of 2026-04-30 (last
+   upstream activity 2026-04-28T11:06:08Z; recheck before relying
+   on this). Same hardware (GB10/SM12.1), same
+   `cudagraph_mode FULL_AND_PIECEWISE`. Watch for an upstream fix
+   that may inform our approach.
