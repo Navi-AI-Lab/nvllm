@@ -128,20 +128,18 @@ RUN pip install --no-cache-dir \
     ijson llvmlite \
     || true
 
-# -- Pre-compile CuTe attention kernels (fail-closed) --
-# Plan step 5: drop `|| true` now that G1 (decode/prefill cache hit)
-# passes — a silent failure here means serving will recompile on every
-# cold start, which is what the disk cache was meant to prevent. If
-# warmup fails, fail the build so the regression is caught at build
-# time, not at first inference.
-RUN B12X_CUTE_COMPILE_DISK_CACHE=1 \
-    B12X_CUTE_COMPILE_CACHE_DIR=/opt/vllm/kernel_cache \
-    python -m vllm.v1.attention.backends.cute_paged.warmup \
-    --arch sm_121
-RUN B12X_CUTE_COMPILE_DISK_CACHE=1 \
-    B12X_CUTE_COMPILE_CACHE_DIR=/opt/vllm/kernel_cache \
-    python -m vllm.v1.attention.backends.cute_paged.warmup \
-    --verify-only --cache-dir /opt/vllm/kernel_cache
+# -- CuTe kernel warmup is intentionally NOT done at build time --
+# `docker build` cannot see libcuda.so.1 (no --gpus equivalent in build),
+# so vllm.v1.attention.backends.cute_paged.warmup cannot compile here.
+# Build-time warmup steps were silently masked by `|| true` for months
+# and were active design noise — even if they had succeeded, the runtime
+# bind mount in scripts/serve-cute-full.sh:82 (host cache → /opt/vllm/
+# kernel_cache) overlays any image-baked cache. The honest boundary is:
+# image build packages dependencies; CuTe compilation is a GPU-runtime
+# validation step, exercised by the first cold serve (24s for the β-coop
+# FULL key) or by docs/research/2026-04-29-full-graph-spike/cache_smoke.py
+# / scripts/precompile-cute-coop-full.sh, both of which run in a
+# --gpus all container.
 
 # -- Templates --
 COPY templates/nemotron_no_think.jinja /templates/nemotron_no_think.jinja
