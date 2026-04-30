@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-04-30-1537",
+  "n_replays": 8,
+  "same_prompt_outputs": [
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome."
+  ],
+  "same_prompt_unique_count": 1,
+  "same_prompt_pass": true,
+  "cross_prompt_a_first": " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+  "cross_prompt_a_after_b": " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+  "cross_prompt_pass": true,
+  "overall_pass": true
+}
