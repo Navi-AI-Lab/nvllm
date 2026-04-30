@@ -124,6 +124,11 @@ for t in "${TARGETS[@]}"; do
     echo "FAIL: CUTE_FULL_GRAPH_PROBE marker missing in $t/v1/worker/gpu_model_runner.py after docker cp"
     exit 1
   fi
+  if ! docker exec nvllm grep -q "CUTE_DISPATCH_AUDIT" \
+       "$t/v1/worker/gpu_model_runner.py"; then
+    echo "FAIL: CUTE_DISPATCH_AUDIT marker missing in $t/v1/worker/gpu_model_runner.py after docker cp"
+    exit 1
+  fi
   # cache-cache markers
   if ! docker exec nvllm grep -q "CuTe disk cache HIT" \
        "$t/v1/attention/backends/cute_paged/disk_cache.py"; then

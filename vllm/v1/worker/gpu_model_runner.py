@@ -221,6 +221,7 @@ logger = init_logger(__name__)
 # Dynamo / cudagraph capture state. C1 gate, 2026-04-30.
 _CUTE_FULL_GRAPH_PROBE_ANY_LOGGED: bool = False
 _CUTE_FULL_GRAPH_PROBE_FULL_LOGGED: bool = False
+_CUTE_DISPATCH_AUDIT_COUNT: int = 0
 
 AttnMetadataDict: TypeAlias = dict[str, AttentionMetadata]
 # list when ubatching is enabled
@@ -3670,6 +3671,34 @@ class GPUModelRunner(
                 # Assert to make sure the agreed upon token count is correct otherwise
                 # num_tokens_across_dp will no-longer be valid
                 assert batch_descriptor.num_tokens == num_tokens_padded
+
+        # Spike audit (CUTE_DISPATCH_AUDIT=1, post-DP-re-dispatch). Logs the
+        # FINAL returned mode + descriptor, bounded to the first 100 calls.
+        # Path B Step 1 — re-evaluate diagnosis before v3 (mlp_partial_fp32).
+        # Module-level int counter only (no setattr on self, per
+        # feedback_no_self_mut_in_cudagraph_dispatch).
+        if os.environ.get("CUTE_DISPATCH_AUDIT", "0") == "1":
+            global _CUTE_DISPATCH_AUDIT_COUNT
+            if _CUTE_DISPATCH_AUDIT_COUNT < 100:
+                _cg_name = (
+                    cudagraph_mode.name if cudagraph_mode is not None else "None"
+                )
+                logger.info(
+                    "CUTE_DISPATCH_AUDIT: idx=%d cg_mode=%s "
+                    "raw_tokens=%s desc_tokens=%s "
+                    "raw_reqs=%s desc_reqs=%s "
+                    "uniform_decode=%s desc_uniform=%s force_eager=%s",
+                    _CUTE_DISPATCH_AUDIT_COUNT,
+                    _cg_name,
+                    num_tokens,
+                    batch_descriptor.num_tokens,
+                    num_reqs,
+                    batch_descriptor.num_reqs,
+                    uniform_decode,
+                    batch_descriptor.uniform,
+                    force_eager,
+                )
+                _CUTE_DISPATCH_AUDIT_COUNT += 1
 
         cudagraph_stats = None
         if self.vllm_config.observability_config.cudagraph_metrics:
