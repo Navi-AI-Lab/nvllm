@@ -1,0 +1,8 @@
+(EngineCore pid=222) [CUTE_WO_RESET] data_ptr=0x3047c9e00 nat=1 shape=(1, 4, 5120)
+(EngineCore pid=222) [CUTE_WO_RESET] data_ptr=0x304b7c800 nat=1 shape=(1, 4, 5120)
+(EngineCore pid=222) [CUTE_WO_RESET] data_ptr=0x304f2f200 nat=1 shape=(1, 4, 5120)
+(EngineCore pid=222) [CUTE_WO_RESET] data_ptr=0x3052e1c00 nat=1 shape=(1, 4, 5120)
+(EngineCore pid=222) [CUTE_WO_RESET] data_ptr=0x305694600 nat=1 shape=(1, 4, 5120)
+(EngineCore pid=222) [CUTE_WO_RESET] data_ptr=0x305a47000 nat=1 shape=(1, 4, 5120)
+(EngineCore pid=222) [CUTE_WO_RESET] data_ptr=0x305df9a00 nat=1 shape=(1, 4, 5120)
+(EngineCore pid=222) [CUTE_WO_RESET] data_ptr=0x3061ac400 nat=1 shape=(1, 4, 5120)
