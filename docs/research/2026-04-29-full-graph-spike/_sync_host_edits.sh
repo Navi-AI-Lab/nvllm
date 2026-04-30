@@ -66,6 +66,13 @@ for t in "${TARGETS[@]}"; do
   echo "[sync] docker cp gpu/model_runner.py → $t/v1/worker/gpu/model_runner.py"
   docker cp "$REPO_ROOT/vllm/v1/worker/gpu/model_runner.py" \
     "nvllm:$t/v1/worker/gpu/model_runner.py"
+  # gpu_model_runner.py (flat path) is the default V1 runner used by this
+  # spike. The subdir path above is the V2 runner. Copy both so whichever
+  # path the engine selects sees the probe. Ported 2026-04-30 — see
+  # feedback_verify_model_class.
+  echo "[sync] docker cp gpu_model_runner.py → $t/v1/worker/gpu_model_runner.py"
+  docker cp "$REPO_ROOT/vllm/v1/worker/gpu_model_runner.py" \
+    "nvllm:$t/v1/worker/gpu_model_runner.py"
   # cache-cache branch additions: disk_cache.py + phase_e_kernel.py.
   # Without these, Gate G2 cannot positively verify HIT lines, and the
   # heartbeat / compile_only kwarg from Tasks 7+8 are absent at serve.
@@ -82,8 +89,10 @@ docker exec nvllm bash -c '
 for d in \
   /app/nvllm/vllm/v1/attention/backends/cute_paged/__pycache__ \
   /app/nvllm/vllm/v1/worker/gpu/__pycache__ \
+  /app/nvllm/vllm/v1/worker/__pycache__ \
   /usr/local/lib/python3.12/dist-packages/vllm/v1/attention/backends/cute_paged/__pycache__ \
-  /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/__pycache__ ; do
+  /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/__pycache__ \
+  /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/__pycache__ ; do
   [ -d "$d" ] && find "$d" -name "*.pyc" -delete
 done
 true
@@ -99,6 +108,11 @@ for t in "${TARGETS[@]}"; do
   if ! docker exec nvllm grep -q "CUTE_FULL_GRAPH_PROBE" \
        "$t/v1/worker/gpu/model_runner.py"; then
     echo "FAIL: CUTE_FULL_GRAPH_PROBE marker missing in $t after docker cp"
+    exit 1
+  fi
+  if ! docker exec nvllm grep -q "CUTE_FULL_GRAPH_PROBE" \
+       "$t/v1/worker/gpu_model_runner.py"; then
+    echo "FAIL: CUTE_FULL_GRAPH_PROBE marker missing in $t/v1/worker/gpu_model_runner.py after docker cp"
     exit 1
   fi
   # cache-cache markers

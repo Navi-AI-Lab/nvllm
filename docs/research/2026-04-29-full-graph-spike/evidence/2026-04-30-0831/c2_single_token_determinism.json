@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-04-30-0831",
+  "text_replay_1": " Paris",
+  "text_replay_2": " Paris",
+  "text_match": true,
+  "logprobs_replay_1": null,
+  "logprobs_replay_2": null,
+  "logprobs_match": true,
+  "overall_pass": true,
+  "note": "External arm 2 \u2014 single-token determinism. NOT a byte-equality check on \u03b2-coop's output tensor. Internal stale state that does not change argmax can still pass this. Tensor-level byte gate is documented in spec \u00a72.4 and deferred."
+}

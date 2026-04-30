@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# C1 gate — FULL_AND_PIECEWISE + n=1 + β-coop must reach the FULL
-# dispatch branch at vllm/v1/worker/gpu/model_runner.py:1050 for at
-# least one decode call.
+# C1 gate — FULL_AND_PIECEWISE + n=1 + β-coop must dispatch at least one
+# decode call with cudagraph_mode=FULL from the live V1 runner.
 #
-# Source-of-truth: CUTE_FULL_GRAPH_PROBE log from gpu/model_runner.py.
+# Source-of-truth: CUTE_FULL_GRAPH_PROBE log from
+# vllm/v1/worker/gpu_model_runner.py. The nested
+# vllm/v1/worker/gpu/model_runner.py path is the V2 runner and is not used by
+# the default V1 engine path.
 #
 # Per spec §3 / C1.
 
@@ -25,7 +27,7 @@ docker rm -f nvllm 2>/dev/null || true
 # CuTe backend. Without this, the CUTE_FULL_GRAPH_PROBE log will never
 # fire (the probe code lives only on host until cp). FULL_AND_PIECEWISE
 # graph compilation also takes longer than PIECEWISE — single wait
-# below has a 600s ceiling.
+# below has an 1800s ceiling.
 "$REPO_ROOT/docs/research/2026-04-29-full-graph-spike/_sync_host_edits.sh" \
   2>&1 | tee "$EVIDENCE_DIR/c1_sync_host_edits.txt"
 
@@ -63,7 +65,7 @@ grep "CUTE_FULL_GRAPH_PROBE" "$EVIDENCE_DIR/c1_docker_logs.txt" \
 
 if [ ! -s "$EVIDENCE_DIR/c1_probe.log" ]; then
   echo "C1 FAIL — probe log empty. Either CUTE_FULL_GRAPH_PROBE wasn't"
-  echo "  forwarded to container, or no decode call hit gpu/model_runner.py:1050."
+  echo "  forwarded to container, or no decode call hit gpu_model_runner.py."
   exit 1
 fi
 

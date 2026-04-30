@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-04-30-0850",
+  "n_replays": 8,
+  "same_prompt_outputs": [
+    " Paris.\n</think>\n\nParis.",
+    " Paris.\n</think>\n\nParis.",
+    " Paris.\n</think>\n\nParis.",
+    " Paris.\n</think>\n\nParis.",
+    " Paris.\n</think>\n\nParis.",
+    " Paris.\n</think>\n\nParis.",
+    " Paris.\n</think>\n\nParis.",
+    " Paris.\n</think>\n\nParis."
+  ],
+  "same_prompt_unique_count": 1,
+  "same_prompt_pass": true,
+  "cross_prompt_a_first": " Paris.\n</think>\n\nParis.",
+  "cross_prompt_a_after_b": " Paris.\n</think>\n\nParis.",
+  "cross_prompt_pass": true,
+  "overall_pass": true
+}

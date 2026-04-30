@@ -1,0 +1,14 @@
+Host memory: 113 GiB available (threshold 90 GiB) — OK
+  Cute cache:  /tmp/nvllm-cute-cache -> /opt/vllm/kernel_cache
+=== Launching Qwen3.5-27B-NVFP4 (ig1/Qwen3.5-27B-NVFP4) — CuTe + FULL_AND_PIECEWISE ===
+  Model:       ig1/Qwen3.5-27B-NVFP4
+  Attention:   CUTE_PAGED
+  KV cache:    fp8_e4m3
+  Context:     16384 tokens
+  Max seqs:    1
+  Port:        8000
+
+0c43070cfb1c8421b9ba98579d8aafdd42393782fa51682ee09fc2dd3e82bc6e
+Container started: nvllm
+  API:  http://localhost:8000/v1
+  Logs: docker logs -f nvllm
