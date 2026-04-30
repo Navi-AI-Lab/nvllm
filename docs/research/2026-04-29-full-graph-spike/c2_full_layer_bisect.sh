@@ -70,6 +70,7 @@ docker run -d \
   -e CUTE_PHASE_E_LAYERS="$LAYERS" \
   -e CUTE_PHASE_E_FALLBACK_RAISE=1 \
   -e CUTE_FULL_GRAPH_PROBE=1 \
+  -e CUTE_WO_RESET_LOG="${CUTE_WO_RESET_LOG:-0}" \
   "$NVLLM_IMAGE" \
   serve \
   --model "$HF_MODEL" \

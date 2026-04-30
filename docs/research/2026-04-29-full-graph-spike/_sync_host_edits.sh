@@ -82,6 +82,13 @@ for t in "${TARGETS[@]}"; do
   echo "[sync] docker cp phase_e_kernel.py → $t/v1/attention/backends/cute_paged/phase_e_kernel.py"
   docker cp "$REPO_ROOT/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py" \
     "nvllm:$t/v1/attention/backends/cute_paged/phase_e_kernel.py"
+  # v2 patch: new wo_output reset op + qwen3_5 side-effect import
+  echo "[sync] docker cp _wo_output_reset_op.py → $t/v1/attention/backends/cute_paged/_wo_output_reset_op.py"
+  docker cp "$REPO_ROOT/vllm/v1/attention/backends/cute_paged/_wo_output_reset_op.py" \
+    "nvllm:$t/v1/attention/backends/cute_paged/_wo_output_reset_op.py"
+  echo "[sync] docker cp qwen3_5.py → $t/nvllm/models/qwen3_5.py"
+  docker cp "$REPO_ROOT/vllm/nvllm/models/qwen3_5.py" \
+    "nvllm:$t/nvllm/models/qwen3_5.py"
 done
 
 echo "[sync] deleting stale pyc"
@@ -92,7 +99,9 @@ for d in \
   /app/nvllm/vllm/v1/worker/__pycache__ \
   /usr/local/lib/python3.12/dist-packages/vllm/v1/attention/backends/cute_paged/__pycache__ \
   /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/__pycache__ \
-  /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/__pycache__ ; do
+  /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/__pycache__ \
+  /app/nvllm/vllm/nvllm/models/__pycache__ \
+  /usr/local/lib/python3.12/dist-packages/vllm/nvllm/models/__pycache__ ; do
   [ -d "$d" ] && find "$d" -name "*.pyc" -delete
 done
 true
@@ -124,6 +133,17 @@ for t in "${TARGETS[@]}"; do
   if ! docker exec nvllm grep -q "_coop_full_compile_heartbeat" \
        "$t/v1/attention/backends/cute_paged/phase_e_kernel.py"; then
     echo "FAIL: _coop_full_compile_heartbeat marker missing in $t after docker cp"
+    exit 1
+  fi
+  # v2 patch sentinels
+  if ! docker exec nvllm test -f \
+       "$t/v1/attention/backends/cute_paged/_wo_output_reset_op.py"; then
+    echo "FAIL: _wo_output_reset_op.py missing in $t after docker cp"
+    exit 1
+  fi
+  if ! docker exec nvllm grep -q "_wo_output_reset_op" \
+       "$t/nvllm/models/qwen3_5.py"; then
+    echo "FAIL: '_wo_output_reset_op' import marker missing in $t/nvllm/models/qwen3_5.py after docker cp"
     exit 1
   fi
 done
