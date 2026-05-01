@@ -38,6 +38,19 @@ nvllm_cleanup_container "$CONTAINER"
 CUTE_COMPILE_HOST_CACHE_DIR="${CUTE_COMPILE_HOST_CACHE_DIR:-/tmp/nvllm-cute-cache}"
 mkdir -p "$CUTE_COMPILE_HOST_CACHE_DIR"
 
+# Path B Z1 controlled causality test: optional AOT-cache mount.
+# When PATHB_Z1_VLLM_CACHE_HOST_DIR is set, mount the host dir to
+# /root/.cache/vllm so torch.compile's AOT cache persists across
+# fresh containers (default container behavior is per-container
+# scratch). Used to test whether artifact-size/compile-path is
+# causal for the X-trial PASS/FAIL discriminator.
+PATHB_Z1_MOUNT_ARGS=()
+if [ -n "${PATHB_Z1_VLLM_CACHE_HOST_DIR:-}" ]; then
+  mkdir -p "$PATHB_Z1_VLLM_CACHE_HOST_DIR"
+  PATHB_Z1_MOUNT_ARGS=("-v" "$PATHB_Z1_VLLM_CACHE_HOST_DIR:/root/.cache/vllm")
+  echo "[bisect] PATHB_Z1: mounting $PATHB_Z1_VLLM_CACHE_HOST_DIR -> /root/.cache/vllm"
+fi
+
 KV_CACHE="fp8_e4m3"
 ATTN_BACKEND="CUTE_PAGED"
 MAX_MODEL_LEN=16384
@@ -58,6 +71,7 @@ docker run -d \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
   -v "$CUTE_COMPILE_HOST_CACHE_DIR:/opt/vllm/kernel_cache" \
+  "${PATHB_Z1_MOUNT_ARGS[@]}" \
   -e B12X_CUTE_COMPILE_DISK_CACHE=1 \
   -e B12X_CUTE_COMPILE_CACHE_DIR=/opt/vllm/kernel_cache \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
