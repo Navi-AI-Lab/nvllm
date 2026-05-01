@@ -114,6 +114,29 @@ test_compute_hash_emits_64_hex_chars() {
   fi
 }
 
+test_compute_hash_rejects_wrong_arg_count() {
+  echo "[test] compute_hash_rejects_wrong_arg_count"
+  assert_exit_code "17 args -> return 1" 1 \
+    nvllm_compute_blessed_config_hash 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
+}
+
+test_compute_hash_anchor_value() {
+  echo "[test] compute_hash_anchor_value"
+  # Anchor: any change to the jq filter body or arg order silently flips this
+  # hash, so the test is the canonical-shape contract. Update only when the
+  # 18-input contract is intentionally bumped (and bump all manifests).
+  local anchor_hash="d427dc2be6147ace5097388d731c67d9fb482697a2b50607714d9951da525311"
+  local h
+  h=$(nvllm_compute_blessed_config_hash \
+    "sha256:0000000000000000000000000000000000000000000000000000000000000000" \
+    "test/anchor-model" \
+    "0000000000000000000000000000000000000000" \
+    "fp8_e4m3" "CUTE_PAGED" "FULL_AND_PIECEWISE" "[1]" \
+    1 16384 65536 \
+    1 "0,1,2,3,4,5,6,7" 1 0 0 0 1 1)
+  assert_eq "anchor hash unchanged" "$anchor_hash" "$h"
+}
+
 # ---- main runner ----
 
 main() {
@@ -122,6 +145,8 @@ main() {
   test_compute_hash_changes_on_image_id
   test_compute_hash_changes_on_probe_state
   test_compute_hash_emits_64_hex_chars
+  test_compute_hash_rejects_wrong_arg_count
+  test_compute_hash_anchor_value
 
   echo ""
   echo "=== Summary: $PASS passed, $FAIL failed ==="
