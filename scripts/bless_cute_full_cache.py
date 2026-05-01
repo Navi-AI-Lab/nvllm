@@ -513,5 +513,241 @@ def phase2_validate(
     return results
 
 
+import datetime as _dt
+
+
+def _human_label_from_config(cfg: BlessConfig, model_id: str,
+                              cudagraph_mode: str,
+                              cute_phase_e_layers: str) -> str:
+    model_short = model_id.split("/")[-1].lower().replace(".", "")
+    cgmode_short = "fap" if cudagraph_mode == "FULL_AND_PIECEWISE" else \
+                   cudagraph_mode.lower()
+    layer_short = "lower" + str(len(cute_phase_e_layers.split(",")))
+    img_sha7 = cfg.image_id.replace("sha256:", "")[:7]
+    return f"{model_short}_{cgmode_short}_{layer_short}_image-{img_sha7}"
+
+
+def accept(
+    *, staging_dir: Path, blessed_root: Path, manifest_root: Path,
+    cfg: BlessConfig, resolved_paths: dict[str, str],
+    trial_results: list[TrialResult],
+    launch_config: dict[str, Any],
+    archive_root: Path | None = None,
+    previous_manifest: Path | None = None,
+    previous_blessed_dir: Path | None = None,
+) -> Path:
+    """Build manifest, install staging→blessed, write manifest JSON.
+
+    Re-bless ordering is **promote-then-archive** to keep the prior config
+    active until the new one is fully on disk:
+
+      1. Stage new cache as `<blessed_root>/<hash>.new` (rename of staging).
+      2. Stage new manifest as `<manifest_root>/<filename>.new` (write).
+      3. PROMOTE cache: rename old `<hash>` → `<hash>.old`,
+         then rename `<hash>.new` → `<hash>` (small window where neither exists).
+      4. PROMOTE manifest: rename old `<filename>` → `<filename>.old`,
+         then rename `<filename>.new` → `<filename>`.
+      5. ARCHIVE: rename `.old` artifacts under `_archive/` (no active config
+         depends on these by the time we get here).
+
+    If any step fails between 3 and 5, operator can recover: `.new` and `.old`
+    artifacts are inspectable, and the old config is still functional unless
+    promotion completed for one half (cache or manifest) but not the other.
+    Recovery in that case is a manual rename — never an unrecoverable loss.
+
+    Return manifest path."""
+    blessed_root.mkdir(parents=True, exist_ok=True)
+    manifest_root.mkdir(parents=True, exist_ok=True)
+
+    files = []
+    for role, rel in resolved_paths.items():
+        full = staging_dir / rel
+        sha, sz = _sha256_size(full)
+        files.append({
+            "relative_path": rel, "sha256": sha,
+            "size_bytes": sz, "role": role,
+        })
+
+    blessed_dir = blessed_root / cfg.config_hash
+
+    aot_sha = next(f["sha256"] for f in files if f["role"] == "aot_model")
+    human_label = _human_label_from_config(
+        cfg=cfg, model_id=launch_config["model_id"],
+        cudagraph_mode=launch_config["cudagraph_mode"],
+        cute_phase_e_layers=launch_config["cute_phase_e_layers"],
+    )
+    manifest_filename = f"{human_label}_{cfg.config_hash[:7]}.json"
+    manifest_path = manifest_root / manifest_filename
+
+    archive_paths: dict[str, str] | None = None
+    replaces_manifest_filename: str | None = None
+    replaces_artifact_sha256: str | None = None
+    is_rebless = cfg.rebless and previous_manifest is not None
+    if is_rebless:
+        assert archive_root is not None, "archive_root required for --rebless"
+        prev_manifest_data = json.loads(previous_manifest.read_text())
+        prev_aot_sha = next(
+            (f["sha256"] for f in prev_manifest_data["files"]
+             if f["role"] == "aot_model"), "unknown",
+        )
+        replaces_manifest_filename = previous_manifest.name
+        replaces_artifact_sha256 = prev_aot_sha
+
+    manifest = {
+        "schema_version": 1,
+        "config_hash": cfg.config_hash,
+        "human_label": human_label,
+        "blessed_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "blessed_by": _blessed_by(),
+        "blessed_image_id": cfg.image_id,
+        "config": {
+            **{k: v for k, v in launch_config.items()
+               if k != "human_label_inputs"},
+            "model_revision_resolved": cfg.hf_revision,
+        },
+        "mount": {
+            "host_path": str(blessed_dir),
+            "container_path": "/root/.cache/vllm",
+            "mode": "ro",
+        },
+        "files": files,
+        "validation": {
+            "trials": len(trial_results),
+            "trials_passed": sum(1 for r in trial_results if r.passed),
+            "c2_replay_n_replays_per_trial": 8,
+            "criterion": ("all-K trials: c2 unique=1 AND cross_prompt=independent "
+                          "AND cache_reused=true"),
+            "cache_reuse_signals": [
+                "aot_load_observed_in_logs",
+                "zero_saved_aot_compiled_function_lines",
+                "post_trial_aot_sha256_unchanged",
+            ],
+            "unsafe_dev_trials": cfg.unsafe_dev_trials,
+            "per_trial": [
+                {"trial": r.trial_n, "c2_pass": r.c2_pass,
+                 "cache_reused": r.cache_reused,
+                 "aot_sha256_post": r.aot_sha256_post}
+                for r in trial_results
+            ],
+        },
+        "replaces_manifest": replaces_manifest_filename,
+        "replaces_artifact_sha256": replaces_artifact_sha256,
+        "archive_paths": None,  # filled in after archive step below
+    }
+
+    # ---- Step 1: stage new cache + manifest under .new names. ---------------
+    blessed_dir_new = blessed_dir.with_name(blessed_dir.name + ".new")
+    manifest_path_new = manifest_path.with_name(manifest_path.name + ".new")
+    if blessed_dir_new.exists():
+        raise RuntimeError(
+            f"orphan staging from prior bless: {blessed_dir_new}; "
+            "remove it before retrying"
+        )
+    if manifest_path_new.exists():
+        raise RuntimeError(
+            f"orphan manifest staging from prior bless: {manifest_path_new}; "
+            "remove it before retrying"
+        )
+    if not is_rebless and blessed_dir.exists():
+        raise RuntimeError(
+            f"blessed dir already exists for first-bless (race?): {blessed_dir}"
+        )
+    if not is_rebless and manifest_path.exists():
+        raise RuntimeError(
+            f"manifest already exists for first-bless (race?): {manifest_path}"
+        )
+    staging_dir.rename(blessed_dir_new)
+    manifest_path_new.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    # ---- Step 2: promote — atomic rename of new → canonical names. ----------
+    # Order: cache first, manifest second. If anything fails, the operator
+    # can inspect .new and .old artifacts and finish the rename manually
+    # without losing data.
+    blessed_dir_old: Path | None = None
+    manifest_path_old: Path | None = None
+    if is_rebless:
+        # 2a. Move old cache aside.
+        if previous_blessed_dir is not None and previous_blessed_dir.exists():
+            blessed_dir_old = blessed_dir.with_name(blessed_dir.name + ".old")
+            previous_blessed_dir.rename(blessed_dir_old)
+        # 2b. Promote new cache.
+        blessed_dir_new.rename(blessed_dir)
+        # 2c. Move old manifest aside.
+        manifest_path_old = manifest_path.with_name(manifest_path.name + ".old")
+        previous_manifest.rename(manifest_path_old)
+        # 2d. Promote new manifest.
+        manifest_path_new.rename(manifest_path)
+    else:
+        blessed_dir_new.rename(blessed_dir)
+        manifest_path_new.rename(manifest_path)
+
+    # ---- Step 3: archive .old artifacts (failures here do not break the
+    #              now-active blessed config). ------------------------------
+    if is_rebless:
+        ts = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        archive_manifest_dir = manifest_root / "_archive"
+        archive_manifest_dir.mkdir(parents=True, exist_ok=True)
+        archive_blessed_root = archive_root / "_archive"
+        archive_blessed_root.mkdir(parents=True, exist_ok=True)
+        archive_manifest_path = archive_manifest_dir / (
+            previous_manifest.stem + f"_{ts}_{prev_aot_sha[:8]}.json"
+        )
+        archive_blessed_path = archive_blessed_root / (
+            f"{cfg.config_hash}_{ts}_{prev_aot_sha[:8]}"
+        )
+        if manifest_path_old is not None and manifest_path_old.exists():
+            manifest_path_old.rename(archive_manifest_path)
+        if blessed_dir_old is not None and blessed_dir_old.exists():
+            blessed_dir_old.rename(archive_blessed_path)
+        archive_paths = {
+            "manifest": str(archive_manifest_path),
+            "blessed_dir": str(archive_blessed_path),
+        }
+        # Patch the manifest in place to record archive paths (the .new file
+        # was written before archive existed). Same fs => write is atomic.
+        m = json.loads(manifest_path.read_text())
+        m["archive_paths"] = archive_paths
+        manifest_path.write_text(json.dumps(m, indent=2) + "\n")
+
+    print(f"[bless/accept] manifest: {manifest_path}", flush=True)
+    print(f"[bless/accept] blessed cache: {blessed_dir}", flush=True)
+    return manifest_path
+
+
+def _blessed_by() -> str:
+    import getpass, socket
+    return f"{getpass.getuser()}@{socket.gethostname()}"
+
+
+def reject(
+    *, staging_dir: Path, evidence_root: Path,
+    cfg: BlessConfig, trial_results: list[TrialResult],
+) -> Path:
+    """Preserve staging dir as evidence; write failure summary; no manifest."""
+    ts = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    evidence_dir = evidence_root / f"{cfg.config_hash}_{ts}"
+    evidence_dir.parent.mkdir(parents=True, exist_ok=True)
+    if staging_dir.exists():
+        staging_dir.rename(evidence_dir)
+    else:
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "config_hash": cfg.config_hash,
+        "image_id": cfg.image_id,
+        "rejected_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "trial_results": [
+            {"trial_n": r.trial_n, "c2_pass": r.c2_pass,
+             "cache_reused": r.cache_reused,
+             "passed": r.passed, "log_paths": r.log_paths}
+            for r in trial_results
+        ],
+    }
+    (evidence_dir / "bless_failure.json").write_text(
+        json.dumps(summary, indent=2) + "\n"
+    )
+    print(f"[bless/reject] preserved at {evidence_dir}", flush=True)
+    return evidence_dir
+
+
 if __name__ == "__main__":
     sys.exit(main())

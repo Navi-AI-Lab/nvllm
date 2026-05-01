@@ -218,3 +218,104 @@ class TestPhase2:
         }))
         c2_pass, _ = parse_c2_json(p)
         assert c2_pass is False
+
+
+class TestAcceptReject:
+    def setup_method(self):
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+    def teardown_method(self):
+        sys.path.pop(0)
+
+    def _make_staging(self, tmp_path: Path) -> tuple[Path, dict[str, str]]:
+        staging = tmp_path / "staging" / "abcd"
+        for rel in (
+            "torch_compile_cache/torch_aot_compile/9a55/rank_0_0/model",
+            "torch_compile_cache/b690/rank_0_0/backbone/computation_graph.py",
+            "torch_compile_cache/b690/rank_0_0/backbone/cache_key_factors.json",
+            "modelinfos/vllm-X.json",
+        ):
+            (staging / rel).parent.mkdir(parents=True, exist_ok=True)
+            (staging / rel).write_text("x")
+        resolved = {
+            "aot_model": "torch_compile_cache/torch_aot_compile/9a55/rank_0_0/model",
+            "computation_graph": "torch_compile_cache/b690/rank_0_0/backbone/computation_graph.py",
+            "cache_key_factors": "torch_compile_cache/b690/rank_0_0/backbone/cache_key_factors.json",
+            "model_info": "modelinfos/vllm-X.json",
+        }
+        return staging, resolved
+
+    def _bless_config(self):
+        from bless_cute_full_cache import BlessConfig
+        return BlessConfig(
+            config_hash="a" * 64, image_id="sha256:img",
+            hf_revision="b" * 40, rebless=False, k_trials=5,
+            unsafe_dev_trials=False,
+        )
+
+    def test_accept_writes_manifest_and_moves_cache(self, tmp_path):
+        from bless_cute_full_cache import accept, TrialResult
+        staging, resolved = self._make_staging(tmp_path)
+        blessed_root = tmp_path / "blessed"
+        manifest_root = tmp_path / "manifests"
+        blessed_root.mkdir(); manifest_root.mkdir()
+        cfg = self._bless_config()
+        results = [
+            TrialResult(trial_n=i, c2_pass=True, cache_reused=True,
+                         aot_sha256_post="sha", c2_json={}, log_paths={})
+            for i in range(1, 6)
+        ]
+        manifest_path = accept(
+            staging_dir=staging,
+            blessed_root=blessed_root,
+            manifest_root=manifest_root,
+            cfg=cfg,
+            resolved_paths=resolved,
+            trial_results=results,
+            launch_config={
+                "model_id": "ig1/Qwen3.5-27B-NVFP4",
+                "kv_cache_dtype": "fp8_e4m3",
+                "attention_backend": "CUTE_PAGED",
+                "cudagraph_mode": "FULL_AND_PIECEWISE",
+                "cudagraph_capture_sizes": [1],
+                "max_num_seqs": 1, "max_model_len": 16384,
+                "max_num_batched_tokens": 65536,
+                "cute_phase_e_fusion": 1,
+                "cute_phase_e_layers": "0,1,2,3,4,5,6,7",
+                "cute_phase_e_fallback_raise": 1,
+                "cute_full_graph_probe": 0, "cute_wo_reset_log": 0,
+                "cute_dispatch_audit": 0,
+                "cute_mlp_fusion": 1, "cute_attn_fusion": 1,
+            },
+        )
+        assert manifest_path.exists()
+        m = json.loads(manifest_path.read_text())
+        assert m["config_hash"] == cfg.config_hash
+        assert m["validation"]["trials"] == 5
+        assert m["validation"]["trials_passed"] == 5
+        assert m["validation"]["unsafe_dev_trials"] is False
+        assert len(m["files"]) == 4
+        # Atomic move: staging gone, blessed populated.
+        assert not staging.exists()
+        assert (blessed_root / cfg.config_hash).exists()
+
+    def test_reject_moves_staging_to_evidence(self, tmp_path):
+        from bless_cute_full_cache import reject, TrialResult
+        staging, _ = self._make_staging(tmp_path)
+        evidence_root = tmp_path / "evidence"
+        evidence_root.mkdir()
+        results = [
+            TrialResult(trial_n=1, c2_pass=False, cache_reused=True,
+                         aot_sha256_post="sha", c2_json={}, log_paths={}),
+            TrialResult(trial_n=2, c2_pass=True, cache_reused=False,
+                         aot_sha256_post="sha", c2_json={}, log_paths={}),
+        ]
+        evidence_dir = reject(
+            staging_dir=staging,
+            evidence_root=evidence_root,
+            cfg=self._bless_config(),
+            trial_results=results,
+        )
+        assert not staging.exists()
+        assert evidence_dir.exists()
+        assert (evidence_dir / "bless_failure.json").exists()
