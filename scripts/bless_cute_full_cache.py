@@ -90,6 +90,7 @@ def _resolve_k_trials(args: argparse.Namespace) -> tuple[int, bool]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import os
     args = _parse_args(argv)
     k_trials, unsafe = _resolve_k_trials(args)
     cfg = BlessConfig(
@@ -100,12 +101,139 @@ def main(argv: list[str] | None = None) -> int:
         k_trials=k_trials,
         unsafe_dev_trials=unsafe,
     )
-    print(f"[bless] config_hash={cfg.config_hash[:7]}... "
-          f"K={cfg.k_trials} rebless={cfg.rebless} unsafe={cfg.unsafe_dev_trials}",
-          flush=True)
-    # Phase 1, 2, 3 wired in subsequent tasks.
-    print("[bless] (skeleton — Phase 1/2/3 not yet wired)", flush=True)
-    return 0
+
+    home = Path(os.environ["HOME"])
+    cache_root = Path(os.environ.get("NVLLM_BLESSED_CACHE_ROOT",
+                                       str(home / ".cache/nvllm")))
+    blessed_root = cache_root / "blessed"
+    staging_root = cache_root / "staging"
+    evidence_root = cache_root / "evidence"
+    manifest_root = REPO_ROOT / "docs/blessed-caches"
+    staging_dir = staging_root / cfg.config_hash
+
+    blessed_dir = blessed_root / cfg.config_hash
+    if blessed_dir.exists() and not cfg.rebless:
+        print(f"[bless] manifest+cache already exist for {cfg.config_hash[:7]}…",
+              file=sys.stderr)
+        print(f"[bless] re-run with --rebless to replace, or delete: {blessed_dir}",
+              file=sys.stderr)
+        return 1
+    previous_manifest = None
+    previous_blessed_dir = None
+    if cfg.rebless:
+        try:
+            r = subprocess.run(
+                ["bash", "-c",
+                 f"source {REPO_ROOT}/scripts/common.sh && "
+                 f"nvllm_resolve_blessed_manifest {cfg.config_hash}"],
+                capture_output=True, text=True, check=True,
+            )
+            previous_manifest = Path(r.stdout.strip())
+        except subprocess.CalledProcessError:
+            previous_manifest = None
+        if blessed_dir.exists():
+            previous_blessed_dir = blessed_dir
+
+    image = os.environ.get("NVLLM_IMAGE", DEFAULT_IMAGE)
+    hf_cache = home / ".cache/huggingface"
+    flashinfer_cache = home / ".cache/flashinfer"
+    cute_compile_host_cache = Path(
+        os.environ.get("CUTE_COMPILE_HOST_CACHE_DIR", "/tmp/nvllm-cute-cache")
+    )
+    cute_compile_host_cache.mkdir(parents=True, exist_ok=True)
+
+    # Launch config — must match serve-cute-full.sh defaults exactly.
+    launch_config: dict[str, Any] = {
+        "model_id": os.environ.get("HF_MODEL", "ig1/Qwen3.5-27B-NVFP4"),
+        "kv_cache_dtype": "fp8_e4m3",
+        "attention_backend": "CUTE_PAGED",
+        "cudagraph_mode": "FULL_AND_PIECEWISE",
+        "cudagraph_capture_sizes": [1],
+        "max_num_seqs": 1,
+        "max_model_len": 16384,
+        "max_num_batched_tokens": 65536,
+        "cute_phase_e_fusion": 1,
+        "cute_phase_e_layers": "0,1,2,3,4,5,6,7",
+        "cute_phase_e_fallback_raise": 1,
+        "cute_full_graph_probe": 0,
+        "cute_wo_reset_log": 0,
+        "cute_dispatch_audit": 0,
+        "cute_mlp_fusion": 1,
+        "cute_attn_fusion": 1,
+    }
+    ts = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    bless_evidence_dir = evidence_root / f"{cfg.config_hash}_{ts}"
+
+    print(f"[bless] config_hash={cfg.config_hash} K={cfg.k_trials} "
+          f"rebless={cfg.rebless}", flush=True)
+    print(f"[bless] staging  : {staging_dir}", flush=True)
+    print(f"[bless] blessed  : {blessed_dir}", flush=True)
+    print(f"[bless] evidence : {bless_evidence_dir}", flush=True)
+    print(f"[bless] manifest : {manifest_root}", flush=True)
+
+    # ---- Phase 1 ----
+    try:
+        ph1 = phase1_bootstrap(
+            staging_dir=staging_dir, image=image,
+            hf_cache=hf_cache, flashinfer_cache=flashinfer_cache,
+            cute_compile_host_cache=cute_compile_host_cache,
+            model_id=launch_config["model_id"],
+            kv_cache_dtype=launch_config["kv_cache_dtype"],
+            attention_backend=launch_config["attention_backend"],
+            max_model_len=launch_config["max_model_len"],
+            max_num_seqs=launch_config["max_num_seqs"],
+            max_num_batched_tokens=launch_config["max_num_batched_tokens"],
+            cute_phase_e_layers=launch_config["cute_phase_e_layers"],
+            bootstrap_log_path=bless_evidence_dir / "_bless_logs/phase1_bootstrap.log",
+        )
+    except Exception as e:
+        print(f"[bless/phase1] FAIL: {e}", file=sys.stderr)
+        reject(staging_dir=staging_dir, evidence_root=evidence_root,
+                cfg=cfg, trial_results=[])
+        return 2
+
+    # ---- Phase 2 ----
+    results = phase2_validate(
+        staging_dir=staging_dir, image=image,
+        hf_cache=hf_cache, flashinfer_cache=flashinfer_cache,
+        cute_compile_host_cache=cute_compile_host_cache,
+        model_id=launch_config["model_id"],
+        kv_cache_dtype=launch_config["kv_cache_dtype"],
+        attention_backend=launch_config["attention_backend"],
+        max_model_len=launch_config["max_model_len"],
+        max_num_seqs=launch_config["max_num_seqs"],
+        max_num_batched_tokens=launch_config["max_num_batched_tokens"],
+        cute_phase_e_layers=launch_config["cute_phase_e_layers"],
+        aot_relpath=ph1["resolved_paths"]["aot_model"],
+        expected_aot_sha=ph1["aot_sha"],
+        k_trials=cfg.k_trials,
+        evidence_dir=bless_evidence_dir,
+    )
+
+    if all(r.passed for r in results):
+        print(f"[bless] all {cfg.k_trials} trials PASS — accepting", flush=True)
+        manifest_path = accept(
+            staging_dir=staging_dir,
+            blessed_root=blessed_root,
+            manifest_root=manifest_root,
+            cfg=cfg,
+            resolved_paths=ph1["resolved_paths"],
+            trial_results=results,
+            launch_config=launch_config,
+            archive_root=blessed_root,
+            previous_manifest=previous_manifest,
+            previous_blessed_dir=previous_blessed_dir,
+        )
+        print(f"[bless] DONE. To commit:", flush=True)
+        print(f"  git add docs/blessed-caches/{manifest_path.name}", flush=True)
+        return 0
+    else:
+        n_fail = sum(1 for r in results if not r.passed)
+        print(f"[bless] {n_fail}/{cfg.k_trials} trials FAIL — rejecting",
+              file=sys.stderr)
+        reject(staging_dir=staging_dir, evidence_root=evidence_root,
+                cfg=cfg, trial_results=results)
+        return 3
 
 
 CONTAINER_NAME = "nvllm"
