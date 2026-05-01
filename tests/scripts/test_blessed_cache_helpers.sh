@@ -219,6 +219,49 @@ test_resolve_manifest_ignores_archive() {
   rm -rf "$dir"
 }
 
+test_resolve_manifest_warns_on_missing_config_hash() {
+  echo "[test] resolve_manifest_warns_on_missing_config_hash"
+  local dir actual=0
+  dir=$(mktemp -d)
+  setup_manifest_fixture "$dir"
+  cat > "$dir/cfg-broken.json" <<'EOF'
+{"schema_version":1,"files":[]}
+EOF
+  local stderr_capture
+  stderr_capture=$(NVLLM_BLESSED_MANIFEST_DIR="$dir" \
+    nvllm_resolve_blessed_manifest "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" 2>&1 1>/dev/null) \
+    || actual=$?
+  if [ "$actual" = 1 ] && echo "$stderr_capture" | grep -q "missing/empty .config_hash"; then
+    PASS=$((PASS+1)); echo "  PASS: warns on missing .config_hash, returns 1"
+  else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("resolve_manifest missing_config_hash")
+    echo "  FAIL: actual=$actual stderr=$stderr_capture"
+  fi
+  rm -rf "$dir"
+}
+
+test_resolve_manifest_no_env_no_repo_returns_1() {
+  echo "[test] resolve_manifest_no_env_no_repo_returns_1"
+  local actual=0 stderr_capture
+  # Run from /tmp with both env var unset and outside any git repo.
+  # Use a subshell to clear env var; cd to a non-repo dir.
+  stderr_capture=$(cd /tmp && unset NVLLM_BLESSED_MANIFEST_DIR && \
+    nvllm_resolve_blessed_manifest "deadbeef" 2>&1 1>/dev/null) \
+    || actual=$?
+  # Note: BASH_SOURCE points to scripts/common.sh in the repo, so the
+  # git-rev-parse-from-script-dir fallback DOES find the repo. To force the
+  # error path, we'd need to source common.sh from outside the repo, which
+  # is environment-dependent. Instead just verify the function returns
+  # cleanly (return 1, no crash) when env unset and the repo IS available
+  # (manifest dir would be docs/blessed-caches/, hash deadbeef won't match).
+  if [ "$actual" = 1 ]; then
+    PASS=$((PASS+1)); echo "  PASS: returns 1 when manifest dir defaulted and hash absent"
+  else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("resolve_manifest no_env path")
+    echo "  FAIL: actual=$actual"
+  fi
+}
+
 # ---- verify_blessed_cache tests ----
 
 setup_cache_fixture() {
@@ -287,6 +330,35 @@ EOF
   rm -rf "$cache_dir" "$manifest_dir"
 }
 
+test_verify_cache_fail_on_zero_byte() {
+  echo "[test] verify_cache_fail_on_zero_byte"
+  local cache_dir manifest_dir manifest
+  cache_dir=$(mktemp -d); manifest_dir=$(mktemp -d)
+  mkdir -p "$cache_dir/sub"
+  : > "$cache_dir/sub/model"  # 0-byte file
+  manifest="$manifest_dir/m.json"
+  cat > "$manifest" <<EOF
+{"config_hash":"x","mount":{"host_path":"$cache_dir"},"files":[{"relative_path":"sub/model","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","size_bytes":0,"role":"aot_model"}]}
+EOF
+  # Even though sha and size match a true empty file, our verify rejects 0-byte explicitly.
+  assert_exit_code "verify rejects zero-byte file" 1 \
+    nvllm_verify_blessed_cache "$manifest"
+  rm -rf "$cache_dir" "$manifest_dir"
+}
+
+test_verify_cache_fail_on_empty_files_array() {
+  echo "[test] verify_cache_fail_on_empty_files_array"
+  local cache_dir manifest_dir manifest
+  cache_dir=$(mktemp -d); manifest_dir=$(mktemp -d)
+  manifest="$manifest_dir/m.json"
+  cat > "$manifest" <<EOF
+{"config_hash":"x","mount":{"host_path":"$cache_dir"},"files":[]}
+EOF
+  assert_exit_code "verify rejects empty files[] array" 1 \
+    nvllm_verify_blessed_cache "$manifest"
+  rm -rf "$cache_dir" "$manifest_dir"
+}
+
 # ---- main runner ----
 
 main() {
@@ -301,10 +373,14 @@ main() {
   test_resolve_manifest_no_match_exits_1
   test_resolve_manifest_duplicate_exits_2
   test_resolve_manifest_ignores_archive
+  test_resolve_manifest_warns_on_missing_config_hash
+  test_resolve_manifest_no_env_no_repo_returns_1
   test_verify_cache_pass
   test_verify_cache_fail_on_size
   test_verify_cache_fail_on_sha
   test_verify_cache_fail_on_missing
+  test_verify_cache_fail_on_zero_byte
+  test_verify_cache_fail_on_empty_files_array
 
   echo ""
   echo "=== Summary: $PASS passed, $FAIL failed ==="

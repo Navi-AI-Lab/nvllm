@@ -223,6 +223,10 @@ nvllm_resolve_blessed_manifest() {
   local f hash
   for f in "$dir"/*.json; do
     hash=$(jq -r '.config_hash // empty' "$f" 2>/dev/null) || continue
+    if [ -z "$hash" ]; then
+      echo "WARNING: skipping $f (missing/empty .config_hash)" >&2
+      continue
+    fi
     if [ "$hash" = "$needle" ]; then
       matches+=("$f")
     fi
@@ -283,7 +287,7 @@ nvllm_verify_blessed_cache() {
       echo "ERROR: blessed-cache file is zero-byte: $full" >&2
       return 1
     fi
-    if [ "$actual_size" != "$expected_size" ]; then
+    if [ "$actual_size" -ne "$expected_size" ]; then
       echo "ERROR: size mismatch for $rel: expected $expected_size, got $actual_size" >&2
       return 1
     fi
