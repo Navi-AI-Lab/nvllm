@@ -14,6 +14,7 @@ Per spec §3 / C2.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -29,9 +30,26 @@ PROMPT_A = "Q: What is the capital of France?\nA:"
 PROMPT_B = "Q: What is the boiling point of water in Celsius?\nA:"
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-TS = datetime.now().strftime("%Y-%m-%d-%H%M")
-EVIDENCE = REPO_ROOT / "docs/research/2026-04-29-full-graph-spike/evidence" / TS
-EVIDENCE.mkdir(parents=True, exist_ok=True)
+DEFAULT_EVIDENCE_BASE = REPO_ROOT / "docs/research/2026-04-29-full-graph-spike/evidence"
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="C2 replay-coherence external arm.")
+    p.add_argument(
+        "--json-out",
+        type=Path,
+        default=None,
+        help="If set, also write the result JSON to this exact path "
+             "(in addition to the evidence-dir copy).",
+    )
+    p.add_argument(
+        "--evidence-dir",
+        type=Path,
+        default=None,
+        help="Override the evidence directory. Default: "
+             "<repo>/docs/research/2026-04-29-full-graph-spike/evidence/<timestamp>/",
+    )
+    return p.parse_args(argv)
 
 
 def complete(prompt: str) -> str:
@@ -51,9 +69,14 @@ def complete(prompt: str) -> str:
     return d["choices"][0]["text"]
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    ts = datetime.now().strftime("%Y-%m-%d-%H%M")
+    evidence = args.evidence_dir or (DEFAULT_EVIDENCE_BASE / ts)
+    evidence.mkdir(parents=True, exist_ok=True)
+
     print(f"=== C2 replay-coherence (n={N_REPLAYS}) ===")
-    print(f"Evidence dir: {EVIDENCE}")
+    print(f"Evidence dir: {evidence}")
 
     # Same-prompt repeatability.
     print("\n[1] Same-prompt repeatability")
@@ -78,7 +101,7 @@ def main() -> int:
 
     overall = same_pass and cross_pass
     summary = {
-        "timestamp": TS,
+        "timestamp": ts,
         "n_replays": N_REPLAYS,
         "same_prompt_outputs": same_outputs,
         "same_prompt_unique_count": len(same_unique),
@@ -88,14 +111,17 @@ def main() -> int:
         "cross_prompt_pass": cross_pass,
         "overall_pass": overall,
     }
-    out_json = EVIDENCE / "c2_replay_coherence.json"
+    out_json = evidence / "c2_replay_coherence.json"
     out_json.write_text(json.dumps(summary, indent=2))
+    if args.json_out is not None:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(json.dumps(summary, indent=2))
 
-    md = EVIDENCE / "c2_replay_coherence.md"
+    md = evidence / "c2_replay_coherence.md"
     md.write_text(
         f"# C2 — replay coherence (external) — "
         f"{'PASS' if overall else 'FAIL'}\n\n"
-        f"- Timestamp: {TS}\n"
+        f"- Timestamp: {ts}\n"
         f"- N replays: {N_REPLAYS}\n"
         f"- Same-prompt repeatable: {same_pass}\n"
         f"- Cross-prompt independent: {cross_pass}\n"
