@@ -406,10 +406,10 @@ EOF
 # ---------------------------------------------------------------------------
 # nvllm_resolve_hf_revision <model_id>
 #   Resolve a HuggingFace model reference to an immutable commit sha.
-#   Tries (in order):
-#     1. huggingface_hub Python API (most reliable)
-#     2. huggingface-cli model info  (fallback)
-#   Emits the resolved sha to stdout. Returns 1 on unresolvable.
+#   Uses huggingface_hub.model_info() via .venv/bin/python, validates the
+#   returned sha is 40-char hex, emits to stdout.
+#   Returns 1 with stderr message if not in a repo, venv missing,
+#   HF API failure, or non-40-hex sha.
 # ---------------------------------------------------------------------------
 nvllm_resolve_hf_revision() {
   local model_id="$1"
@@ -424,16 +424,16 @@ nvllm_resolve_hf_revision() {
     return 1
   fi
   local sha
-  sha=$("$py" -c "
-import sys
+  sha=$(MODEL_ID="$model_id" "$py" -c '
+import os, sys
 try:
     from huggingface_hub import model_info
-    info = model_info('$model_id')
+    info = model_info(os.environ["MODEL_ID"])
     print(info.sha)
 except Exception as e:
-    print(f'ERROR: {e}', file=sys.stderr)
+    print(f"ERROR: {e}", file=sys.stderr)
     sys.exit(1)
-") || return 1
+') || return 1
   if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
     echo "ERROR: resolved sha is not a 40-char hex: $sha" >&2
     return 1
