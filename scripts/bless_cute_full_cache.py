@@ -374,6 +374,26 @@ def _poll_models(host: str, port: int, timeout_s: int = 600,
     raise TimeoutError(f"/v1/models did not respond within {timeout_s}s")
 
 
+def _chmod_staging_for_host(container: str) -> None:
+    """Make container-written cache files readable by the orchestrator user.
+
+    vllm runs as root inside the container and writes torch_compile_cache files
+    mode 0600. The host-mounted staging dir thus contains root-owned, mode-0600
+    files; the unprivileged orchestrator user can't read them for sha256/verify.
+    Recursive `chmod a+rX` (capital X = traverse-only on dirs) leaves write
+    permissions alone but grants all users read on files and traverse on dirs.
+    """
+    r = subprocess.run(
+        ["docker", "exec", container, "chmod", "-R", "a+rX",
+         "/root/.cache/vllm"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"docker exec chmod failed (rc={r.returncode}): {r.stderr.strip()}"
+        )
+
+
 def _trigger_completion(host: str, port: int) -> None:
     """One fixed completion to force prefill + decode + AOT artifact write."""
     body = json.dumps({
@@ -447,6 +467,11 @@ def phase1_bootstrap(
         _trigger_completion("localhost", 8000)
         print("[bless/phase1] completion done; stopping container "
               "(graceful, allows torch to flush AOT)", flush=True)
+        # vllm container runs as root → AOT files in the host-mounted staging
+        # dir are root-owned mode 0600. Make them host-readable BEFORE the
+        # container exits, so phase1 sha256 + phase2 verify can read them as
+        # the unprivileged orchestrator user.
+        _chmod_staging_for_host(CONTAINER_NAME)
     finally:
         log = _docker_stop(CONTAINER_NAME, timeout=60)
         bootstrap_log_path.parent.mkdir(parents=True, exist_ok=True)
