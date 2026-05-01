@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "config_hash": "e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db",
+  "human_label": "qwen35-27b-nvfp4_fap_lower8_image-a3f3f60",
+  "blessed_at": "2026-05-01T18:22:45Z",
+  "blessed_by": "natfii@navi-ai",
+  "blessed_image_id": "sha256:a3f3f609a8ec873b0c8f6ddeb71573514eb84bf41b814ac82303d998a6ac5b88",
+  "config": {
+    "model_id": "ig1/Qwen3.5-27B-NVFP4",
+    "kv_cache_dtype": "fp8_e4m3",
+    "attention_backend": "CUTE_PAGED",
+    "cudagraph_mode": "FULL_AND_PIECEWISE",
+    "cudagraph_capture_sizes": [
+      1
+    ],
+    "max_num_seqs": 1,
+    "max_model_len": 16384,
+    "max_num_batched_tokens": 65536,
+    "cute_phase_e_fusion": 1,
+    "cute_phase_e_layers": "0,1,2,3,4,5,6,7",
+    "cute_phase_e_fallback_raise": 1,
+    "cute_full_graph_probe": 0,
+    "cute_wo_reset_log": 0,
+    "cute_dispatch_audit": 0,
+    "cute_mlp_fusion": 1,
+    "cute_attn_fusion": 1,
+    "model_revision_resolved": "4c546624f1fa8b77f5b7cfb3b6c96bf46d25c3a9"
+  },
+  "mount": {
+    "host_path": "/home/natfii/.cache/nvllm/blessed/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db",
+    "container_path": "/root/.cache/vllm",
+    "mode": "ro"
+  },
+  "files": [
+    {
+      "relative_path": "torch_compile_cache/torch_aot_compile/3ec8dddb5f6ea68b946bb3fa1b040f276ea75afdb6b3bfdbc97afca26c519c7f/rank_0_0/model",
+      "sha256": "d97e88db71ddbffde0553cbb3e805c036181316ff8a956f4d8be9f8b11c02f65",
+      "size_bytes": 73400709,
+      "role": "aot_model"
+    },
+    {
+      "relative_path": "torch_compile_cache/79c53c5682/rank_0_0/backbone/computation_graph.py",
+      "sha256": "7e03db5f5e9183a9396ef189b7597442db920f2ca3047952c7af7ace68e183e6",
+      "size_bytes": 1757083,
+      "role": "computation_graph"
+    },
+    {
+      "relative_path": "torch_compile_cache/79c53c5682/rank_0_0/backbone/cache_key_factors.json",
+      "sha256": "24674f8c3c1556708161a452d64dfb9456ebbc34f20600b9fe972fae58827ebe",
+      "size_bytes": 8317,
+      "role": "cache_key_factors"
+    },
+    {
+      "relative_path": "modelinfos/vllm-model_executor-models-qwen3_5-Qwen3_5ForConditionalGeneration.json",
+      "sha256": "75d82e1688ae21e17da062beb362e604cbe1a24a2fb47828af43acc51cb24686",
+      "size_bytes": 760,
+      "role": "model_info"
+    }
+  ],
+  "validation": {
+    "trials": 5,
+    "trials_passed": 5,
+    "c2_replay_n_replays_per_trial": 8,
+    "criterion": "all-K trials: c2 unique=1 AND cross_prompt=independent AND cache_reused=true",
+    "cache_reuse_signals": [
+      "aot_load_observed_in_logs",
+      "zero_saved_aot_compiled_function_lines",
+      "post_trial_aot_sha256_unchanged"
+    ],
+    "unsafe_dev_trials": false,
+    "per_trial": [
+      {
+        "trial": 1,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "d97e88db71ddbffde0553cbb3e805c036181316ff8a956f4d8be9f8b11c02f65"
+      },
+      {
+        "trial": 2,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "d97e88db71ddbffde0553cbb3e805c036181316ff8a956f4d8be9f8b11c02f65"
+      },
+      {
+        "trial": 3,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "d97e88db71ddbffde0553cbb3e805c036181316ff8a956f4d8be9f8b11c02f65"
+      },
+      {
+        "trial": 4,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "d97e88db71ddbffde0553cbb3e805c036181316ff8a956f4d8be9f8b11c02f65"
+      },
+      {
+        "trial": 5,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "d97e88db71ddbffde0553cbb3e805c036181316ff8a956f4d8be9f8b11c02f65"
+      }
+    ]
+  },
+  "replaces_manifest": null,
+  "replaces_artifact_sha256": null,
+  "archive_paths": null
+}

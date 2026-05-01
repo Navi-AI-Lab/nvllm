@@ -23,7 +23,9 @@ Full evidence: [`docs/research/2026-04-29-full-graph-spike/evidence/2026-04-30-2
 
 <!-- BEGIN AUTO-GENERATED TABLE -->
 
-_None yet — run `./scripts/bless-cute-full-cache.sh` to bless the first config._
+| Filename | Model | cgmode | Layer set | Image ID | Blessed at | Status |
+|---|---|---|---|---|---|---|
+| `qwen35-27b-nvfp4_fap_lower8_image-a3f3f60_e6d32b4.json` | ig1/Qwen3.5-27B-NVFP4 | FULL_AND_PIECEWISE | 0,1,2,3,4,5,6,7 | sha256:a3f3f60… | 2026-05-01T18:22:45Z | active |
 
 <!-- END AUTO-GENERATED TABLE -->
 
