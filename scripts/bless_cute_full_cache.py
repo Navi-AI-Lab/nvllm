@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -374,23 +375,40 @@ def _poll_models(host: str, port: int, timeout_s: int = 600,
     raise TimeoutError(f"/v1/models did not respond within {timeout_s}s")
 
 
-def _chmod_staging_for_host(container: str) -> None:
-    """Make container-written cache files readable by the orchestrator user.
+def _normalize_staging_permissions_for_host(staging_dir: Path,
+                                            image: str) -> None:
+    """Make container-written cache files readable and removable by host user.
 
-    vllm runs as root inside the container and writes torch_compile_cache files
-    mode 0600. The host-mounted staging dir thus contains root-owned, mode-0600
-    files; the unprivileged orchestrator user can't read them for sha256/verify.
-    Recursive `chmod a+rX` (capital X = traverse-only on dirs) leaves write
-    permissions alone but grants all users read on files and traverse on dirs.
+    vLLM runs as root inside the container and can write AOT cache files as
+    root-owned mode 0600. Some files are finalized during graceful shutdown, so
+    an in-container chmod before `docker stop` is not enough. Run a short-lived
+    root helper container after stop, with the same host staging dir mounted RW,
+    and chown the cache tree back to the orchestrator user's uid/gid.
     """
+    if not staging_dir.exists():
+        return
+
+    uid = os.getuid()
+    gid = os.getgid()
+    command = (
+        f"chown -R {uid}:{gid} /root/.cache/vllm && "
+        "chmod -R u+rwX,go+rX /root/.cache/vllm"
+    )
     r = subprocess.run(
-        ["docker", "exec", container, "chmod", "-R", "a+rX",
-         "/root/.cache/vllm"],
+        [
+            "docker", "run", "--rm",
+            "--network", "none",
+            "-v", f"{staging_dir}:/root/.cache/vllm",
+            "--entrypoint", "/bin/sh",
+            image,
+            "-c", command,
+        ],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
         raise RuntimeError(
-            f"docker exec chmod failed (rc={r.returncode}): {r.stderr.strip()}"
+            "staging permission normalization failed "
+            f"(rc={r.returncode}): {r.stderr.strip()}"
         )
 
 
@@ -435,6 +453,7 @@ def phase1_bootstrap(
     """Run Phase 1; return {'aot_sha': str, 'aot_size': int, 'resolved_paths': {role: rel_path}}."""
     # Clean staging.
     if staging_dir.exists():
+        _normalize_staging_permissions_for_host(staging_dir, image)
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
 
@@ -467,15 +486,19 @@ def phase1_bootstrap(
         _trigger_completion("localhost", 8000)
         print("[bless/phase1] completion done; stopping container "
               "(graceful, allows torch to flush AOT)", flush=True)
-        # vllm container runs as root → AOT files in the host-mounted staging
-        # dir are root-owned mode 0600. Make them host-readable BEFORE the
-        # container exits, so phase1 sha256 + phase2 verify can read them as
-        # the unprivileged orchestrator user.
-        _chmod_staging_for_host(CONTAINER_NAME)
     finally:
         log = _docker_stop(CONTAINER_NAME, timeout=60)
         bootstrap_log_path.parent.mkdir(parents=True, exist_ok=True)
         bootstrap_log_path.write_text(log)
+        _normalize_staging_permissions_for_host(staging_dir, image)
+
+    # vLLM workaround: caching.py:466-467 unconditionally calls
+    # `os.makedirs(<vllm_root>/dummy_cache, exist_ok=True)` on the AOT-load
+    # path, even when `disable_cache=True`. With our :ro Phase 2 mount that
+    # raises EROFS and torch.compile silently recompiles. Pre-creating the
+    # dir here makes the makedirs(exist_ok=True) a no-op under :ro
+    # (verified: makedirs on existing dir under read-only parent succeeds).
+    (staging_dir / "dummy_cache").mkdir(exist_ok=True)
 
     # Resolve the 4 expected files via globs (path-suffix hashes vary).
     resolved = {}

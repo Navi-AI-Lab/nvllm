@@ -102,6 +102,54 @@ class TestPhase1:
                          "model_info"}
         assert len(files) == 4
 
+    def test_normalize_staging_permissions_uses_helper_container(
+        self, tmp_path, monkeypatch
+    ):
+        from bless_cute_full_cache import _normalize_staging_permissions_for_host
+
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        calls = []
+
+        class _Result:
+            returncode = 0
+            stderr = ""
+
+        def _fake_run(args, capture_output=True, text=True):
+            calls.append(args)
+            return _Result()
+
+        monkeypatch.setattr("subprocess.run", _fake_run)
+        monkeypatch.setattr("os.getuid", lambda: 1000)
+        monkeypatch.setattr("os.getgid", lambda: 1001)
+
+        _normalize_staging_permissions_for_host(staging, "nvllm:gb10")
+
+        assert len(calls) == 1
+        args = calls[0]
+        assert args[:5] == ["docker", "run", "--rm", "--network", "none"]
+        assert f"{staging}:/root/.cache/vllm" in args
+        assert "--entrypoint" in args
+        assert "/bin/sh" in args
+        assert "nvllm:gb10" in args
+        command = args[-1]
+        assert "chown -R 1000:1001 /root/.cache/vllm" in command
+        assert "chmod -R u+rwX,go+rX /root/.cache/vllm" in command
+
+    def test_makedirs_dummy_cache_no_ops_under_readonly_parent(self, tmp_path):
+        """Regression: vLLM caching.py:466-467 calls os.makedirs(dummy_cache,
+        exist_ok=True) on the AOT-load path, even with disable_cache=True.
+        Phase 1 must pre-create dummy_cache/ in staging so Phase 2's :ro
+        mount no-ops the call instead of raising EROFS."""
+        import os
+        sub = tmp_path / "dummy_cache"
+        sub.mkdir()
+        os.chmod(tmp_path, 0o555)
+        try:
+            os.makedirs(str(sub), exist_ok=True)  # must not raise
+        finally:
+            os.chmod(tmp_path, 0o755)
+
 
 class TestPhase2:
     def setup_method(self):
