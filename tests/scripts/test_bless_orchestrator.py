@@ -319,3 +319,31 @@ class TestAcceptReject:
         assert not staging.exists()
         assert evidence_dir.exists()
         assert (evidence_dir / "bless_failure.json").exists()
+
+
+class TestReadmePopulator:
+    def test_regenerate_readme_table_with_one_manifest(self, tmp_path):
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        try:
+            from bless_cute_full_cache import regenerate_readme_table
+            (tmp_path / "README.md").write_text(
+                "before\n<!-- BEGIN AUTO-GENERATED TABLE -->\nold\n"
+                "<!-- END AUTO-GENERATED TABLE -->\nafter\n"
+            )
+            (tmp_path / "m.json").write_text(json.dumps({
+                "config_hash": "abc",
+                "blessed_at": "2026-05-01T00:00:00Z",
+                "blessed_image_id": "sha256:d3ddffea3c1234567890abcdef",
+                "config": {"model_id": "ig1/M",
+                           "cudagraph_mode": "FULL_AND_PIECEWISE",
+                           "cute_phase_e_layers": "0,1,2,3,4,5,6,7"},
+                "validation": {"unsafe_dev_trials": False},
+            }))
+            regenerate_readme_table(tmp_path)
+            out = (tmp_path / "README.md").read_text()
+            assert "ig1/M" in out
+            assert "FULL_AND_PIECEWISE" in out
+            assert "old" not in out
+            assert "before" in out and "after" in out
+        finally:
+            sys.path.pop(0)

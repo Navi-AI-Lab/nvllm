@@ -839,6 +839,7 @@ def accept(
 
     print(f"[bless/accept] manifest: {manifest_path}", flush=True)
     print(f"[bless/accept] blessed cache: {blessed_dir}", flush=True)
+    regenerate_readme_table(manifest_root)
     return manifest_path
 
 
@@ -875,6 +876,45 @@ def reject(
     )
     print(f"[bless/reject] preserved at {evidence_dir}", flush=True)
     return evidence_dir
+
+
+TABLE_BEGIN = "<!-- BEGIN AUTO-GENERATED TABLE -->"
+TABLE_END = "<!-- END AUTO-GENERATED TABLE -->"
+
+
+def regenerate_readme_table(manifest_root: Path) -> None:
+    """Replace the auto-generated active-manifests table block in
+    docs/blessed-caches/README.md."""
+    readme = manifest_root / "README.md"
+    if not readme.exists():
+        return
+    rows: list[str] = []
+    for m_path in sorted(manifest_root.glob("*.json")):
+        m = json.loads(m_path.read_text())
+        cfg = m.get("config", {})
+        rows.append(
+            f"| `{m_path.name}` | {cfg.get('model_id','?')} | "
+            f"{cfg.get('cudagraph_mode','?')} | "
+            f"{cfg.get('cute_phase_e_layers','?')} | "
+            f"{m.get('blessed_image_id','sha256:?')[:14]}… | "
+            f"{m.get('blessed_at','?')} | "
+            f"{'unsafe-dev' if m.get('validation',{}).get('unsafe_dev_trials') else 'active'} |"
+        )
+    if rows:
+        table = ("| Filename | Model | cgmode | Layer set | Image ID | "
+                 "Blessed at | Status |\n"
+                 "|---|---|---|---|---|---|---|\n"
+                 + "\n".join(rows) + "\n")
+    else:
+        table = "_None yet — run `./scripts/bless-cute-full-cache.sh` to bless the first config._\n"
+    src = readme.read_text()
+    if TABLE_BEGIN not in src or TABLE_END not in src:
+        return
+    pre, _, rest = src.partition(TABLE_BEGIN)
+    _, _, post = rest.partition(TABLE_END)
+    readme.write_text(
+        f"{pre}{TABLE_BEGIN}\n\n{table}\n{TABLE_END}{post}"
+    )
 
 
 if __name__ == "__main__":
