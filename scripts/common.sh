@@ -191,3 +191,110 @@ nvllm_compute_blessed_config_hash() {
       }}')
   printf '%s' "$canonical" | sha256sum | awk '{print $1}'
 }
+
+# ---------------------------------------------------------------------------
+# nvllm_resolve_blessed_manifest <config_hash>
+#   Glob $NVLLM_BLESSED_MANIFEST_DIR/*.json (default: docs/blessed-caches/),
+#   excluding _archive/. Find every manifest whose .config_hash equals input.
+#   Return 0 with path on stdout if exactly one match.
+#   Return 1 if zero matches ("no manifest").
+#   Return 2 if 2+ matches ("corruption: duplicate config_hash").
+# ---------------------------------------------------------------------------
+nvllm_resolve_blessed_manifest() {
+  local needle="$1"
+  local dir="${NVLLM_BLESSED_MANIFEST_DIR:-}"
+  if [ -z "$dir" ]; then
+    local repo_root
+    repo_root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null) || {
+      echo "ERROR: NVLLM_BLESSED_MANIFEST_DIR unset and not in a git repo." >&2
+      return 1
+    }
+    dir="$repo_root/docs/blessed-caches"
+  fi
+  if [ ! -d "$dir" ]; then
+    return 1  # no dir means no manifests
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq not found." >&2
+    return 1
+  fi
+  local matches=()
+  shopt -s nullglob
+  local f hash
+  for f in "$dir"/*.json; do
+    hash=$(jq -r '.config_hash // empty' "$f" 2>/dev/null) || continue
+    if [ "$hash" = "$needle" ]; then
+      matches+=("$f")
+    fi
+  done
+  shopt -u nullglob
+  case "${#matches[@]}" in
+    0) return 1 ;;
+    1) printf '%s\n' "${matches[0]}"; return 0 ;;
+    *) echo "ERROR: duplicate config_hash $needle in:" >&2
+       printf '  %s\n' "${matches[@]}" >&2
+       return 2 ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# nvllm_verify_blessed_cache <manifest_path>
+#   Read manifest's mount.host_path and files[]. For each file: must exist,
+#   non-empty, size match, sha256 match. Return 0 on full pass; return 1 on
+#   any drift with diagnostic to stderr.
+# ---------------------------------------------------------------------------
+nvllm_verify_blessed_cache() {
+  local manifest="$1"
+  if [ ! -f "$manifest" ]; then
+    echo "ERROR: manifest not found: $manifest" >&2
+    return 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq not found." >&2
+    return 1
+  fi
+  local host_path
+  host_path=$(jq -r '.mount.host_path' "$manifest")
+  host_path="${host_path/#\~/$HOME}"
+  if [ ! -d "$host_path" ]; then
+    echo "ERROR: blessed cache host_path missing: $host_path" >&2
+    return 1
+  fi
+
+  local n
+  n=$(jq -r '.files | length' "$manifest")
+  if [ "$n" -lt 1 ]; then
+    echo "ERROR: manifest has no files[] entries: $manifest" >&2
+    return 1
+  fi
+
+  local i=0 rel expected_sha expected_size full actual_sha actual_size
+  while [ "$i" -lt "$n" ]; do
+    rel=$(jq -r ".files[$i].relative_path" "$manifest")
+    expected_sha=$(jq -r ".files[$i].sha256" "$manifest")
+    expected_size=$(jq -r ".files[$i].size_bytes" "$manifest")
+    full="$host_path/$rel"
+    if [ ! -f "$full" ]; then
+      echo "ERROR: blessed-cache file missing: $full" >&2
+      return 1
+    fi
+    actual_size=$(stat -c '%s' "$full")
+    if [ "$actual_size" -eq 0 ]; then
+      echo "ERROR: blessed-cache file is zero-byte: $full" >&2
+      return 1
+    fi
+    if [ "$actual_size" != "$expected_size" ]; then
+      echo "ERROR: size mismatch for $rel: expected $expected_size, got $actual_size" >&2
+      return 1
+    fi
+    actual_sha=$(sha256sum "$full" | awk '{print $1}')
+    if [ "$actual_sha" != "$expected_sha" ]; then
+      echo "ERROR: sha256 mismatch for $rel:" >&2
+      echo "  expected: $expected_sha" >&2
+      echo "  actual:   $actual_sha" >&2
+      return 1
+    fi
+    i=$((i+1))
+  done
+  return 0
+}
