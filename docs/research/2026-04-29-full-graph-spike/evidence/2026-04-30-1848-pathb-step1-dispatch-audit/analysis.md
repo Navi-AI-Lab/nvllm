@@ -47,6 +47,24 @@
 
 This eliminates Path B Step 1's working hypothesis (silent hybrid/PIECEWISE dispatch as the cause of v2's Gate 1 FAIL). **Proceed to Step 2: inspect `_beta_coop_op.py` for Python-side capture-time freeze risks.**
 
+## Structured findings (for closeout / followup tracking)
+
+- **dispatch_hypothesis** = ruled_out_for_steady_decode
+- **steady_decode_rows** = 89 FULL / 0 PIECEWISE / 0 NONE
+- **non_FULL_rows** = warmup / capture / prefill only (3 NONE prefill rows at `raw_tokens=12`, 6 NONE force_eager warmup, 1 NONE memory profile, 2 PIECEWISE during FULL-graph capture for non-uniform shapes)
+- **coherence_result** = PASS (`unique=1`, cross-indep) under audit-on; conflicts with prior Gate 1 FAIL (`unique=4`) under audit-off
+- **interpretation** = nondeterministic or probe-perturbed; requires repeat no-audit confirmation. Treat as flakiness evidence, not a fix signal. A hot-path audit logger changing a FAIL into PASS points toward a timing/order/state-sensitive bug, or just a low-N stochastic tail. One clean run does not advance Gate 2.
+
+## Probe-design lesson for future runtime instrumentation
+
+For the next runtime probe (whether it's for `_beta_coop_op.py`, metadata layout, or anything else inside the dispatch / capture / replay hot path), bias toward **snapshotting minimal scalar state or post-run summaries** rather than per-call logging in the dispatch path. Per-call `logger.info(...)` plus a module-level int counter is itself state mutation that may perturb capture/replay. Safer shapes:
+
+- A single end-of-decode summary line emitted from outside the dispatch hot path.
+- A pre-allocated tensor that the kernel writes to and the host reads after the run.
+- A bounded ring buffer that's only logged on tear-down.
+
+The current `_CUTE_DISPATCH_AUDIT_COUNT += 1` + `logger.info(...)` shape was the cheapest way to get steady-state visibility, but the c2 PASS-vs-FAIL flip on this run is a reminder that even bounded logging in the dispatch hot path is not zero-risk.
+
 ## Important sidebar — this run produced unique=1 PASS
 
 Gate 1 at 17:48 gave `unique=4 FAIL`. This run at 18:48 — same code path, same env (mod the new audit probe), same prompts — gave `unique=1 PASS`. The wo_output reset still fires (8 unique data_ptrs) so v2's patch is alive in both runs.
