@@ -359,6 +359,64 @@ EOF
   rm -rf "$cache_dir" "$manifest_dir"
 }
 
+# ---- refuse_* tests ----
+
+test_refuse_no_manifest_exits_1_with_hint() {
+  echo "[test] refuse_no_manifest_exits_1_with_hint"
+  local out
+  out=$(nvllm_refuse_no_manifest "abc123" 2>&1; echo "exit=$?")
+  echo "$out" | grep -q "abc123" \
+    && echo "$out" | grep -q "bless-cute-full-cache.sh" \
+    && echo "$out" | grep -q "exit=1" \
+    && { PASS=$((PASS+1)); echo "  PASS: refuse_no_manifest message + exit=1"; } \
+    || { FAIL=$((FAIL+1)); FAIL_NAMES+=("refuse_no_manifest"); echo "  FAIL: refuse_no_manifest"; echo "$out"; }
+}
+
+test_refuse_cache_drift_exits_1_with_diagnostic() {
+  echo "[test] refuse_cache_drift_exits_1_with_diagnostic"
+  local out
+  out=$(nvllm_refuse_cache_drift "abc123" "/tmp/m.json" 2>&1; echo "exit=$?")
+  echo "$out" | grep -q "DRIFT DETECTED" \
+    && echo "$out" | grep -q "exit=1" \
+    && { PASS=$((PASS+1)); echo "  PASS: refuse_cache_drift"; } \
+    || { FAIL=$((FAIL+1)); FAIL_NAMES+=("refuse_cache_drift"); echo "  FAIL: refuse_cache_drift"; echo "$out"; }
+}
+
+test_refuse_unsafe_dev_manifest_exits_1() {
+  echo "[test] refuse_unsafe_dev_manifest_exits_1"
+  local out
+  out=$(nvllm_refuse_unsafe_dev_manifest "/tmp/m.json" 2>&1; echo "exit=$?")
+  echo "$out" | grep -q "unsafe_dev_trials" \
+    && echo "$out" | grep -q "exit=1" \
+    && { PASS=$((PASS+1)); echo "  PASS: refuse_unsafe_dev_manifest"; } \
+    || { FAIL=$((FAIL+1)); FAIL_NAMES+=("refuse_unsafe_dev_manifest"); echo "  FAIL"; echo "$out"; }
+}
+
+# ---- resolve_hf_revision tests (offline-only sanity) ----
+
+test_resolve_hf_revision_function_exists() {
+  echo "[test] resolve_hf_revision_function_exists"
+  if declare -F nvllm_resolve_hf_revision >/dev/null; then
+    PASS=$((PASS+1)); echo "  PASS: function defined"
+  else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("resolve_hf_revision missing"); echo "  FAIL"
+  fi
+}
+
+# ---- refuse_if_container_exists tests ----
+
+test_refuse_if_container_exists_returns_0_when_absent() {
+  echo "[test] refuse_if_container_exists_returns_0_when_absent"
+  # Use an unlikely name to guarantee absence.
+  local fake_name="nvllm-test-$$-$(date +%s)"
+  if nvllm_refuse_if_container_exists "$fake_name" >/dev/null 2>&1; then
+    PASS=$((PASS+1)); echo "  PASS: returned 0 for absent container"
+  else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("refuse_if_container_exists absent")
+    echo "  FAIL: returned non-zero for absent container"
+  fi
+}
+
 # ---- main runner ----
 
 main() {
@@ -381,6 +439,11 @@ main() {
   test_verify_cache_fail_on_missing
   test_verify_cache_fail_on_zero_byte
   test_verify_cache_fail_on_empty_files_array
+  test_refuse_no_manifest_exits_1_with_hint
+  test_refuse_cache_drift_exits_1_with_diagnostic
+  test_refuse_unsafe_dev_manifest_exits_1
+  test_resolve_hf_revision_function_exists
+  test_refuse_if_container_exists_returns_0_when_absent
 
   echo ""
   echo "=== Summary: $PASS passed, $FAIL failed ==="

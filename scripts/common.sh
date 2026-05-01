@@ -302,3 +302,141 @@ nvllm_verify_blessed_cache() {
   done
   return 0
 }
+
+# ---------------------------------------------------------------------------
+# nvllm_refuse_no_manifest <config_hash>
+#   Print structured refusal-message and return 1.
+#   (Helpers use `return`, not `exit`, so they work inside `$(...)` capture
+#   without taking the parent script's `set -e` shell down with them. Callers
+#   that want hard-exit semantics chain `|| exit 1`.)
+# ---------------------------------------------------------------------------
+nvllm_refuse_no_manifest() {
+  local config_hash="$1"
+  cat >&2 <<EOF
+[blessed-cache] Derived config_hash: $config_hash
+[blessed-cache] No matching manifest in docs/blessed-caches/ for this config.
+
+Refusing to start. FULL_AND_PIECEWISE+β-coop replay coherence requires a blessed
+torch.compile inductor artifact (Z1 evidence:
+  docs/research/2026-04-29-full-graph-spike/evidence/2026-04-30-2109-pathb-z1-summary/summary.md)
+
+To bless this configuration, run:
+  ./scripts/bless-cute-full-cache.sh
+
+Expected wall time: ~15 min (1 cold compile + 5 fresh-container validation trials).
+
+For dev iteration without blessing, use eager mode:
+  ./scripts/serve-cute-full.sh --debug
+
+Or use the production PIECEWISE path which does not need blessed cache:
+  ./scripts/serve-cute.sh
+EOF
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# nvllm_refuse_cache_drift <config_hash> <manifest_path>
+#   Print structured DRIFT refusal-message and return 1.
+#   Detail of which file drifted comes from the verify helper's stderr;
+#   this prints the post-amble.
+# ---------------------------------------------------------------------------
+nvllm_refuse_cache_drift() {
+  local config_hash="$1" manifest_path="$2"
+  cat >&2 <<EOF
+[blessed-cache] config_hash $config_hash matches manifest $manifest_path
+[blessed-cache] DRIFT DETECTED (see verify diagnostic above).
+
+Refusing to start. The blessed cache on disk has been modified or replaced.
+Likely causes:
+  - Manual edit of \$NVLLM_BLESSED_CACHE_ROOT/blessed/<hash>/
+  - Disk corruption
+  - A re-bless was completed but only the manifest was committed
+
+To restore: re-run ./scripts/bless-cute-full-cache.sh --rebless
+To inspect: ls -la \${NVLLM_BLESSED_CACHE_ROOT:-\$HOME/.cache/nvllm}/blessed/$config_hash/
+EOF
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# nvllm_refuse_unsafe_dev_manifest <manifest_path>
+#   Print refusal for manifests carrying validation.unsafe_dev_trials=true.
+#   Returns 1.
+# ---------------------------------------------------------------------------
+nvllm_refuse_unsafe_dev_manifest() {
+  local manifest_path="$1"
+  cat >&2 <<EOF
+[blessed-cache] manifest $manifest_path carries validation.unsafe_dev_trials = true.
+Refusing to start. Production serve only loads manifests blessed at K>=5 trials.
+To bless properly: ./scripts/bless-cute-full-cache.sh --rebless
+EOF
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# nvllm_refuse_if_container_exists <container_name>
+#   Detect-and-refuse instead of force-removing a container the operator did
+#   not authorize us to touch. Per CLAUDE.md: "Never modify a running Docker
+#   container without explicit user permission."
+#
+#   - Returns 0 if no container with that name exists.
+#   - Returns 1 with a remediation message if a container exists, regardless
+#     of running/stopped state.
+# ---------------------------------------------------------------------------
+nvllm_refuse_if_container_exists() {
+  local name="$1"
+  local existing
+  existing=$(docker ps -a --filter "name=^${name}$" --format '{{.Names}} ({{.Status}})')
+  if [ -n "$existing" ]; then
+    cat >&2 <<EOF
+[bless] refusing — a container named '$name' already exists:
+  $existing
+
+This script will not modify a container it did not create. To proceed, stop
+and remove it first (only if you know it is safe to discard):
+  docker stop $name && docker rm $name
+
+Then re-run this script.
+EOF
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# nvllm_resolve_hf_revision <model_id>
+#   Resolve a HuggingFace model reference to an immutable commit sha.
+#   Tries (in order):
+#     1. huggingface_hub Python API (most reliable)
+#     2. huggingface-cli model info  (fallback)
+#   Emits the resolved sha to stdout. Returns 1 on unresolvable.
+# ---------------------------------------------------------------------------
+nvllm_resolve_hf_revision() {
+  local model_id="$1"
+  local repo_root
+  repo_root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null) || {
+    echo "ERROR: not in a git repo" >&2
+    return 1
+  }
+  local py="$repo_root/.venv/bin/python"
+  if [ ! -x "$py" ]; then
+    echo "ERROR: $py not found. Run 'uv venv --python 3.12' per AGENTS.md." >&2
+    return 1
+  fi
+  local sha
+  sha=$("$py" -c "
+import sys
+try:
+    from huggingface_hub import model_info
+    info = model_info('$model_id')
+    print(info.sha)
+except Exception as e:
+    print(f'ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+") || return 1
+  if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: resolved sha is not a 40-char hex: $sha" >&2
+    return 1
+  fi
+  printf '%s' "$sha"
+}
