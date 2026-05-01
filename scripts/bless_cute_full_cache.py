@@ -344,5 +344,174 @@ def phase1_bootstrap(
     }
 
 
+# The exact reuse log line emitted by torch.compile when AOT cache hits;
+# see Z1 evidence
+# (docs/research/2026-04-29-full-graph-spike/evidence/2026-04-30-2016-pathb-z1-good-trial-1/docker_logs_full.txt:2484
+#  — "Directly load AOT compilation from path /root/.cache/vllm/torch_compile_cache/torch_aot_compile/<hash>/rank_0_0/model").
+AOT_LOAD_MARKER = "Directly load AOT compilation from path"
+AOT_SAVED_PATTERN = "saved AOT compiled function"
+
+
+def build_phase2_docker_args(
+    *, container_name: str, image: str,
+    hf_cache: Path, flashinfer_cache: Path, cute_compile_host_cache: Path,
+    staging_dir: Path, model_id: str, kv_cache_dtype: str,
+    attention_backend: str, max_model_len: int, max_num_seqs: int,
+    max_num_batched_tokens: int, cute_phase_e_layers: str,
+) -> list[str]:
+    """Same as Phase 1 but :ro mount on staging."""
+    args = build_phase1_docker_args(
+        container_name=container_name, image=image,
+        hf_cache=hf_cache, flashinfer_cache=flashinfer_cache,
+        cute_compile_host_cache=cute_compile_host_cache,
+        staging_dir=staging_dir, model_id=model_id,
+        kv_cache_dtype=kv_cache_dtype, attention_backend=attention_backend,
+        max_model_len=max_model_len, max_num_seqs=max_num_seqs,
+        max_num_batched_tokens=max_num_batched_tokens,
+        cute_phase_e_layers=cute_phase_e_layers,
+    )
+    # Replace the staging volume arg with :ro variant.
+    rw_arg = f"{staging_dir}:/root/.cache/vllm"
+    ro_arg = f"{staging_dir}:/root/.cache/vllm:ro"
+    return [a if a != rw_arg else ro_arg for a in args]
+
+
+def classify_cache_reuse(*, container_log: str, sha_pre: str,
+                          sha_post: str,
+                          expected_aot_path: str) -> tuple[bool, list[str]]:
+    """Return (passed, list_of_failure_reasons).
+
+    Cache reuse is signalled by a single log line:
+        Directly load AOT compilation from path <expected_aot_path>
+    AND no `saved AOT compiled function` lines (which would mean the cache
+    was rebuilt) AND the AOT model sha256 unchanged across the trial.
+    """
+    reasons: list[str] = []
+    expected_load_line = f"{AOT_LOAD_MARKER} {expected_aot_path}"
+    if expected_load_line not in container_log:
+        # Marker absent or pointing at a different path — both are failures.
+        if AOT_LOAD_MARKER not in container_log:
+            reasons.append(
+                f"AOT load marker absent (expected: '{AOT_LOAD_MARKER}'). "
+                "Cache miss — torch.compile recompiled instead of reusing."
+            )
+        else:
+            reasons.append(
+                "AOT load marker present but path mismatch "
+                f"(expected ends with '{expected_aot_path}'). "
+                "Different AOT artifact loaded than blessed."
+            )
+    if AOT_SAVED_PATTERN in container_log:
+        reasons.append(
+            "'saved AOT compiled function' line present — cache was rebuilt"
+        )
+    if sha_pre != sha_post:
+        reasons.append(
+            f"AOT sha drift: pre={sha_pre[:12]}… post={sha_post[:12]}…"
+        )
+    return (len(reasons) == 0), reasons
+
+
+def parse_c2_json(json_path: Path) -> tuple[bool, dict[str, Any]]:
+    """Return (c2_pass, full_summary_dict)."""
+    summary = json.loads(json_path.read_text())
+    c2_pass = bool(
+        summary.get("same_prompt_pass", False)
+        and summary.get("cross_prompt_pass", False)
+        and summary.get("same_prompt_unique_count", -1) == 1
+    )
+    return c2_pass, summary
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _run_c2_subprocess(json_out: Path, evidence_dir: Path) -> int:
+    repo_root = REPO_ROOT
+    c2 = repo_root / "docs/research/2026-04-29-full-graph-spike/c2_replay_coherence.py"
+    py = repo_root / ".venv/bin/python"
+    r = subprocess.run(
+        [str(py), str(c2),
+         "--json-out", str(json_out),
+         "--evidence-dir", str(evidence_dir)],
+        capture_output=True, text=True,
+    )
+    print(r.stdout)
+    if r.stderr:
+        print(r.stderr, file=sys.stderr)
+    return r.returncode
+
+
+def phase2_validate(
+    *, staging_dir: Path, image: str, hf_cache: Path, flashinfer_cache: Path,
+    cute_compile_host_cache: Path, model_id: str, kv_cache_dtype: str,
+    attention_backend: str, max_model_len: int, max_num_seqs: int,
+    max_num_batched_tokens: int, cute_phase_e_layers: str,
+    aot_relpath: str, expected_aot_sha: str,
+    k_trials: int, evidence_dir: Path,
+) -> list[TrialResult]:
+    """Run K fresh-container :ro validation trials."""
+    bless_logs = evidence_dir / "_bless_logs"
+    bless_logs.mkdir(parents=True, exist_ok=True)
+    results: list[TrialResult] = []
+    for i in range(1, k_trials + 1):
+        print(f"\n[bless/phase2] === Trial {i}/{k_trials} ===", flush=True)
+        # Defensive cleanup of orchestrator-owned leftovers from a prior crash;
+        # non-force per ea0046dde — refusal of unexpected operator-owned
+        # containers is the launcher's job.
+        subprocess.run(["docker", "stop", "-t", "10", CONTAINER_NAME],
+                       capture_output=True)
+        subprocess.run(["docker", "rm", CONTAINER_NAME],
+                       capture_output=True)
+        args = build_phase2_docker_args(
+            container_name=CONTAINER_NAME, image=image,
+            hf_cache=hf_cache, flashinfer_cache=flashinfer_cache,
+            cute_compile_host_cache=cute_compile_host_cache,
+            staging_dir=staging_dir, model_id=model_id,
+            kv_cache_dtype=kv_cache_dtype, attention_backend=attention_backend,
+            max_model_len=max_model_len, max_num_seqs=max_num_seqs,
+            max_num_batched_tokens=max_num_batched_tokens,
+            cute_phase_e_layers=cute_phase_e_layers,
+        )
+        _docker_run(args)
+        c2_json_out = bless_logs / f"trial_{i}_c2.json"
+        c2_evidence = bless_logs / f"trial_{i}_c2_evidence"
+        try:
+            _poll_models("localhost", 8000, timeout_s=600)
+            c2_rc = _run_c2_subprocess(c2_json_out, c2_evidence)
+        finally:
+            log = _docker_stop(CONTAINER_NAME, timeout=60)
+            (bless_logs / f"trial_{i}_container.log").write_text(log)
+
+        sha_post, _ = _sha256_size(staging_dir / aot_relpath)
+        c2_pass, summary = parse_c2_json(c2_json_out) if c2_json_out.exists() \
+            else (False, {"error": "c2 json not written"})
+        # The container path of the staging dir is /root/.cache/vllm; the AOT
+        # marker line embeds the absolute container path, so we reconstruct it.
+        expected_container_aot_path = f"/root/.cache/vllm/{aot_relpath}"
+        cache_ok, reasons = classify_cache_reuse(
+            container_log=log,
+            sha_pre=expected_aot_sha, sha_post=sha_post,
+            expected_aot_path=expected_container_aot_path,
+        )
+        tr = TrialResult(
+            trial_n=i, c2_pass=c2_pass, cache_reused=cache_ok,
+            aot_sha256_post=sha_post, c2_json=summary,
+            log_paths={
+                "container": str(bless_logs / f"trial_{i}_container.log"),
+                "c2_json":   str(c2_json_out),
+            },
+        )
+        if not cache_ok:
+            print(f"[bless/phase2] trial {i} cache-reuse FAIL: {reasons}",
+                  flush=True)
+        if not c2_pass:
+            print(f"[bless/phase2] trial {i} c2 FAIL", flush=True)
+        results.append(tr)
+        print(f"[bless/phase2] trial {i} → "
+              f"{'PASS' if tr.passed else 'FAIL'}", flush=True)
+    return results
+
+
 if __name__ == "__main__":
     sys.exit(main())

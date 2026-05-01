@@ -101,3 +101,120 @@ class TestPhase1:
         assert roles == {"aot_model", "computation_graph", "cache_key_factors",
                          "model_info"}
         assert len(files) == 4
+
+
+class TestPhase2:
+    def setup_method(self):
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+    def teardown_method(self):
+        sys.path.pop(0)
+
+    def test_build_phase2_docker_args_uses_ro(self, tmp_path):
+        from bless_cute_full_cache import build_phase2_docker_args
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        args = build_phase2_docker_args(
+            container_name="nvllm", image="nvllm:gb10",
+            hf_cache=Path("/h/.cache/hf"),
+            flashinfer_cache=Path("/h/.cache/fi"),
+            cute_compile_host_cache=Path("/tmp/cc"),
+            staging_dir=staging, model_id="ig1/Qwen3.5-27B-NVFP4",
+            kv_cache_dtype="fp8_e4m3", attention_backend="CUTE_PAGED",
+            max_model_len=16384, max_num_seqs=1, max_num_batched_tokens=65536,
+            cute_phase_e_layers="0,1,2,3,4,5,6,7",
+        )
+        joined = " ".join(args)
+        assert f"{staging}:/root/.cache/vllm:ro" in joined
+
+    def test_classify_cache_reuse_pass(self):
+        from bless_cute_full_cache import classify_cache_reuse
+        path = "/root/.cache/vllm/torch_compile_cache/torch_aot_compile/9a5549f23a17/rank_0_0/model"
+        log = (
+            f"Directly load AOT compilation from path {path}\n"
+            "model loaded\n"
+            "ready"
+        )
+        ok, reasons = classify_cache_reuse(
+            container_log=log,
+            sha_pre="abc",
+            sha_post="abc",
+            expected_aot_path=path,
+        )
+        assert ok is True
+        assert reasons == []
+
+    def test_classify_cache_reuse_fail_no_load_marker(self):
+        from bless_cute_full_cache import classify_cache_reuse
+        path = "/root/.cache/vllm/torch_compile_cache/torch_aot_compile/9a5549f23a17/rank_0_0/model"
+        ok, reasons = classify_cache_reuse(
+            container_log="some other text",
+            sha_pre="abc", sha_post="abc",
+            expected_aot_path=path,
+        )
+        assert ok is False
+        assert any("AOT load marker absent" in r for r in reasons)
+
+    def test_classify_cache_reuse_fail_marker_path_mismatch(self):
+        from bless_cute_full_cache import classify_cache_reuse
+        # Marker present but pointing at a different artifact path.
+        log = (
+            "Directly load AOT compilation from path "
+            "/root/.cache/vllm/torch_compile_cache/torch_aot_compile/DIFFERENT/rank_0_0/model"
+        )
+        path = "/root/.cache/vllm/torch_compile_cache/torch_aot_compile/9a5549f23a17/rank_0_0/model"
+        ok, reasons = classify_cache_reuse(
+            container_log=log,
+            sha_pre="abc", sha_post="abc",
+            expected_aot_path=path,
+        )
+        assert ok is False
+        assert any("path mismatch" in r for r in reasons)
+
+    def test_classify_cache_reuse_fail_saved_aot_present(self):
+        from bless_cute_full_cache import classify_cache_reuse
+        path = "/root/.cache/vllm/torch_compile_cache/torch_aot_compile/9a5549f23a17/rank_0_0/model"
+        log = (
+            f"Directly load AOT compilation from path {path}\n"
+            "saved AOT compiled function to /path"
+        )
+        ok, reasons = classify_cache_reuse(
+            container_log=log,
+            sha_pre="abc", sha_post="abc",
+            expected_aot_path=path,
+        )
+        assert ok is False
+        assert any("saved AOT" in r for r in reasons)
+
+    def test_classify_cache_reuse_fail_sha_drift(self):
+        from bless_cute_full_cache import classify_cache_reuse
+        path = "/root/.cache/vllm/torch_compile_cache/torch_aot_compile/9a5549f23a17/rank_0_0/model"
+        log = f"Directly load AOT compilation from path {path}"
+        ok, reasons = classify_cache_reuse(
+            container_log=log,
+            sha_pre="abc", sha_post="def",
+            expected_aot_path=path,
+        )
+        assert ok is False
+        assert any("sha" in r.lower() for r in reasons)
+
+    def test_parse_c2_json_pass(self, tmp_path):
+        from bless_cute_full_cache import parse_c2_json
+        p = tmp_path / "c2.json"
+        p.write_text(json.dumps({
+            "same_prompt_pass": True, "cross_prompt_pass": True,
+            "same_prompt_unique_count": 1, "overall_pass": True,
+        }))
+        c2_pass, summary = parse_c2_json(p)
+        assert c2_pass is True
+        assert summary["same_prompt_unique_count"] == 1
+
+    def test_parse_c2_json_fail_unique_gt_1(self, tmp_path):
+        from bless_cute_full_cache import parse_c2_json
+        p = tmp_path / "c2.json"
+        p.write_text(json.dumps({
+            "same_prompt_pass": False, "cross_prompt_pass": True,
+            "same_prompt_unique_count": 3, "overall_pass": False,
+        }))
+        c2_pass, _ = parse_c2_json(p)
+        assert c2_pass is False
