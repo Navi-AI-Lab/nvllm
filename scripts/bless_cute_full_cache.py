@@ -197,33 +197,45 @@ def _docker_run(args: list[str]) -> None:
 
 
 def _docker_stop(name: str, timeout: int = 60) -> str:
-    """Stop container gracefully; capture full container log. Returns log text."""
-    log = subprocess.run(["docker", "logs", name],
-                          capture_output=True, text=True).stdout + \
-          subprocess.run(["docker", "logs", name],
-                          capture_output=True, text=True).stderr
+    """Stop container gracefully; capture full container log. Returns log text.
+
+    Single docker logs invocation captures both stdout and stderr (combined).
+    No -f on rm: a successfully stopped container removes cleanly without it.
+    """
+    logs = subprocess.run(["docker", "logs", name],
+                          capture_output=True, text=True)
     subprocess.run(["docker", "stop", "-t", str(timeout), name],
                    capture_output=True)
-    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-    return log
+    subprocess.run(["docker", "rm", name], capture_output=True)
+    return logs.stdout + logs.stderr
 
 
 def _poll_models(host: str, port: int, timeout_s: int = 600,
-                 attempt_max: int = 3) -> None:
-    """Block until /v1/models responds 200, with up to attempt_max transient retries."""
+                 max_transient_retries: int = 3) -> None:
+    """Block until /v1/models responds 200.
+
+    Bounded by:
+      - timeout_s: overall wall-clock deadline (raises TimeoutError on expiry).
+      - max_transient_retries: number of transient (URLError/ConnectionError/
+        TimeoutError) failures tolerated before re-raising. Spec §7.3 caps
+        this at 3 — a real boot does NOT flap repeatedly.
+
+    Successful 200 → return. Non-200 status → keep polling (server may still
+    be initializing). Sleep 2s between polls.
+    """
     url = f"http://{host}:{port}/v1/models"
     deadline = time.time() + timeout_s
-    attempt = 0
+    transient_failures = 0
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(url, timeout=10) as r:
                 if r.status == 200:
                     return
         except (urllib.error.URLError, ConnectionError, TimeoutError):
-            attempt += 1
-            if attempt > attempt_max * 50:  # ~1 retry per 2s
+            transient_failures += 1
+            if transient_failures > max_transient_retries:
                 raise
-            time.sleep(2)
+        time.sleep(2)
     raise TimeoutError(f"/v1/models did not respond within {timeout_s}s")
 
 
@@ -271,8 +283,14 @@ def phase1_bootstrap(
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
 
-    # Make sure no stray container is running.
-    subprocess.run(["docker", "rm", "-f", CONTAINER_NAME],
+    # Defensive cleanup of orchestrator-owned leftovers from a prior crash.
+    # NOT force-remove: the launcher's preflight (nvllm_refuse_if_container_exists)
+    # already refused operator-owned containers. A stop+rm without -f surfaces
+    # any unexpected running container as a loud failure rather than silently
+    # destroying it.
+    subprocess.run(["docker", "stop", "-t", "10", CONTAINER_NAME],
+                   capture_output=True)
+    subprocess.run(["docker", "rm", CONTAINER_NAME],
                    capture_output=True)
 
     args = build_phase1_docker_args(
