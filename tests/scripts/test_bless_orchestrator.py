@@ -347,3 +347,63 @@ class TestReadmePopulator:
             assert "before" in out and "after" in out
         finally:
             sys.path.pop(0)
+
+
+class TestPollModels:
+    def setup_method(self):
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+    def teardown_method(self):
+        sys.path.pop(0)
+
+    def test_econnrefused_does_not_count_against_retry_budget(self, monkeypatch):
+        """ECONNREFUSED is the expected boot signal; must not exhaust retries.
+
+        Regression: pre-fix, max_transient_retries=3 + 2s sleep gave up in 8s
+        because vLLM doesn't bind port 8000 until model load (~5 min) finishes.
+        """
+        import urllib.error
+        from bless_cute_full_cache import _poll_models
+
+        # Simulate 20 ECONNREFUSED responses then a 200. Pre-fix, we'd raise
+        # after 4 (>3 retries). Post-fix, we sleep through them and succeed.
+        attempts = {"n": 0}
+
+        class _Resp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+
+        def _fake_urlopen(url, timeout=10):
+            attempts["n"] += 1
+            if attempts["n"] <= 20:
+                raise urllib.error.URLError(
+                    ConnectionRefusedError(111, "Connection refused"))
+            return _Resp()
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+        _poll_models("localhost", 8000, timeout_s=600, max_transient_retries=3)
+        assert attempts["n"] == 21  # 20 refused + 1 OK
+
+    def test_other_url_error_still_counts(self, monkeypatch):
+        """Non-ECONNREFUSED URLErrors (DNS, TLS, broken pipe) count as transient."""
+        import urllib.error
+        from bless_cute_full_cache import _poll_models
+
+        attempts = {"n": 0}
+
+        def _fake_urlopen(url, timeout=10):
+            attempts["n"] += 1
+            raise urllib.error.URLError(OSError("name resolution failed"))
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+        with pytest.raises(urllib.error.URLError):
+            _poll_models("localhost", 8000, timeout_s=600,
+                          max_transient_retries=3)
+        # 4 attempts: 1, 2, 3 increment to 1/2/3 (≤3, retry); 4th increments
+        # to 4 which is > 3 → raise. So total attempts == 4.
+        assert attempts["n"] == 4

@@ -344,9 +344,14 @@ def _poll_models(host: str, port: int, timeout_s: int = 600,
 
     Bounded by:
       - timeout_s: overall wall-clock deadline (raises TimeoutError on expiry).
-      - max_transient_retries: number of transient (URLError/ConnectionError/
-        TimeoutError) failures tolerated before re-raising. Spec §7.3 caps
-        this at 3 — a real boot does NOT flap repeatedly.
+      - max_transient_retries: number of *true* transient failures tolerated
+        (DNS, broken pipe, mid-flight TLS/HTTP error). Re-raises on overflow.
+
+    `ConnectionRefusedError` is NOT counted as a transient failure: vLLM
+    doesn't bind port 8000 until model load completes (~5 min for 27B), so
+    every poll during boot returns ECONNREFUSED. Counting those would
+    exhaust the retry budget in seconds — wall-clock `timeout_s` is the
+    correct bound for boot.
 
     Successful 200 → return. Non-200 status → keep polling (server may still
     be initializing). Sleep 2s between polls.
@@ -359,10 +364,12 @@ def _poll_models(host: str, port: int, timeout_s: int = 600,
             with urllib.request.urlopen(url, timeout=10) as r:
                 if r.status == 200:
                     return
-        except (urllib.error.URLError, ConnectionError, TimeoutError):
-            transient_failures += 1
-            if transient_failures > max_transient_retries:
-                raise
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+            cause = e.reason if isinstance(e, urllib.error.URLError) else e
+            if not isinstance(cause, ConnectionRefusedError):
+                transient_failures += 1
+                if transient_failures > max_transient_retries:
+                    raise
         time.sleep(2)
     raise TimeoutError(f"/v1/models did not respond within {timeout_s}s")
 
