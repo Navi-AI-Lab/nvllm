@@ -4498,6 +4498,25 @@ class PhaseE_Beta_Kernel:
                         t_exit,
                     )
 
+            # Region 6 entry: Phase 3.2.5 partial_reset. All 64 CTAs.
+            # Brackets the per-CTA mlp_partial_fp32 zeroing prior to
+            # FC1/quant/FC2 accumulation.
+            if cutlass.const_expr(region_timing_enabled):
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(6 * 2 * 8)              # region 6
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
+
             # === Phase 3.2.5: Reset this CTA's mlp_partial_fp32 slot ===
             # Required under FULL graph replay: torch.zeros() allocation
             # freshness is not valid; host-side .zero_() on the full
@@ -4545,8 +4564,50 @@ class PhaseE_Beta_Kernel:
             LOG2E_F = Float32(LOG2_E)
             num_h_blocks = hidden_p3 // FP4_BS
 
+            # Region 6 exit: Phase 3.2.5 partial_reset done. All 64 CTAs.
+            # Closes just before the s-slice while-loop begins (Stage 3a
+            # entry is at the top of each iteration). After this point,
+            # the slice bounds (s_start_p3, s_end_p3, num_h_blocks) are
+            # computed; Stage 3a/b/c regions (7/8/9) bracket per-iteration
+            # work — they record the LAST iteration's wall-time slice.
+            if cutlass.const_expr(region_timing_enabled):
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(6 * 2 * 8)              # region 6
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit,
+                    )
+
             s = s_start_p3
             while s < s_end_p3:
+                # Region 7 entry: Stage 3a (FC1 + SiLU) for this slice.
+                # All 64 CTAs. Per-iteration sample: each loop overwrites
+                # the slot, so the recorded value reflects the LAST
+                # iteration's Stage 3a wall-time.
+                if cutlass.const_expr(region_timing_enabled):
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_entry = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(7 * 2 * 8)              # region 7
+                            + Int64(0 * 8),                  # slot 0 = entry
+                            t_entry,
+                        )
+
                 # -------- Stage 3a: FC1 -> smem_interm_bf16[tile_s] --------
                 j_base = s * tile_s
                 j_local = Int32(0)
@@ -4668,6 +4729,43 @@ class PhaseE_Beta_Kernel:
                     cute.arch.sync_threads()
                     j_local = j_local + Int32(1)
 
+                # Region 7 exit: Stage 3a (FC1 + SiLU) done. All 64 CTAs.
+                # Closes just before Stage 3b (FP4 quantize intermediate).
+                if cutlass.const_expr(region_timing_enabled):
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_exit = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(7 * 2 * 8)              # region 7
+                            + Int64(1 * 8),                  # slot 1 = exit
+                            t_exit,
+                        )
+
+                # Region 8 entry: Stage 3b (FP4 quantize intermediate).
+                # All 64 CTAs. Brackets the warp-strided block-quantize
+                # over smem_interm_bf16 → smem_interm_fp4 + scales.
+                if cutlass.const_expr(region_timing_enabled):
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_entry = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(8 * 2 * 8)              # region 8
+                            + Int64(0 * 8),                  # slot 0 = entry
+                            t_entry,
+                        )
+
                 # -------- Stage 3b: FP4 quantize intermediate --------
                 interm_nblocks = tile_s // Int32(FP4_BLOCK_SIZE)
                 blk_iter_max = (interm_nblocks + Int32(3)) >> Int32(2)
@@ -4762,6 +4860,43 @@ class PhaseE_Beta_Kernel:
                             pk_i = pk_i + Int32(1)
                     cute.arch.sync_threads()
                     blk_iter = blk_iter + Int32(1)
+
+                # Region 8 exit: Stage 3b (FP4 quantize intermediate) done.
+                # All 64 CTAs. Closes just before Stage 3c (FC2 + atomicAdd).
+                if cutlass.const_expr(region_timing_enabled):
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_exit = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(8 * 2 * 8)              # region 8
+                            + Int64(1 * 8),                  # slot 1 = exit
+                            t_exit,
+                        )
+
+                # Region 9 entry: Stage 3c (FC2 + atomicAdd) for this slice.
+                # All 64 CTAs. Brackets the FC2 GEMV (per-row dequant +
+                # MAC) and the per-CTA atomic_add into mlp_partial_fp32.
+                if cutlass.const_expr(region_timing_enabled):
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_entry = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(9 * 2 * 8)              # region 9
+                            + Int64(0 * 8),                  # slot 0 = entry
+                            t_entry,
+                        )
 
                 # -------- Stage 3c: FC2 + atomicAdd --------
                 if cutlass.const_expr(self._threads_per_row == 1):
@@ -4939,10 +5074,48 @@ class PhaseE_Beta_Kernel:
 
             if tid == Int32(0):
                 count_idx = bz * num_k_tiles + by
+                # Region 9 exit: just before the _atomic_add_u32 to
+                # mlp_arrival_count (the per-k-tile arrival increment;
+                # the Stage 3.4 boundary). We're inside if tid == Int32(0)
+                # — only thread 0 records the timestamp.
+                if cutlass.const_expr(region_timing_enabled):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(9 * 2 * 8)              # region 9
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit,
+                    )
+
                 old = _atomic_add_u32(
                     mlp_arrival_ptr + Int64(count_idx) * Int64(4),
                     Int32(1),
                 )
+
+                # Region 10 entry: just after the _atomic_add_u32 to
+                # mlp_arrival_count returns (the Stage 3.4 entry). All 64
+                # CTAs share this region but only tid==0 of each CTA
+                # writes the timestamp.
+                if cutlass.const_expr(region_timing_enabled):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(10 * 2 * 8)             # region 10
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
                 is_last_flag = Int32(0)
                 if old == (slice_ctas - Int32(1)):
                     is_last_flag = Int32(1)
@@ -5020,6 +5193,27 @@ class PhaseE_Beta_Kernel:
                         mlp_arrival_ptr
                         + Int64(count_idx_reset) * Int64(4),
                         Int32(0) - slice_ctas,
+                    )
+
+            # Region 10 exit: kernel exit (Phase 3 end). All 64 CTAs.
+            # Closes Region 10 which spans Phase 3.4 (per-k-tile arrival
+            # counter increment, last-CTA gather, and FULL-graph counter
+            # reset). Placed AFTER the `if is_last:` block so all 64 CTAs
+            # record the exit timestamp, not just the last-CTA writers.
+            if cutlass.const_expr(region_timing_enabled):
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(10 * 2 * 8)             # region 10
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit,
                     )
 
             # =================================================================
