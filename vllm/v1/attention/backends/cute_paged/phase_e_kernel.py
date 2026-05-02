@@ -5074,9 +5074,14 @@ class PhaseE_Beta_Kernel:
 
             if tid == Int32(0):
                 count_idx = bz * num_k_tiles + by
-                # Region 9 exit: just before the _atomic_add_u32 to
-                # mlp_arrival_count (the per-k-tile arrival increment;
-                # the Stage 3.4 boundary). We're inside if tid == Int32(0)
+                old = _atomic_add_u32(
+                    mlp_arrival_ptr + Int64(count_idx) * Int64(4),
+                    Int32(1),
+                )
+
+                # Region 9 exit: AFTER the atomic_add returns. Region 9
+                # is named "FC2 + atomicAdd" so the atomic_add cost
+                # is attributed to it. We're inside if tid == Int32(0)
                 # — only thread 0 records the timestamp.
                 if cutlass.const_expr(region_timing_enabled):
                     cta_id = (
@@ -5093,15 +5098,8 @@ class PhaseE_Beta_Kernel:
                         t_exit,
                     )
 
-                old = _atomic_add_u32(
-                    mlp_arrival_ptr + Int64(count_idx) * Int64(4),
-                    Int32(1),
-                )
-
-                # Region 10 entry: just after the _atomic_add_u32 to
-                # mlp_arrival_count returns (the Stage 3.4 entry). All 64
-                # CTAs share this region but only tid==0 of each CTA
-                # writes the timestamp.
+                # Region 10 entry: Stage 3.4 (arrival wait + last-CTA
+                # gather). Starts immediately after region 9 exit.
                 if cutlass.const_expr(region_timing_enabled):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
