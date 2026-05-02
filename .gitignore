@@ -340,3 +340,13 @@ benchmarks/nvllm/traces/cute_full_blessed/**/*.pt.trace.json.gz
 !benchmarks/nvllm/traces/cute_full_blessed/**/*.md
 !benchmarks/nvllm/traces/cute_full_blessed/**/*.json
 !benchmarks/nvllm/traces/cute_full_blessed/**/*.nsys-rep
+
+# 2026-05-02 Phase-E-tax screening (3-leg) — raw torch profiler files
+# local-only, CSV/log/md/json/txt committed. Reproducer:
+# docs/research/2026-05-02-phaseE-tax-3leg/run_3leg.sh.
+benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.pt.trace.json.gz
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.csv
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.log
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.md
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.json
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.txt

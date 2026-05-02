@@ -147,4 +147,5 @@ Launch with: `./scripts/serve-cute.sh --debug`
 - **[CUTLASS PR #3030](https://github.com/NVIDIA/cutlass/pull/3030)** by blake-snc (Second Nature Computing) — SM120 Flash Attention v2 reference for fused multi-head attention on Blackwell.
   - [`docs/kernel-insights/2026-04-10-cutlass-pr3030-sm120-fmha.md`](docs/kernel-insights/2026-04-10-cutlass-pr3030-sm120-fmha.md) — SM120 FMHA patterns and tile configs
 - **[CUTLASS](https://github.com/NVIDIA/cutlass)** by NVIDIA — CuTe Python DSL for SM120 kernel development. The FP4 decode GEMM kernel with stream-K scheduling is adapted from CUTLASS test kernels.
+- **[Maximilian Veitner's CuTe DSL / NVFP4 blog](https://veitner.bearblog.dev/blog/)** — Reference reading for NVFP4 GEMV K-parallel reduction patterns identified as the next β-coop optimization direction (see [phaseE-tax bench](benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/summary.md)).
 - **[vLLM](https://github.com/vllm-project/vllm)** — The upstream project this fork is based on.

@@ -14,8 +14,18 @@
 # Default checkpoint: ig1/Qwen3.5-27B-NVFP4. Override via HF_MODEL env var.
 #
 # Usage:
-#   ./scripts/serve-cute-full.sh             # Production (verify + RO mount)
-#   ./scripts/serve-cute-full.sh --debug     # Eager mode, NO blessed-cache verify
+#   ./scripts/serve-cute-full.sh                        # Production (verify + RO mount)
+#   ./scripts/serve-cute-full.sh --debug                # Eager mode, NO blessed-cache verify
+#   ./scripts/serve-cute-full.sh --no-blessed-verify    # FULL+PIECEWISE, skip bless verify+mount
+#                                                       # (cold capture this session). Used by
+#                                                       # off-blessed-config diagnostics, e.g.
+#                                                       # CUTE_PHASE_E_FUSION=0, CUTE_PHASE_E_LAYERS=0..15.
+#                                                       # NOT for production serve — Z1 inductor
+#                                                       # non-determinism risk applies.
+#
+# Env-var overrides honored (defaults preserve production behavior):
+#   CUTE_PHASE_E_FUSION       (default 1)               # set 0 for phaseE-off diagnostic
+#   CUTE_PHASE_E_LAYERS       (default 0,1,2,3,4,5,6,7) # set 0..15 for all-beta diagnostic
 
 set -euo pipefail
 
@@ -28,12 +38,20 @@ PORT=8000
 
 # Parse flags
 DEBUG=0
+NO_BLESSED_VERIFY=0
 for arg in "$@"; do
   case "$arg" in
     --debug) DEBUG=1 ;;
+    --no-blessed-verify) NO_BLESSED_VERIFY=1 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
+
+if [ "$DEBUG" -eq 1 ] && [ "$NO_BLESSED_VERIFY" -eq 1 ]; then
+  echo "ERROR: --debug and --no-blessed-verify are mutually exclusive." >&2
+  echo "       --debug already skips blessed-cache verify (and uses --enforce-eager)." >&2
+  exit 1
+fi
 
 # Pre-flight checks
 nvllm_check_image
@@ -66,13 +84,22 @@ MAX_MODEL_LEN_VAL=16384
 MAX_NUM_BATCHED_TOKENS_VAL=65536
 CUDAGRAPH_MODE="FULL_AND_PIECEWISE"
 CUDAGRAPH_CAPTURE_SIZES="[1]"
-CUTE_PHASE_E_FUSION_VAL=1
+CUTE_PHASE_E_FUSION_VAL="${CUTE_PHASE_E_FUSION:-1}"
 CUTE_PHASE_E_FALLBACK_RAISE_VAL=1
 CUTE_MLP_FUSION_VAL="${CUTE_MLP_FUSION:-1}"
 CUTE_ATTN_FUSION_VAL="${CUTE_ATTN_FUSION:-1}"
 
-# Pre-`docker run` blessed-cache verify-and-mount (skip in --debug eager).
+# Pre-`docker run` blessed-cache verify-and-mount.
+#   --debug                → skip block entirely (eager mode, no graphs).
+#   --no-blessed-verify    → compute config_hash for metadata, but skip
+#                            manifest lookup, drift verify, and RO mount.
+#                            Kernel capture happens cold this session;
+#                            Z1 inductor non-determinism risk applies.
+#   default (production)   → full verify + mount; refuse on drift/no-match.
 BLESSED_MOUNT_ARGS=()
+BLESS_MOUNTED="false"
+MANIFEST_ENFORCED="false"
+CONFIG_HASH=""
 if [ "$DEBUG" -ne 1 ]; then
   IMAGE_ID=$(docker image inspect "$NVLLM_IMAGE" --format '{{.Id}}')
   HF_REVISION=$(nvllm_resolve_hf_revision "$HF_MODEL") || {
@@ -89,34 +116,44 @@ if [ "$DEBUG" -ne 1 ]; then
     "$CUTE_MLP_FUSION_VAL" "$CUTE_ATTN_FUSION_VAL")
   echo "[blessed-cache] Derived config_hash: $CONFIG_HASH"
 
-  rc=0
-  MANIFEST_PATH=$(nvllm_resolve_blessed_manifest "$CONFIG_HASH") || rc=$?
-  case "$rc" in
-    0) ;;
-    2)  # corruption: duplicate config_hash
-        echo "[blessed-cache] CORRUPTION: duplicate manifests for config_hash $CONFIG_HASH" >&2
-        echo "[blessed-cache] Refusing to start. Resolve manually before continuing." >&2
-        exit 1 ;;
-    *)  nvllm_refuse_no_manifest "$CONFIG_HASH"
-        exit 1 ;;
-  esac
-  echo "[blessed-cache] manifest: $MANIFEST_PATH"
+  if [ "$NO_BLESSED_VERIFY" -eq 1 ]; then
+    echo "[blessed-cache] --no-blessed-verify: SKIPPING manifest enforcement and RO mount."
+    echo "[blessed-cache] FULL graphs will capture cold for this session."
+    echo "[blessed-cache] bless_mounted=false manifest_enforced=false"
+    MANIFEST_ENFORCED="false"
+    BLESS_MOUNTED="false"
+  else
+    MANIFEST_ENFORCED="true"
+    rc=0
+    MANIFEST_PATH=$(nvllm_resolve_blessed_manifest "$CONFIG_HASH") || rc=$?
+    case "$rc" in
+      0) ;;
+      2)  # corruption: duplicate config_hash
+          echo "[blessed-cache] CORRUPTION: duplicate manifests for config_hash $CONFIG_HASH" >&2
+          echo "[blessed-cache] Refusing to start. Resolve manually before continuing." >&2
+          exit 1 ;;
+      *)  nvllm_refuse_no_manifest "$CONFIG_HASH"
+          exit 1 ;;
+    esac
+    echo "[blessed-cache] manifest: $MANIFEST_PATH"
 
-  # Refuse if manifest carries unsafe_dev_trials = true.
-  if [ "$(jq -r '.validation.unsafe_dev_trials // false' "$MANIFEST_PATH")" = "true" ]; then
-    nvllm_refuse_unsafe_dev_manifest "$MANIFEST_PATH"
-    exit 1
+    # Refuse if manifest carries unsafe_dev_trials = true.
+    if [ "$(jq -r '.validation.unsafe_dev_trials // false' "$MANIFEST_PATH")" = "true" ]; then
+      nvllm_refuse_unsafe_dev_manifest "$MANIFEST_PATH"
+      exit 1
+    fi
+
+    if ! nvllm_verify_blessed_cache "$MANIFEST_PATH"; then
+      nvllm_refuse_cache_drift "$CONFIG_HASH" "$MANIFEST_PATH"
+      exit 1
+    fi
+    echo "[blessed-cache] verify PASS — mounting :ro"
+
+    BLESSED_HOST_PATH=$(jq -r '.mount.host_path' "$MANIFEST_PATH")
+    BLESSED_HOST_PATH="${BLESSED_HOST_PATH/#\~/$HOME}"
+    BLESSED_MOUNT_ARGS=("-v" "${BLESSED_HOST_PATH}:/root/.cache/vllm:ro")
+    BLESS_MOUNTED="true"
   fi
-
-  if ! nvllm_verify_blessed_cache "$MANIFEST_PATH"; then
-    nvllm_refuse_cache_drift "$CONFIG_HASH" "$MANIFEST_PATH"
-    exit 1
-  fi
-  echo "[blessed-cache] verify PASS — mounting :ro"
-
-  BLESSED_HOST_PATH=$(jq -r '.mount.host_path' "$MANIFEST_PATH")
-  BLESSED_HOST_PATH="${BLESSED_HOST_PATH/#\~/$HOME}"
-  BLESSED_MOUNT_ARGS=("-v" "${BLESSED_HOST_PATH}:/root/.cache/vllm:ro")
 fi
 
 echo "=== Launching Qwen3.5-27B-NVFP4 ($HF_MODEL) — CuTe + FULL_AND_PIECEWISE ==="
@@ -126,9 +163,12 @@ echo "  KV cache:    $KV_CACHE_DTYPE"
 echo "  Context:     $MAX_MODEL_LEN_VAL tokens"
 echo "  Max seqs:    $MAX_NUM_SEQS_VAL"
 echo "  Layer set:   $CUTE_PHASE_E_LAYERS_VAL"
+echo "  Phase E:     fusion=$CUTE_PHASE_E_FUSION_VAL"
 echo "  Probes:      probe=$CUTE_FULL_GRAPH_PROBE_VAL wo_reset=$CUTE_WO_RESET_LOG_VAL audit=$CUTE_DISPATCH_AUDIT_VAL"
+echo "  Bless:       mounted=$BLESS_MOUNTED enforced=$MANIFEST_ENFORCED config_hash=${CONFIG_HASH:-n/a}"
 echo "  Port:        $PORT"
 if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs, no blessed-cache verify)"; fi
+if [ "$NO_BLESSED_VERIFY" -eq 1 ]; then echo "  Mode:        FULL+PIECEWISE cold (--no-blessed-verify diagnostic)"; fi
 echo ""
 
 docker run -d \
