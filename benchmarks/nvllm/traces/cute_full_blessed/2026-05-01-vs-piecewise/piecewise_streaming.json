@@ -1,0 +1,10 @@
+{
+  "label": "piecewise",
+  "ttft_s": 0.5935164690000647,
+  "total_latency_s": 109.43701962900002,
+  "completion_tokens": 256,
+  "chunks_with_text": 249,
+  "decode_window_s": 108.84336365499996,
+  "decode_tok_per_s": 2.342816240117971,
+  "max_tokens_requested": 256
+}
