@@ -19,7 +19,13 @@ HF_MODEL="${HF_MODEL:-ig1/Qwen3.5-27B-NVFP4}"
 echo "=== Boot 1: profile boot (CUTE_BETA_REGION_TIMING=1) ==="
 
 if [ ! -f "$OUT_DIR/profile_DONE" ]; then
+  # lower8 production config (β fires on layers 3, 7) + region timing on
+  # + torch profiler dir set so /start_profile / /stop_profile endpoints
+  # exist (vLLM gates them on VLLM_TORCH_PROFILER_DIR being set).
+  CUTE_PHASE_E_FUSION=1 \
+  CUTE_PHASE_E_LAYERS=0..7 \
   CUTE_BETA_REGION_TIMING=1 \
+  VLLM_TORCH_PROFILER_DIR=/root/.cache/vllm/profiler \
     bash scripts/serve-cute.sh \
     > "$OUT_DIR/profile_serve.log" 2>&1 &
   SERVE_PID=$!
@@ -37,12 +43,13 @@ if [ ! -f "$OUT_DIR/profile_DONE" ]; then
   curl -s -X POST http://localhost:8000/start_profile \
     -H 'Content-Type: application/json' || true
 
-  # Run a small burst of completions for steady-state
+  # Run a small burst of completions for steady-state.
+  # Use served-model-name "default" (set by serve-cute.sh), not the HF id.
   for i in 1 2 3; do
     curl -s -X POST http://localhost:8000/v1/completions \
       -H 'Content-Type: application/json' \
-      -d "{\"model\":\"$HF_MODEL\",\"prompt\":\"capital of france is\",
-           \"max_tokens\":50,\"temperature\":0,\"ignore_eos\":true}" \
+      -d '{"model":"default","prompt":"capital of france is",
+           "max_tokens":50,"temperature":0,"ignore_eos":true}' \
       > /dev/null
   done
 
@@ -100,6 +107,10 @@ fi
 echo "=== Boot 2: sanity boot (CUTE_BETA_REGION_TIMING=0, GSM8K-50) ==="
 
 if [ ! -f "$OUT_DIR/sanity_DONE" ]; then
+  # Timing OFF + same lower8 production config, so the sanity GSM8K
+  # tests the production β-coop path (not a different code path).
+  CUTE_PHASE_E_FUSION=1 \
+  CUTE_PHASE_E_LAYERS=0..7 \
   CUTE_BETA_REGION_TIMING=0 \
     bash scripts/serve-cute.sh \
     > "$OUT_DIR/sanity_serve.log" 2>&1 &
