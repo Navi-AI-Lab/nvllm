@@ -1959,6 +1959,30 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # redundant — skip the copy on this route.
         if result is not None and not _framework_output_route:
             output[:num_actual_tokens].copy_(result)
+
+        # Region-timing buffer dump: triggered by host writing a sentinel
+        # file; we check + delete + dump per call. Cheap when sentinel
+        # is absent (one os.path.exists per forward).
+        if (
+            self._phase_e_coop_region_timing is not None
+            and os.path.exists("/tmp/.dump_region_timings")
+        ):
+            try:
+                import numpy as np
+                buf = self._phase_e_coop_region_timing.detach().cpu().numpy()
+                out_path = "/root/.cache/vllm/region_timings.npy"
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                np.save(out_path, buf)
+                logger.warning(
+                    "[β-coop region timing] dumped %d bytes to %s",
+                    buf.nbytes, out_path,
+                )
+            finally:
+                # Always clear the sentinel so we don't dump every step.
+                try:
+                    os.remove("/tmp/.dump_region_timings")
+                except FileNotFoundError:
+                    pass
         return output
 
     def _debug_fusion_diff(
