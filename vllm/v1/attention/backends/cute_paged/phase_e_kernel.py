@@ -3513,6 +3513,27 @@ class PhaseE_Beta_Kernel:
                         t_exit,
                     )
 
+            # Region 1 entry: Phase 1 (attn A+B+C → W_O start). Active CTA
+            # mask: bx==0 && by<4 (4 attn CTAs per seq). Other CTAs skip
+            # the write so region 1 entries stay zero on inactive CTAs;
+            # the host reducer uses (delta>0) to filter inactive rows.
+            if cutlass.const_expr(region_timing_enabled):
+                phase1_active = (bx == Int32(0)) and (by < Int32(4))
+                if phase1_active and tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(1 * 2 * 8)              # region 1
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
+
             # =================================================================
             # Phase 1: Attn A+B+C — gated to bx==0 && by<4 (4 attn CTAs).
             # kv_head_idx == by (each of the 4 attn CTAs takes one kv head).
@@ -3962,6 +3983,24 @@ class PhaseE_Beta_Kernel:
                     # plan, next escalation is grid_barrier_i32 lifecycle
                     # / reset ordering inside the cooperative kernel.
 
+                    # Region 1 exit: Phase 1 (attn A+B+C). We are inside
+                    # the bx==0 && by<4 block, so just gate on tid==0.
+                    if cutlass.const_expr(region_timing_enabled):
+                        if tid == Int32(0):
+                            cta_id = (
+                                bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                + by * Int32(self.slice_ctas)
+                                + bx
+                            )
+                            t_exit = _read_globaltimer_u64()
+                            _st_global_u64(
+                                region_timing_ptr
+                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(1 * 2 * 8)              # region 1
+                                + Int64(1 * 8),                  # slot 1 = exit
+                                t_exit,
+                            )
+
                     # === Phase B: Fused W_O GEMV ===
                     _threadfence()
                     cute.arch.sync_threads()
@@ -4223,6 +4262,27 @@ class PhaseE_Beta_Kernel:
                                 + Int64(seq_idx * Int32(4)),
                                 Int32(0) - total_ctas_per_seq_attn)
 
+            # Region 4 entry: grid barrier wait (all 64 CTAs participate).
+            # Entry tick recorded at the moment a CTA arrives at the
+            # barrier — i.e., immediately before the _threadfence() that
+            # publishes its prior writes. Wait-time NOT work-time (label
+            # in host reducer).
+            if cutlass.const_expr(region_timing_enabled):
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(4 * 2 * 8)              # region 4
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
+
             # =================================================================
             # GRID BARRIER: between Phase 1 (attn) and Phase 3 (MLP).
             # All 64 CTAs per seq must arrive before any CTA reads
@@ -4245,9 +4305,47 @@ class PhaseE_Beta_Kernel:
                     grid_barrier_ptr + Int64(seq_idx * Int32(4))
                 )
             _acquire_fence()
+
+            # Region 4 exit: grid barrier wait. Recorded right after
+            # _acquire_fence (post-loop), before the block-internal sync.
+            # This isolates the wait time from the subsequent block sync.
+            if cutlass.const_expr(region_timing_enabled):
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(4 * 2 * 8)              # region 4
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit,
+                    )
+
             # Block-internal sync: ensure all threads of this CTA have
             # observed the barrier release before re-aliasing SMEM.
             cute.arch.sync_threads()
+
+            # Region 5 entry: Phase 3 (MLP) entry → load_x sync. All 64
+            # CTAs participate. Brackets the smem_x load from attn_output.
+            if cutlass.const_expr(region_timing_enabled):
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(5 * 2 * 8)              # region 5
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
 
             # =================================================================
             # Phase 3: MLP (D). All 64 CTAs participate. Reuses SMEM (Phase
@@ -4306,6 +4404,23 @@ class PhaseE_Beta_Kernel:
                 _i3 = _i3 + Int32(1)
 
             cute.arch.sync_threads()
+
+            # Region 5 exit: Phase 3 entry → load_x sync done. All 64 CTAs.
+            if cutlass.const_expr(region_timing_enabled):
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(5 * 2 * 8)              # region 5
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit,
+                    )
 
             # === Phase 3.2.5: Reset this CTA's mlp_partial_fp32 slot ===
             # Required under FULL graph replay: torch.zeros() allocation
