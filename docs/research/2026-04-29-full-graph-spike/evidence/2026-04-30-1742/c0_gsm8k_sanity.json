@@ -1,0 +1,77 @@
+{
+  "test": "gsm8k_sanity_gate",
+  "label": null,
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "correct": 8,
+  "total": 8,
+  "errors": 0,
+  "accuracy": "8/8 (100%)",
+  "verdict": "PASS",
+  "questions": [
+    {
+      "id": "Q1",
+      "expected": 72,
+      "got": 72,
+      "raw": "72\nThe answer is 72\nQ: Weng earns",
+      "status": "OK",
+      "elapsed": 48.4
+    },
+    {
+      "id": "Q2",
+      "expected": 10,
+      "got": 10,
+      "raw": "10.  10\n* What is the next question?",
+      "status": "OK",
+      "elapsed": 12.0
+    },
+    {
+      "id": "Q3",
+      "expected": 5,
+      "got": 5,
+      "raw": "5\nAnswer: 5\nQ: John has 5 aunts",
+      "status": "OK",
+      "elapsed": 12.3
+    },
+    {
+      "id": "Q4",
+      "expected": 42,
+      "got": 42,
+      "raw": "42\n* What is the next question?\n*\n*",
+      "status": "OK",
+      "elapsed": 12.2
+    },
+    {
+      "id": "Q5",
+      "expected": 624,
+      "got": 624,
+      "raw": "624\nQ: If I have 2 1/2",
+      "status": "OK",
+      "elapsed": 11.9
+    },
+    {
+      "id": "Q6",
+      "expected": 35,
+      "got": 35,
+      "raw": "35\nQ: If I have 3 red balls in a bag",
+      "status": "OK",
+      "elapsed": 12.4
+    },
+    {
+      "id": "Q7",
+      "expected": 48,
+      "got": 48,
+      "raw": "48\nAnswer: 48\nQ: If I have",
+      "status": "OK",
+      "elapsed": 12.1
+    },
+    {
+      "id": "Q8",
+      "expected": 16,
+      "got": 16,
+      "raw": "16\nQ: Mary has 3 1/2 1",
+      "status": "OK",
+      "elapsed": 12.1
+    }
+  ]
+}

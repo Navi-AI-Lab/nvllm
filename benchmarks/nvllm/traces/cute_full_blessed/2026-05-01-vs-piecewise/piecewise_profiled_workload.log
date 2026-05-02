@@ -1,0 +1,4 @@
+[warmup] 0 requests at concurrency 1
+[profiler] started via http://localhost:8000/start_profile
+[timed]  30 requests at concurrency 1
+[timed]  elapsed=3327.63s, throughput=0.01 req/s

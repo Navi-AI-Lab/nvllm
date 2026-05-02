@@ -1,0 +1,784 @@
+20:36:30
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        76Gi        12Gi       1.2Gi        33Gi        43Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     4.974GiB / 119.6GiB
+---
+20:37:01
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        78Gi       9.5Gi       1.2Gi        33Gi        40Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     5.176GiB / 119.6GiB
+---
+20:37:32
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        78Gi       9.5Gi       1.2Gi        33Gi        40Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     5.178GiB / 119.6GiB
+---
+20:38:03
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        78Gi       9.5Gi       1.2Gi        33Gi        40Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     5.177GiB / 119.6GiB
+---
+20:38:34
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        78Gi       9.5Gi       1.2Gi        33Gi        40Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     5.177GiB / 119.6GiB
+---
+20:39:05
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        78Gi       9.5Gi       1.2Gi        33Gi        40Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     5.177GiB / 119.6GiB
+---
+20:39:36
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        78Gi       9.5Gi       1.2Gi        33Gi        40Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     5.227GiB / 119.6GiB
+---
+20:40:07
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        78Gi       9.4Gi       1.2Gi        33Gi        40Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     5.249GiB / 119.6GiB
+---
+20:40:38
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        78Gi       9.4Gi       1.2Gi        33Gi        40Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     5.274GiB / 119.6GiB
+---
+20:41:09
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        38Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:41:40
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:42:11
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+20:42:42
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+20:43:13
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:43:44
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:44:15
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:44:46
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:45:17
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+20:45:48
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:46:19
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:46:50
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:47:22
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+20:47:53
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:48:24
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:48:55
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:49:26
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:49:57
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:50:28
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:50:59
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+20:51:30
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:52:01
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        38Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:52:32
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:53:03
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+20:53:34
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+20:54:05
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:54:36
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        38Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:55:07
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:55:38
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:56:09
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:56:40
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:57:11
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:57:42
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:58:13
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:58:44
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:59:15
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.8Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+20:59:46
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:00:17
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:00:48
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:01:19
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:01:50
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:02:21
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:02:52
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:03:23
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:03:54
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:04:25
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:04:56
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:05:27
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:05:58
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:06:29
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:07:00
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:07:31
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:08:02
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:08:33
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        38Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:09:04
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:09:35
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:10:06
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:10:37
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:11:08
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:11:39
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:12:11
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:12:42
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:13:13
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:13:44
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:14:15
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:14:46
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:15:17
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:15:48
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:16:19
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:16:50
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:17:21
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:17:52
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:18:23
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:18:54
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:19:25
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:19:56
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:20:27
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:20:58
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:21:29
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.907GiB / 119.6GiB
+---
+21:22:00
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:22:31
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:23:02
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:23:33
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:24:04
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:24:35
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:25:06
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:25:37
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:26:08
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:26:39
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:27:10
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:27:41
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:28:12
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:28:43
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:29:14
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:29:45
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+21:30:16
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:30:47
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.907GiB / 119.6GiB
+---
+21:31:18
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:31:49
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+21:32:20
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:32:51
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.905GiB / 119.6GiB
+---
+21:33:22
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---
+21:33:53
+               total        used        free      shared  buff/cache   available
+Mem:           119Gi        80Gi       7.7Gi       1.2Gi        33Gi        39Gi
+Swap:           15Gi          0B        15Gi
+NAME      MEM USAGE / LIMIT
+nvllm     6.906GiB / 119.6GiB
+---

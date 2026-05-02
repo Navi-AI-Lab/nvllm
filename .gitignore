@@ -330,3 +330,13 @@ benchmarks/nvllm/traces/phase_6a/**/*.pt.trace.json.gz
 !benchmarks/nvllm/traces/phase_6a/**/*.log
 !benchmarks/nvllm/traces/phase_6a/**/*.md
 !benchmarks/nvllm/traces/phase_6a/**/*.txt
+
+# CuTe FULL+blessed comparison traces — raw torch profiler files local-only,
+# CSV/log/md/json/nsys-rep committed. Reproducer:
+# docs/research/cute_full_blessed_traces/capture_full_vs_piecewise.sh.
+benchmarks/nvllm/traces/cute_full_blessed/**/*.pt.trace.json.gz
+!benchmarks/nvllm/traces/cute_full_blessed/**/*.csv
+!benchmarks/nvllm/traces/cute_full_blessed/**/*.log
+!benchmarks/nvllm/traces/cute_full_blessed/**/*.md
+!benchmarks/nvllm/traces/cute_full_blessed/**/*.json
+!benchmarks/nvllm/traces/cute_full_blessed/**/*.nsys-rep

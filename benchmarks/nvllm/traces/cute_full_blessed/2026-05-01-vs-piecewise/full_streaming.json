@@ -1,0 +1,10 @@
+{
+  "label": "full",
+  "ttft_s": 0.5920602209998833,
+  "total_latency_s": 109.02250804800042,
+  "completion_tokens": 256,
+  "chunks_with_text": 249,
+  "decode_window_s": 108.43030472200007,
+  "decode_tok_per_s": 2.351741062185372,
+  "max_tokens_requested": 256
+}

@@ -1,0 +1,7 @@
+GOOD cache (Path B Z1 attempt 2, 2026-04-30)
+- artifact path: /home/natfii/.cache/nvllm-pathb-z1-cache-good/torch_compile_cache/torch_aot_compile/9a5549f23a178e35a9a3e9b4bed7adf1d137d22f3fc06ef8048d589e5d625721/rank_0_0/model
+- size on disk: 73413669 bytes
+- sha256: 651e00bd5997bacd9a062da66e6c9a078ed3c4469c27c715d8b025041a2a8264
+- compile cache key: 9a5549f23a178e35a9a3e9b4bed7adf1d137d22f3fc06ef8048d589e5d625721
+- log-reported size at compile: 62,142,045 bytes (62.1 MB)
+- preserved at host: /home/natfii/.cache/nvllm-pathb-z1-cache-good

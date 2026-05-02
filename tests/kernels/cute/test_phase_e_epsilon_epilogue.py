@@ -672,8 +672,9 @@ def test_beta_coop_full_matches_beta_lite():
     down_scale = torch.full((hidden, interm // 16), 0x38,
                             dtype=torch.uint8, device=device)
 
-    # --- Next-layer γ (for emit_next_layernorm=True) ---
-    next_gamma = torch.randn(hidden, dtype=torch.bfloat16, device=device)
+    # C1.5: next_gamma allocation removed — Assert 3 (next_hidden) deleted,
+    # so lite_mlp is invoked with emit_next_layernorm=False below and the
+    # next-layer γ is no longer consumed in this test.
 
     # ================================================================
     # β-lite reference: two-kernel dispatch.
@@ -713,6 +714,11 @@ def test_beta_coop_full_matches_beta_lite():
                                dtype=torch.uint32, device=device)
     lite_mlp_out = torch.zeros(nat, hidden,
                                dtype=torch.bfloat16, device=device)
+    # C1.5: lite_next_hidden buffer is required scratch — Phase_D_MLP_Kernel
+    # asserts `next_hidden_output is not None` whenever emit_epilogue=True
+    # (mlp_kernel.py:497-498), even when emit_next_layernorm=False. The
+    # buffer is written by the kernel but never read by this test after
+    # Assert 3 deletion.
     lite_next_hidden = torch.zeros(nat, hidden,
                                     dtype=torch.bfloat16, device=device)
 
@@ -721,10 +727,9 @@ def test_beta_coop_full_matches_beta_lite():
         down_fp4, down_scale,
         lite_partial, lite_arrival, lite_mlp_out, nat,
         residual_post_ln=lite_residual_output,
-        next_input_layernorm_gamma=next_gamma,
         next_hidden_output=lite_next_hidden,
         emit_epilogue=True,
-        emit_next_layernorm=True,
+        emit_next_layernorm=False,
         rms_eps=1e-6,
     )
     torch.cuda.synchronize()
@@ -744,8 +749,25 @@ def test_beta_coop_full_matches_beta_lite():
                                     dtype=torch.bfloat16, device=device)
     coop_mlp_output = torch.zeros(nat, hidden,
                                    dtype=torch.bfloat16, device=device)
-    coop_next_hidden = torch.zeros(nat, hidden,
-                                    dtype=torch.bfloat16, device=device)
+    # C1.5: Phase 4 deleted — coop_next_hidden no longer used.
+
+    # Persistent β-coop workspace buffers (spec 2026-04-30 §4.3).
+    # Per-call alloc fine here — test runs without CUDA graph capture.
+    coop_wo_output = torch.zeros(nat, 4, hidden,
+                                  dtype=torch.float32, device=device)
+    coop_mlp_partial_fp32 = torch.zeros(
+        nat, beta.slice_ctas, hidden,
+        dtype=torch.float32, device=device,
+    )
+    coop_mlp_arrival_count = torch.zeros(
+        nat, beta.num_k_tiles, dtype=torch.uint32, device=device,
+    )
+    coop_grid_barrier_i32 = torch.zeros(
+        nat, dtype=torch.int32, device=device,
+    )
+    coop_phase1_arrival_count = torch.zeros(
+        nat, dtype=torch.int32, device=device,
+    )
 
     beta.run_beta_coop_full(
         hidden_in=hidden_in,
@@ -765,10 +787,12 @@ def test_beta_coop_full_matches_beta_lite():
         up_w_fp4=up_fp4, up_w_scale=up_scale,
         down_w_fp4=down_fp4, down_w_scale=down_scale,
         mlp_output=coop_mlp_output,
-        next_input_layernorm_gamma=next_gamma,
-        next_hidden_output=coop_next_hidden,
         scale=scale, k_scale=1.0, v_scale=1.0,
-        emit_next_layernorm=True,
+        wo_output=coop_wo_output,
+        mlp_partial_fp32=coop_mlp_partial_fp32,
+        mlp_arrival_count=coop_mlp_arrival_count,
+        grid_barrier_i32=coop_grid_barrier_i32,
+        phase1_arrival_count=coop_phase1_arrival_count,
     )
     torch.cuda.synchronize()
 
@@ -791,13 +815,4 @@ def test_beta_coop_full_matches_beta_lite():
         f"coop[0,:8]={coop_mlp_output[0,:8].tolist()}; "
         f"lite[0,:8]={lite_mlp_out[0,:8].tolist()}"
     )
-
-    # --- Assert 3: next_hidden matches β-lite ---
-    max_abs_nh = (coop_next_hidden.float()
-                  - lite_next_hidden.float()).abs().max().item()
-    assert torch.allclose(coop_next_hidden, lite_next_hidden,
-                          rtol=5e-2, atol=5e-2), (
-        f"β-coop next_hidden diverged from β-lite: max_abs={max_abs_nh:.3e}; "
-        f"coop[0,:8]={coop_next_hidden[0,:8].tolist()}; "
-        f"lite[0,:8]={lite_next_hidden[0,:8].tolist()}"
-    )
+    # C1.5: Assert 3 (next_hidden) deleted — Phase 4 deleted from kernel.

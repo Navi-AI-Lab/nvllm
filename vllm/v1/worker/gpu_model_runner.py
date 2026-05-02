@@ -4,6 +4,7 @@
 import functools
 import gc
 import itertools
+import os
 import threading
 import time
 from collections import defaultdict
@@ -214,6 +215,13 @@ if TYPE_CHECKING:
     from vllm.v1.worker.gpu.mm.encoder_cudagraph import EncoderCudaGraphManager
 
 logger = init_logger(__name__)
+
+# Spike probe state (CUTE_FULL_GRAPH_PROBE=1). Module-level booleans only —
+# avoid self mutation inside the cudagraph dispatch path so we don't perturb
+# Dynamo / cudagraph capture state. C1 gate, 2026-04-30.
+_CUTE_FULL_GRAPH_PROBE_ANY_LOGGED: bool = False
+_CUTE_FULL_GRAPH_PROBE_FULL_LOGGED: bool = False
+_CUTE_DISPATCH_AUDIT_COUNT: int = 0
 
 AttnMetadataDict: TypeAlias = dict[str, AttentionMetadata]
 # list when ubatching is enabled
@@ -3588,6 +3596,42 @@ class GPUModelRunner(
         cudagraph_mode, batch_descriptor = dispatch_cudagraph(
             num_tokens_padded, disable_full=use_cascade_attn or has_encoder_output
         )
+
+        # Spike probe (ported 2026-04-30): log AT MOST TWO events for the C1
+        # gate — first observed call (any mode) and first observed FULL.
+        # Module-level booleans only, no self mutation, no counter, to avoid
+        # perturbing Dynamo / cudagraph capture state. The earlier counter+
+        # setattr variant correlated with a >20-min hang during FULL graph
+        # capture under warm cache HIT.
+        # Original probe at gpu/model_runner.py:1054 was in the V2 runner,
+        # while this spike runs the default V1 path. See
+        # feedback_verify_model_class.
+        if os.environ.get("CUTE_FULL_GRAPH_PROBE", "0") == "1":
+            global _CUTE_FULL_GRAPH_PROBE_ANY_LOGGED
+            global _CUTE_FULL_GRAPH_PROBE_FULL_LOGGED
+            _cg_name = (
+                cudagraph_mode.name if cudagraph_mode is not None else "None"
+            )
+            if not _CUTE_FULL_GRAPH_PROBE_ANY_LOGGED:
+                logger.info(
+                    "CUTE_FULL_GRAPH_PROBE: runner=flat_v1 first-any "
+                    "cg_mode=%s num_tokens=%s",
+                    _cg_name,
+                    batch_descriptor.num_tokens,
+                )
+                _CUTE_FULL_GRAPH_PROBE_ANY_LOGGED = True
+            if (
+                not _CUTE_FULL_GRAPH_PROBE_FULL_LOGGED
+                and cudagraph_mode is not None
+                and cudagraph_mode.name == "FULL"
+            ):
+                logger.info(
+                    "CUTE_FULL_GRAPH_PROBE: runner=flat_v1 first-FULL "
+                    "cg_mode=FULL num_tokens=%s",
+                    batch_descriptor.num_tokens,
+                )
+                _CUTE_FULL_GRAPH_PROBE_FULL_LOGGED = True
+
         num_tokens_padded = batch_descriptor.num_tokens
         if self.compilation_config.pass_config.enable_sp:
             assert (
@@ -3627,6 +3671,34 @@ class GPUModelRunner(
                 # Assert to make sure the agreed upon token count is correct otherwise
                 # num_tokens_across_dp will no-longer be valid
                 assert batch_descriptor.num_tokens == num_tokens_padded
+
+        # Spike audit (CUTE_DISPATCH_AUDIT=1, post-DP-re-dispatch). Logs the
+        # FINAL returned mode + descriptor, bounded to the first 100 calls.
+        # Path B Step 1 — re-evaluate diagnosis before v3 (mlp_partial_fp32).
+        # Module-level int counter only (no setattr on self, per
+        # feedback_no_self_mut_in_cudagraph_dispatch).
+        if os.environ.get("CUTE_DISPATCH_AUDIT", "0") == "1":
+            global _CUTE_DISPATCH_AUDIT_COUNT
+            if _CUTE_DISPATCH_AUDIT_COUNT < 100:
+                _cg_name = (
+                    cudagraph_mode.name if cudagraph_mode is not None else "None"
+                )
+                logger.info(
+                    "CUTE_DISPATCH_AUDIT: idx=%d cg_mode=%s "
+                    "raw_tokens=%s desc_tokens=%s "
+                    "raw_reqs=%s desc_reqs=%s "
+                    "uniform_decode=%s desc_uniform=%s force_eager=%s",
+                    _CUTE_DISPATCH_AUDIT_COUNT,
+                    _cg_name,
+                    num_tokens,
+                    batch_descriptor.num_tokens,
+                    num_reqs,
+                    batch_descriptor.num_reqs,
+                    uniform_decode,
+                    batch_descriptor.uniform,
+                    force_eager,
+                )
+                _CUTE_DISPATCH_AUDIT_COUNT += 1
 
         cudagraph_stats = None
         if self.vllm_config.observability_config.cudagraph_metrics:

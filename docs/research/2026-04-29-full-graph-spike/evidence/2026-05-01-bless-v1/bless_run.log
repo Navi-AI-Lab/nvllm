@@ -1,0 +1,150 @@
+Host memory: 111 GiB available (threshold 90 GiB) — OK
+[bless] image: nvllm:gb10 (sha256:a3f3f609a8ec873b0c8f6ddeb71573514eb84bf41b814ac82303d998a6ac5b88)
+[bless] HF revision: 4c546624f1fa8b77f5b7cfb3b6c96bf46d25c3a9
+[bless] config_hash: e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db
+[bless] flock acquired on /home/natfii/.cache/nvllm/staging/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db.lock
+[bless] handing off to .venv/bin/python scripts/bless_cute_full_cache.py …
+/home/natfii/docker/nvllm/scripts/bless_cute_full_cache.py:165: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  ts = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+[bless] config_hash=e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db K=5 rebless=False
+[bless] staging  : /home/natfii/.cache/nvllm/staging/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db
+[bless] blessed  : /home/natfii/.cache/nvllm/blessed/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db
+[bless] evidence : /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z
+[bless] manifest : /home/natfii/docker/nvllm/docs/blessed-caches
+[bless/phase1] docker run (RW staging=/home/natfii/.cache/nvllm/staging/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db)
+[bless/phase1] /v1/models ready, triggering completion
+[bless/phase1] completion done; stopping container (graceful, allows torch to flush AOT)
+[bless/phase1] AOT model: torch_compile_cache/torch_aot_compile/3ec8dddb5f6ea68b946bb3fa1b040f276ea75afdb6b3bfdbc97afca26c519c7f/rank_0_0/model (73400709 B, sha=d97e88db71dd…)
+
+[bless/phase2] === Trial 1/5 ===
+=== C2 replay-coherence (n=8) ===
+Evidence dir: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_1_c2_evidence
+
+[1] Same-prompt repeatability
+  replay 1: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 2: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 3: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 4: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 5: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 6: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 7: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 8: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  unique outputs: 1  pass=True
+
+[2] Cross-prompt independence
+  A first:   ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  A after B: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  pass=True
+
+Overall: PASS
+Summary: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_1_c2_evidence/c2_replay_coherence.md
+
+[bless/phase2] trial 1 → PASS
+
+[bless/phase2] === Trial 2/5 ===
+=== C2 replay-coherence (n=8) ===
+Evidence dir: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_2_c2_evidence
+
+[1] Same-prompt repeatability
+  replay 1: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 2: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 3: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 4: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 5: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 6: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 7: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 8: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  unique outputs: 1  pass=True
+
+[2] Cross-prompt independence
+  A first:   ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  A after B: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  pass=True
+
+Overall: PASS
+Summary: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_2_c2_evidence/c2_replay_coherence.md
+
+[bless/phase2] trial 2 → PASS
+
+[bless/phase2] === Trial 3/5 ===
+=== C2 replay-coherence (n=8) ===
+Evidence dir: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_3_c2_evidence
+
+[1] Same-prompt repeatability
+  replay 1: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 2: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 3: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 4: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 5: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 6: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 7: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 8: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  unique outputs: 1  pass=True
+
+[2] Cross-prompt independence
+  A first:   ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  A after B: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  pass=True
+
+Overall: PASS
+Summary: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_3_c2_evidence/c2_replay_coherence.md
+
+[bless/phase2] trial 3 → PASS
+
+[bless/phase2] === Trial 4/5 ===
+=== C2 replay-coherence (n=8) ===
+Evidence dir: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_4_c2_evidence
+
+[1] Same-prompt repeatability
+  replay 1: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 2: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 3: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 4: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 5: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 6: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 7: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 8: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  unique outputs: 1  pass=True
+
+[2] Cross-prompt independence
+  A first:   ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  A after B: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  pass=True
+
+Overall: PASS
+Summary: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_4_c2_evidence/c2_replay_coherence.md
+
+[bless/phase2] trial 4 → PASS
+
+[bless/phase2] === Trial 5/5 ===
+=== C2 replay-coherence (n=8) ===
+Evidence dir: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_5_c2_evidence
+
+[1] Same-prompt repeatability
+  replay 1: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 2: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 3: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 4: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 5: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 6: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 7: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 8: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  unique outputs: 1  pass=True
+
+[2] Cross-prompt independence
+  A first:   ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  A after B: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  pass=True
+
+Overall: PASS
+Summary: /home/natfii/.cache/nvllm/evidence/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db_20260501T175550Z/_bless_logs/trial_5_c2_evidence/c2_replay_coherence.md
+
+[bless/phase2] trial 5 → PASS
+[bless] all 5 trials PASS — accepting
+/home/natfii/docker/nvllm/scripts/bless_cute_full_cache.py:783: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  "blessed_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+[bless/accept] manifest: /home/natfii/docker/nvllm/docs/blessed-caches/qwen35-27b-nvfp4_fap_lower8_image-a3f3f60_e6d32b4.json
+[bless/accept] blessed cache: /home/natfii/.cache/nvllm/blessed/e6d32b41c46842c97f877339e86c79d6cc11004a238bef32f2cd3fdb73ce28db
+[bless] DONE. To commit:
+  git add docs/blessed-caches/qwen35-27b-nvfp4_fap_lower8_image-a3f3f60_e6d32b4.json
+EXIT_CODE=0

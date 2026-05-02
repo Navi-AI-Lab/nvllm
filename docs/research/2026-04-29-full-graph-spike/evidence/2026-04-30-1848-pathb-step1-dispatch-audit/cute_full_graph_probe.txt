@@ -1,0 +1,2 @@
+(EngineCore pid=222) INFO 04-30 22:41:08 [gpu_model_runner.py:3616] CUTE_FULL_GRAPH_PROBE: runner=flat_v1 first-any cg_mode=NONE num_tokens=65536
+(EngineCore pid=222) INFO 04-30 22:43:58 [gpu_model_runner.py:3628] CUTE_FULL_GRAPH_PROBE: runner=flat_v1 first-FULL cg_mode=FULL num_tokens=1

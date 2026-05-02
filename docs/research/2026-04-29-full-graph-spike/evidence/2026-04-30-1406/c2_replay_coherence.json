@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-04-30-1406",
+  "n_replays": 8,
+  "same_prompt_outputs": [
+    " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+    " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+    " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+    " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+    " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+    " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+    " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+    " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n"
+  ],
+  "same_prompt_unique_count": 1,
+  "same_prompt_pass": true,
+  "cross_prompt_a_first": " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+  "cross_prompt_a_after_b": " Paris.\nQ: What is the largest planet in our solar system?\nA: Jupiter.\nQ: What is the chemical symbol for gold?\n",
+  "cross_prompt_pass": true,
+  "overall_pass": true
+}

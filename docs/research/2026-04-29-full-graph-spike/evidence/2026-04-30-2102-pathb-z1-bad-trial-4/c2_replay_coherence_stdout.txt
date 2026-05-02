@@ -1,0 +1,21 @@
+=== C2 replay-coherence (n=8) ===
+Evidence dir: /home/natfii/docker/nvllm/docs/research/2026-04-29-full-graph-spike/evidence/2026-04-30-2058
+
+[1] Same-prompt repeatability
+  replay 1: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Japan?\nA: Tokyo.'
+  replay 2: ' Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 3: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 4: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 5: ' Paris\n\nQ: What is the capital of Germany?\nA: Berlin\n\nQ: What is the capital of Italy?\nA: Rome\n\nQ:'
+  replay 6: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Japan?\nA: Tokyo.'
+  replay 7: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.'
+  replay 8: ' Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Japan?\nA: Tokyo.'
+  unique outputs: 4  pass=False
+
+[2] Cross-prompt independence
+  A first:   ' Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.'
+  A after B: ' Paris\n\nQ: What is the capital of Germany?\nA: Berlin\n\nQ: What is the capital of Italy?\nA: Rome\n\nQ:'
+  pass=False
+
+Overall: FAIL
+Summary: /home/natfii/docker/nvllm/docs/research/2026-04-29-full-graph-spike/evidence/2026-04-30-2058/c2_replay_coherence.md
