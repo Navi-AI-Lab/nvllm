@@ -4002,6 +4002,25 @@ class PhaseE_Beta_Kernel:
                             )
 
                     # === Phase B: Fused W_O GEMV ===
+                    # Region 2 entry: Phase 1 W_O GEMV body. We are inside
+                    # the bx==0 && by<4 block, so just gate on tid==0.
+                    # K-reduction candidate site #1.
+                    if cutlass.const_expr(region_timing_enabled):
+                        if tid == Int32(0):
+                            cta_id = (
+                                bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                + by * Int32(self.slice_ctas)
+                                + bx
+                            )
+                            t_entry = _read_globaltimer_u64()
+                            _st_global_u64(
+                                region_timing_ptr
+                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(2 * 2 * 8)              # region 2
+                                + Int64(0 * 8),                  # slot 0 = entry
+                                t_entry,
+                            )
+
                     _threadfence()
                     cute.arch.sync_threads()
 
@@ -4123,6 +4142,63 @@ class PhaseE_Beta_Kernel:
 
                     # === Phase B.5 + C: last-CTA gather + RMSNorm ===
                     _threadfence()
+
+                    # Region 2 exit: Phase 1 W_O GEMV body. Recorded just
+                    # after the W_O writes are published by _threadfence.
+                    # We are inside the bx==0 && by<4 block, gate on tid==0.
+                    if cutlass.const_expr(region_timing_enabled):
+                        if tid == Int32(0):
+                            cta_id = (
+                                bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                + by * Int32(self.slice_ctas)
+                                + bx
+                            )
+                            t_exit = _read_globaltimer_u64()
+                            _st_global_u64(
+                                region_timing_ptr
+                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(2 * 2 * 8)              # region 2
+                                + Int64(1 * 8),                  # slot 1 = exit
+                                t_exit,
+                            )
+
+                    # Region 3 entry: W_O end → barrier-arrive (cleanup).
+                    # Same site as region 2 exit (W_O sync), but recorded
+                    # as a separate block to keep the buffer boundary clean.
+                    if cutlass.const_expr(region_timing_enabled):
+                        if tid == Int32(0):
+                            cta_id = (
+                                bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                + by * Int32(self.slice_ctas)
+                                + bx
+                            )
+                            t_entry = _read_globaltimer_u64()
+                            _st_global_u64(
+                                region_timing_ptr
+                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(3 * 2 * 8)              # region 3
+                                + Int64(0 * 8),                  # slot 0 = entry
+                                t_entry,
+                            )
+
+                    # Region 3 exit: just before the _atomic_add_u32 to
+                    # phase1_arrival_count (the per-CTA barrier-arrive
+                    # signal). We are inside bx==0 && by<4, gate on tid==0.
+                    if cutlass.const_expr(region_timing_enabled):
+                        if tid == Int32(0):
+                            cta_id = (
+                                bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                + by * Int32(self.slice_ctas)
+                                + bx
+                            )
+                            t_exit = _read_globaltimer_u64()
+                            _st_global_u64(
+                                region_timing_ptr
+                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(3 * 2 * 8)              # region 3
+                                + Int64(1 * 8),                  # slot 1 = exit
+                                t_exit,
+                            )
 
                     if tid == Int32(0):
                         old_count = _atomic_add_u32(
