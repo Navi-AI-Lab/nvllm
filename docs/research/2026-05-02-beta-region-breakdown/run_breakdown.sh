@@ -78,8 +78,8 @@ if [ ! -f "$OUT_DIR/profile_DONE" ]; then
     --config "beta_region_breakdown_lower8" \
     --out "$OUT_DIR/profile_kernels.csv"
 
-  # Metadata
-  python -c "
+  # Metadata (use .venv/bin/python per AGENTS.md — system python is forbidden)
+  .venv/bin/python -c "
 import json, hashlib, subprocess, os
 git_sha = subprocess.check_output(['git','rev-parse','HEAD']).decode().strip()
 img_id = subprocess.check_output(['docker','image','inspect','nvllm:gb10','--format','{{.Id}}']).decode().strip()
@@ -110,10 +110,13 @@ if [ ! -f "$OUT_DIR/sanity_DONE" ]; then
     sleep 5
   done
 
-  python scripts/gsm8k_eval_50.py \
-    --base-url http://localhost:8000/v1 \
-    --model "$HF_MODEL" \
-    --out "$OUT_DIR/sanity_gsm8k.json"
+  # gsm8k_eval_50.py CLI: --api (not --base-url), --save (not --out),
+  # --model "default" (matches serve-cute.sh's --served-model-name).
+  # Use .venv/bin/python per AGENTS.md (no bare python).
+  .venv/bin/python scripts/gsm8k_eval_50.py \
+    --api http://localhost:8000/v1 \
+    --model default \
+    --save "$OUT_DIR/sanity_gsm8k.json"
 
   docker stop "$CONTAINER" || true
   touch "$OUT_DIR/sanity_DONE"
