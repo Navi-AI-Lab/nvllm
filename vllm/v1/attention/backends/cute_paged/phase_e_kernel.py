@@ -44,6 +44,7 @@ try:
         Int32,
         Int64,
         Uint32,
+        Uint64,
     )
     import cuda.bindings.driver as _cuda_driver
 
@@ -72,9 +73,11 @@ try:
         _pack_4bytes,
         _pack_lo16,
         _rcp_approx_f32,
+        _read_globaltimer_u64,
         _rsqrt_approx_f32,
         _st_global_bf16_from_f32,
         _st_global_f32,
+        _st_global_u64,
         _st_shared_b16_from_u32,
         _st_shared_b32,
         _st_shared_f32,
@@ -3394,6 +3397,32 @@ class PhaseE_Beta_Kernel:
             sync_md = shared_ptr_to_i64(
                 smem + Int32(self._sync_md_small_offset))
 
+            # Region 0: Phase 0 (pre-attn). Active CTA mask: bx==0 && by==0
+            # (single CTA per seq — see phase_e_kernel.py:2689). Other CTAs
+            # skip the write so region 0 entries stay zero on inactive CTAs;
+            # the host reducer uses (delta>0) to filter inactive rows.
+            if cutlass.const_expr(region_timing_enabled):
+                phase0_active = (bx == Int32(0)) and (by == Int32(0))
+                if phase0_active and tid == Int32(0):
+                    # cta_id = bz * (slice_ctas * num_k_tiles)
+                    #          + by * slice_ctas + bx
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    # scratch[cta_id, region=0, slot=0] u64
+                    # byte offset = (cta_id * num_regions * 2 + region * 2
+                    #                + slot) * 8
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(0 * 2 * 8)              # region 0
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
+
             # =================================================================
             # Phase 0: input_layernorm. Single CTA per seq (bx==0, by==0).
             # Writes attn_input_bf16 as a side-channel output (not consumed
@@ -3465,6 +3494,24 @@ class PhaseE_Beta_Kernel:
 
                     # Sync before Phase 1 reuses sync_md/sync_o for attn state.
                     cute.arch.sync_threads()
+
+            # Region 0 exit: Phase 0 (pre-attn). Same active-CTA mask as
+            # entry — bx==0 && by==0, single CTA per seq.
+            if cutlass.const_expr(region_timing_enabled):
+                if (bx == Int32(0)) and (by == Int32(0)) and (tid == Int32(0)):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(0 * 2 * 8)              # region 0
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit,
+                    )
 
             # =================================================================
             # Phase 1: Attn A+B+C — gated to bx==0 && by<4 (4 attn CTAs).
