@@ -1,0 +1,33 @@
+{
+  "git_sha": "46ad9bbc578c18c4df2c0c2ad064560f42d70377",
+  "wo_split": 1,
+  "total_wo_ctas": 4,
+  "hidden_size": 5120,
+  "num_kv_heads": 4,
+  "num_q_heads": 24,
+  "head_dim": 256,
+  "K": 6144,
+  "num_k_groups": 384,
+  "num_k_tiles": 96,
+  "num_active_tokens": 1,
+  "seed": 4242,
+  "launches": 1,
+  "cooperative": true,
+  "ncu": false,
+  "warmup_launches": 0,
+  "dtypes": {
+    "attn_output": "bfloat16",
+    "wo_weight": "uint8",
+    "wo_scales": "uint8",
+    "wo_gs": "float32",
+    "wo_output": "float32",
+    "final_out": "float32"
+  },
+  "cache_key": "c77cc18791dfdf89",
+  "diagnostic_no_cooperative": false,
+  "image_id": "sha256:9c0f1d31c92c29488f66a2c136183950cea787035d735ff95dd6af193740f530",
+  "torch_version": "2.12.0.dev20260402+cu132",
+  "python_version": "3.12.3 (main, Mar  3 2026, 12:15:18) [GCC 13.3.0]",
+  "effective_bytes_formula": "PAYLOAD = B*K*2 + H*K//2 + nmt*nkt*32*4*4 + 4 + B*H*4; SCRATCH = B*total_wo_ctas*H*4 + GATHER_CTAS*total_wo_ctas*B*H*4; EFFECTIVE = PAYLOAD + SCRATCH; GATHER_CTAS = slice_ctas*num_kv_heads = 32",
+  "cache_status_first_event": "HIT"
+}

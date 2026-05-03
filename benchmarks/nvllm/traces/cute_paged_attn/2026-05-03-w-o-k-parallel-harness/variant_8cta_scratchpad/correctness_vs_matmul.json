@@ -1,0 +1,6 @@
+{
+  "max_abs": 0.04345703125,
+  "max_rel": 0.002053388161584735,
+  "ref_function": "reference_matmul",
+  "kind": "DIAGNOSTIC"
+}

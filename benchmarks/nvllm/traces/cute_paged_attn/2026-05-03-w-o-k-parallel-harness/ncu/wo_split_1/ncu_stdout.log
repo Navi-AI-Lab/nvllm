@@ -1,0 +1,28 @@
+==PROF== Connected to process 30 (/usr/bin/python3.12)
+==PROF== Disconnected from process 30
+==PROF== Connected to process 65 (/usr/bin/python3.12)
+==PROF== Disconnected from process 65
+==PROF== Connected to process 98 (/usr/bin/python3.12)
+==PROF== Disconnected from process 98
+==PROF== Connected to process 131 (/usr/bin/python3.12)
+==PROF== Disconnected from process 131
+==PROF== Connected to process 164 (/usr/bin/python3.12)
+==PROF== Disconnected from process 164
+==PROF== Connected to process 197 (/usr/bin/python3.12)
+==PROF== Disconnected from process 197
+==PROF== Connected to process 230 (/usr/bin/python3.12)
+==PROF== Disconnected from process 230
+==PROF== Connected to process 263 (/usr/bin/python3.12)
+==PROF== Disconnected from process 263
+==PROF== Connected to process 296 (/usr/bin/python3.12)
+==PROF== Disconnected from process 296
+==PROF== Connected to process 329 (/usr/bin/python3.12)
+==PROF== Disconnected from process 329
+==PROF== Connected to process 362 (/usr/bin/python3.12)
+==PROF== Disconnected from process 362
+==PROF== Connected to process 395 (/usr/bin/python3.12)
+==PROF== Disconnected from process 395
+==PROF== Connected to process 428 (/usr/bin/python3.12)
+==PROF== Disconnected from process 428
+==PROF== Creating report from application replay data: 0%...............100%
+==PROF== Report: /work/benchmarks/nvllm/traces/cute_paged_attn/2026-05-03-w-o-k-parallel-harness/ncu/wo_split_1/kernel.ncu-rep

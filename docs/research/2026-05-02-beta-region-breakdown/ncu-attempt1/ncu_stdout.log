@@ -1,0 +1,6 @@
+==PROF== Connected to process 94 (/usr/bin/python3.12)
+==PROF== Disconnected from process 94
+==PROF== Connected to process 30 (/usr/bin/python3.12)
+==PROF== Connected to process 178 (/usr/bin/python3.12)
+==ERROR== Failed to profile "kernel_cutlass__kernel_phase_..." in process 178
+==PROF== Trying to shutdown target application

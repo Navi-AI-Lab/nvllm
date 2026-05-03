@@ -1,0 +1,4 @@
+NCU run on wo_split=8 (32 W_O CTAs, 8x split)
+Filter: --kernel-name regex:wo_kernel_body
+Replay mode: application (cooperative barrier requires it)
+target-processes all: NOT used (harness uses execvp, no fork)
