@@ -911,7 +911,9 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 # inside this `try:` so an OOM trips the except handler
                 # that nulls _phase_e_coop_kernel.
                 self._phase_e_coop_wo_output = torch.zeros(
-                    max_num_seqs, 4, hidden_dim,
+                    max_num_seqs,
+                    self.num_kv_heads * self._phase_e_coop_kernel.wo_split,
+                    hidden_dim,
                     dtype=torch.float32, device="cuda",
                 )
                 self._phase_e_coop_mlp_partial_fp32 = torch.zeros(
