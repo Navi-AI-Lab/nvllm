@@ -4279,6 +4279,23 @@ class PhaseE_Beta_Kernel:
                     is_last_cta = _ld_shared_f32(sync_md)
 
                     if is_last_cta > Float32(0.5):
+                        # Region 12 entry: gather_reduce (elected single-CTA only).
+                        if region_timing_enabled:
+                            if tid == Int32(0):
+                                cta_id = (
+                                    bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                    + by * Int32(self.slice_ctas)
+                                    + bx
+                                )
+                                t_entry = _read_globaltimer_u64()
+                                _st_global_u64(
+                                    region_timing_ptr
+                                    + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                                    + Int64(12 * 2 * 8)              # region 12
+                                    + Int64(0 * 8),                  # slot 0 = entry
+                                    t_entry,
+                                )
+
                         hd_c = hidden_dim
                         n_per_thr_c = hd_c // Int32(128)
 
@@ -4395,6 +4412,23 @@ class PhaseE_Beta_Kernel:
                                     resout_base_c
                                     + Int64(idx_c * Int32(2)),
                                     new_res)
+
+                        # Region 12 exit: gather_reduce.
+                        if region_timing_enabled:
+                            if tid == Int32(0):
+                                cta_id = (
+                                    bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                    + by * Int32(self.slice_ctas)
+                                    + bx
+                                )
+                                t_exit = _read_globaltimer_u64()
+                                _st_global_u64(
+                                    region_timing_ptr
+                                    + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                                    + Int64(12 * 2 * 8)
+                                    + Int64(1 * 8),                  # slot 1 = exit
+                                    t_exit,
+                                )
 
                         # Reset arrival counter for next call.
                         if tid == Int32(0):
