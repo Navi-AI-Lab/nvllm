@@ -3401,7 +3401,7 @@ class PhaseE_Beta_Kernel:
             # (single CTA per seq — see phase_e_kernel.py:2689). Other CTAs
             # skip the write so region 0 entries stay zero on inactive CTAs;
             # the host reducer uses (delta>0) to filter inactive rows.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 phase0_active = (bx == Int32(0)) and (by == Int32(0))
                 if phase0_active and tid == Int32(0):
                     # cta_id = bz * (slice_ctas * num_k_tiles)
@@ -3497,7 +3497,7 @@ class PhaseE_Beta_Kernel:
 
             # Region 0 exit: Phase 0 (pre-attn). Same active-CTA mask as
             # entry — bx==0 && by==0, single CTA per seq.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 if (bx == Int32(0)) and (by == Int32(0)) and (tid == Int32(0)):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -3517,7 +3517,7 @@ class PhaseE_Beta_Kernel:
             # mask: bx==0 && by<4 (4 attn CTAs per seq). Other CTAs skip
             # the write so region 1 entries stay zero on inactive CTAs;
             # the host reducer uses (delta>0) to filter inactive rows.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 phase1_active = (bx == Int32(0)) and (by < Int32(4))
                 if phase1_active and tid == Int32(0):
                     cta_id = (
@@ -3985,7 +3985,7 @@ class PhaseE_Beta_Kernel:
 
                     # Region 1 exit: Phase 1 (attn A+B+C). We are inside
                     # the bx==0 && by<4 block, so just gate on tid==0.
-                    if cutlass.const_expr(region_timing_enabled):
+                    if region_timing_enabled:
                         if tid == Int32(0):
                             cta_id = (
                                 bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4005,7 +4005,7 @@ class PhaseE_Beta_Kernel:
                     # Region 2 entry: Phase 1 W_O GEMV body. We are inside
                     # the bx==0 && by<4 block, so just gate on tid==0.
                     # K-reduction candidate site #1.
-                    if cutlass.const_expr(region_timing_enabled):
+                    if region_timing_enabled:
                         if tid == Int32(0):
                             cta_id = (
                                 bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4146,7 +4146,7 @@ class PhaseE_Beta_Kernel:
                     # Region 2 exit: Phase 1 W_O GEMV body. Recorded just
                     # after the W_O writes are published by _threadfence.
                     # We are inside the bx==0 && by<4 block, gate on tid==0.
-                    if cutlass.const_expr(region_timing_enabled):
+                    if region_timing_enabled:
                         if tid == Int32(0):
                             cta_id = (
                                 bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4165,7 +4165,7 @@ class PhaseE_Beta_Kernel:
                     # Region 3 entry: W_O end → barrier-arrive (cleanup).
                     # Same site as region 2 exit (W_O sync), but recorded
                     # as a separate block to keep the buffer boundary clean.
-                    if cutlass.const_expr(region_timing_enabled):
+                    if region_timing_enabled:
                         if tid == Int32(0):
                             cta_id = (
                                 bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4184,7 +4184,7 @@ class PhaseE_Beta_Kernel:
                     # Region 3 exit: just before the _atomic_add_u32 to
                     # phase1_arrival_count (the per-CTA barrier-arrive
                     # signal). We are inside bx==0 && by<4, gate on tid==0.
-                    if cutlass.const_expr(region_timing_enabled):
+                    if region_timing_enabled:
                         if tid == Int32(0):
                             cta_id = (
                                 bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4343,7 +4343,7 @@ class PhaseE_Beta_Kernel:
             # barrier — i.e., immediately before the _threadfence() that
             # publishes its prior writes. Wait-time NOT work-time (label
             # in host reducer).
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 if tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4385,7 +4385,7 @@ class PhaseE_Beta_Kernel:
             # Region 4 exit: grid barrier wait. Recorded right after
             # _acquire_fence (post-loop), before the block-internal sync.
             # This isolates the wait time from the subsequent block sync.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 if tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4407,7 +4407,7 @@ class PhaseE_Beta_Kernel:
 
             # Region 5 entry: Phase 3 (MLP) entry → load_x sync. All 64
             # CTAs participate. Brackets the smem_x load from attn_output.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 if tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4482,7 +4482,7 @@ class PhaseE_Beta_Kernel:
             cute.arch.sync_threads()
 
             # Region 5 exit: Phase 3 entry → load_x sync done. All 64 CTAs.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 if tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4501,7 +4501,7 @@ class PhaseE_Beta_Kernel:
             # Region 6 entry: Phase 3.2.5 partial_reset. All 64 CTAs.
             # Brackets the per-CTA mlp_partial_fp32 zeroing prior to
             # FC1/quant/FC2 accumulation.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 if tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4570,7 +4570,7 @@ class PhaseE_Beta_Kernel:
             # the slice bounds (s_start_p3, s_end_p3, num_h_blocks) are
             # computed; Stage 3a/b/c regions (7/8/9) bracket per-iteration
             # work — they record the LAST iteration's wall-time slice.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 if tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4592,7 +4592,7 @@ class PhaseE_Beta_Kernel:
                 # All 64 CTAs. Per-iteration sample: each loop overwrites
                 # the slot, so the recorded value reflects the LAST
                 # iteration's Stage 3a wall-time.
-                if cutlass.const_expr(region_timing_enabled):
+                if region_timing_enabled:
                     if tid == Int32(0):
                         cta_id = (
                             bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4731,7 +4731,7 @@ class PhaseE_Beta_Kernel:
 
                 # Region 7 exit: Stage 3a (FC1 + SiLU) done. All 64 CTAs.
                 # Closes just before Stage 3b (FP4 quantize intermediate).
-                if cutlass.const_expr(region_timing_enabled):
+                if region_timing_enabled:
                     if tid == Int32(0):
                         cta_id = (
                             bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4750,7 +4750,7 @@ class PhaseE_Beta_Kernel:
                 # Region 8 entry: Stage 3b (FP4 quantize intermediate).
                 # All 64 CTAs. Brackets the warp-strided block-quantize
                 # over smem_interm_bf16 → smem_interm_fp4 + scales.
-                if cutlass.const_expr(region_timing_enabled):
+                if region_timing_enabled:
                     if tid == Int32(0):
                         cta_id = (
                             bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4863,7 +4863,7 @@ class PhaseE_Beta_Kernel:
 
                 # Region 8 exit: Stage 3b (FP4 quantize intermediate) done.
                 # All 64 CTAs. Closes just before Stage 3c (FC2 + atomicAdd).
-                if cutlass.const_expr(region_timing_enabled):
+                if region_timing_enabled:
                     if tid == Int32(0):
                         cta_id = (
                             bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4882,7 +4882,7 @@ class PhaseE_Beta_Kernel:
                 # Region 9 entry: Stage 3c (FC2 + atomicAdd) for this slice.
                 # All 64 CTAs. Brackets the FC2 GEMV (per-row dequant +
                 # MAC) and the per-CTA atomic_add into mlp_partial_fp32.
-                if cutlass.const_expr(region_timing_enabled):
+                if region_timing_enabled:
                     if tid == Int32(0):
                         cta_id = (
                             bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -5083,7 +5083,7 @@ class PhaseE_Beta_Kernel:
                 # is named "FC2 + atomicAdd" so the atomic_add cost
                 # is attributed to it. We're inside if tid == Int32(0)
                 # — only thread 0 records the timestamp.
-                if cutlass.const_expr(region_timing_enabled):
+                if region_timing_enabled:
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
                         + by * Int32(self.slice_ctas)
@@ -5100,7 +5100,7 @@ class PhaseE_Beta_Kernel:
 
                 # Region 10 entry: Stage 3.4 (arrival wait + last-CTA
                 # gather). Starts immediately after region 9 exit.
-                if cutlass.const_expr(region_timing_enabled):
+                if region_timing_enabled:
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
                         + by * Int32(self.slice_ctas)
@@ -5198,7 +5198,7 @@ class PhaseE_Beta_Kernel:
             # counter increment, last-CTA gather, and FULL-graph counter
             # reset). Placed AFTER the `if is_last:` block so all 64 CTAs
             # record the exit timestamp, not just the last-CTA writers.
-            if cutlass.const_expr(region_timing_enabled):
+            if region_timing_enabled:
                 if tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
