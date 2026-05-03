@@ -244,6 +244,13 @@ class PhaseE_Beta_Kernel:
         )
         # Each CTA owns a contiguous chunk of slices (mirrors Phase_D).
         self.slices_per_cta = (self.num_slices + slice_ctas - 1) // slice_ctas
+        # wo_split: K-parallel split factor for W_O GEMV.
+        # Default 1 = current behavior (4 active W_O CTAs).
+        # Bounded by slice_ctas; wo_split>slice_ctas requires grid changes.
+        self.wo_split = int(os.environ.get("CUTE_WO_SPLIT", "1"))
+        assert 1 <= self.wo_split <= self.slice_ctas, (
+            f"wo_split={self.wo_split} must be in [1, slice_ctas={self.slice_ctas}]"
+        )
         # FC2 thread mapping — same two-path choice as Phase_D (see
         # mlp_kernel.py:374).
         if tile_k >= self.num_threads:
@@ -3119,6 +3126,7 @@ class PhaseE_Beta_Kernel:
             self.slice_ctas,
             self.num_slices,
             self.num_k_tiles,
+            self.wo_split,  # NEW: K-parallel W_O split factor
             self.slices_per_cta,
             self._rows_per_thread,
             self._threads_per_row,
