@@ -2865,10 +2865,13 @@ class PhaseE_Beta_Kernel:
         # Spec 2026-04-30 §4.3: hoisted to CutePagedAttentionImpl in
         # attach_mlp_fusion. Per-call alloc here was unsafe under FULL
         # graph capture (vLLM #35175 analog).
-        total_ctas_per_seq_attn = 4  # bx==0 && by<4
-        assert wo_output.shape == (nat, total_ctas_per_seq_attn, hidden), (
+        # Phase 1 attn-producer CTA count — drives the R1 attn-pre-W_O mask.
+        total_ctas_per_seq_attn = self.num_kv_heads  # = 4 by default
+        # Phase 1 W_O slot count — drives wo_output shape, gather, election, reset.
+        total_wo_slots = self.num_kv_heads * self.wo_split  # = 4 at wo_split=1
+        assert wo_output.shape == (nat, total_wo_slots, hidden), (
             f"wo_output shape {wo_output.shape} != "
-            f"({nat}, {total_ctas_per_seq_attn}, {hidden})"
+            f"({nat}, {total_wo_slots}, {hidden})"
         )
         assert wo_output.dtype == torch.float32
         assert wo_output.is_contiguous()
@@ -3019,6 +3022,7 @@ class PhaseE_Beta_Kernel:
             wo_nkt,
             wo_row_stride,
             Int32(total_ctas_per_seq_attn),
+            Int32(total_wo_slots),
             Int32(hidden),
             Float32(float(scale)),
             Float32(float(k_scale)),
@@ -3209,6 +3213,7 @@ class PhaseE_Beta_Kernel:
             wo_num_k_tiles: Int32,
             wo_weight_row_stride: Int32,
             total_ctas_per_seq_attn: Int32,
+            total_wo_slots: Int32,
             hidden_dim: Int32,
             scale: Float32,
             k_scale: Float32,
@@ -3281,6 +3286,7 @@ class PhaseE_Beta_Kernel:
                 wo_num_k_tiles,
                 wo_weight_row_stride,
                 total_ctas_per_seq_attn,
+                total_wo_slots,
                 hidden_dim,
                 scale,
                 k_scale,
@@ -3341,6 +3347,7 @@ class PhaseE_Beta_Kernel:
             wo_num_k_tiles: Int32,
             wo_weight_row_stride: Int32,
             total_ctas_per_seq_attn: Int32,
+            total_wo_slots: Int32,
             hidden_dim: Int32,
             scale: Float32,
             k_scale: Float32,
@@ -4108,9 +4115,9 @@ class PhaseE_Beta_Kernel:
 
                             k_idx = k_idx + Int32(1)
 
-                        cta_idx = bx * num_kv_heads + by
+                        cta_idx = bx * num_kv_heads + by  # UNCHANGED — Task 8 lifts to by*wo_split+bx
                         wo_slot_base = wo_output_ptr + Int64(
-                            (seq_idx * total_ctas_per_seq_attn + cta_idx)
+                            (seq_idx * total_wo_slots + cta_idx)
                             * hd_wo * Int32(4))
                         for _oi in cutlass.range_constexpr(8):
                             out_row = out_base_wo + Int32(_oi)
@@ -4213,7 +4220,7 @@ class PhaseE_Beta_Kernel:
                             phase1_arrival_ptr
                             + Int64(seq_idx * Int32(4)),
                             Int32(1))
-                        if old_count == total_ctas_per_seq_attn - Int32(1):
+                        if old_count == total_wo_slots - Int32(1):
                             _st_shared_f32(sync_md, Float32(1.0))
                         else:
                             _st_shared_f32(sync_md, Float32(0.0))
@@ -4228,7 +4235,7 @@ class PhaseE_Beta_Kernel:
                         res_base_c = residual_in_ptr + Int64(
                             seq_idx * hd_c * Int32(2))
                         wo_base_c = wo_output_ptr + Int64(
-                            seq_idx * total_ctas_per_seq_attn
+                            seq_idx * total_wo_slots
                             * hd_c * Int32(4))
                         gamma_base_c = post_attn_gamma_ptr
                         out_base_c = attn_output_ptr + Int64(
@@ -4246,9 +4253,9 @@ class PhaseE_Beta_Kernel:
                                 idx_c = my_start_c + Int32(_grp * 8 + _ei)
                                 gather_acc = Float32(0.0)
                                 cta_i = Int32(0)
-                                while cta_i < total_ctas_per_seq_attn:
+                                while cta_i < total_wo_slots:
                                     slot_addr = wo_output_ptr + Int64(
-                                        (seq_idx * total_ctas_per_seq_attn
+                                        (seq_idx * total_wo_slots
                                          + cta_i)
                                         * hd_c * Int32(4)
                                         + idx_c * Int32(4))
@@ -4344,7 +4351,7 @@ class PhaseE_Beta_Kernel:
                             _atomic_add_u32(
                                 phase1_arrival_ptr
                                 + Int64(seq_idx * Int32(4)),
-                                Int32(0) - total_ctas_per_seq_attn)
+                                Int32(0) - total_wo_slots)
 
             # Region 4 entry: grid barrier wait (all 64 CTAs participate).
             # Entry tick recorded at the moment a CTA arrives at the
