@@ -930,6 +930,19 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 self._phase_e_coop_phase1_arrival_count = torch.zeros(
                     max_num_seqs, dtype=torch.int32, device="cuda",
                 )
+                # Task 6: pre-W_O arrival counter — producers (bx==0 attn
+                # CTAs) atomic_add 1 after attn_output is written;
+                # consumers (bx>0 W_O CTAs, only at wo_split>1) spin-wait
+                # until the counter reaches num_kv_heads. At wo_split=1 the
+                # consumer mask is empty and no CTA reads this counter, so
+                # the increment to num_kv_heads is harmless. Reset by host
+                # zero_() before each launch (Task 6 chose host-zero_
+                # approach over kernel atomic-subtract for symmetry with
+                # mlp_arrival_count.zero_() that already runs at every
+                # launch).
+                self._phase_e_coop_pre_wo_arrival_count = torch.zeros(
+                    max_num_seqs, dtype=torch.int32, device="cuda",
+                )
                 if _REGION_TIMING_ENABLED:
                     # Per-CTA region timing scratch. Layout:
                     #   (num_ctas, num_regions, 2) u64 — entry+exit ticks.
@@ -1642,6 +1655,11 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         mlp_arrival_count=self._phase_e_coop_mlp_arrival_count[:nat],
                         grid_barrier_i32=self._phase_e_coop_grid_barrier_i32[:nat],
                         phase1_arrival_count=self._phase_e_coop_phase1_arrival_count[:nat],
+                        # Task 6: pre-W_O arrival counter (dormant at
+                        # wo_split=1 — consumer mask `bx>0 && bx<wo_split`
+                        # is empty so no CTA spins, R11 buffer rows stay
+                        # zero, host nonzero filter drops them).
+                        pre_wo_arrival_count=self._phase_e_coop_pre_wo_arrival_count[:nat],
                         # Task 4 plumb: env-gated region-timing scratch (or
                         # None when CUTE_BETA_REGION_TIMING is unset; see
                         # _phase_e_coop_region_timing init above).

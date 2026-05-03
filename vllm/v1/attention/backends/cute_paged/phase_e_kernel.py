@@ -2809,6 +2809,12 @@ class PhaseE_Beta_Kernel:
         mlp_arrival_count: torch.Tensor,    # [nat, num_k_tiles]          u32
         grid_barrier_i32: torch.Tensor,     # [nat]                       i32
         phase1_arrival_count: torch.Tensor, # [nat]                       i32
+        # Task 6: pre-W_O arrival counter (i32 [nat]). Producers (bx==0
+        # attn CTAs, by<num_kv_heads) atomic_add 1 after attn_output is
+        # written; consumers (bx>0 W_O CTAs at wo_split>1) spin until
+        # counter == num_kv_heads. Dormant at wo_split=1 (consumer mask
+        # `bx>0 && bx<wo_split` is empty).
+        pre_wo_arrival_count: torch.Tensor, # [nat]                       i32
         # When True, prime the disk cache for this config and return
         # immediately after _compile_coop_full. The actual launch
         # (self._compiled_phase_coop_full) is skipped. Used by
@@ -2956,6 +2962,11 @@ class PhaseE_Beta_Kernel:
         wo_output_ptr = Int64(wo_output.data_ptr())
         wo_gs_ptr = Int64(wo_global_scale.data_ptr())
         phase1_arrival_ptr = Int64(phase1_arrival_count.data_ptr())
+        # Task 6: pre-W_O arrival counter pointer. Producers (bx==0 attn
+        # CTAs, by<num_kv_heads) atomic_add 1 after attn writes; consumers
+        # (bx>0 W_O CTAs at wo_split>1) spin until counter == num_kv_heads.
+        # Dormant at wo_split=1 (consumer mask `bx>0 && bx<wo_split` empty).
+        pre_wo_arrival_ptr = Int64(pre_wo_arrival_count.data_ptr())
 
         gate_fp4_ptr = Int64(gate_w_fp4.data_ptr())
         gate_sc_ptr = Int64(gate_w_scale.data_ptr())
@@ -3022,6 +3033,7 @@ class PhaseE_Beta_Kernel:
             wo_output_ptr,
             wo_gs_ptr,
             phase1_arrival_ptr,
+            pre_wo_arrival_ptr,  # Task 6: pre-W_O arrival counter
             Int32(self.num_attn_heads),
             Int32(self.num_kv_heads),
             kv_page_stride,
@@ -3106,6 +3118,7 @@ class PhaseE_Beta_Kernel:
         # this function).
         # Reverted to counters-only — partial fix, capture-safe.
         phase1_arrival_count.zero_()
+        pre_wo_arrival_count.zero_()  # Task 6: pre-W_O arrival counter reset
         grid_barrier_i32.zero_()
         mlp_arrival_count.zero_()
         # mlp_partial_fp32.zero_()  # large FP32 — hangs capture
@@ -3213,6 +3226,12 @@ class PhaseE_Beta_Kernel:
             wo_output_ptr: Int64,
             wo_gs_ptr: Int64,
             phase1_arrival_ptr: Int64,
+            # Task 6: pre-W_O arrival counter (i32 [nat]). Producers (bx==0
+            # attn CTAs, by<num_kv_heads) atomic_add 1 after attn_output
+            # is published; consumers (bx>0 W_O CTAs at wo_split>1) spin
+            # until counter == num_kv_heads. Dormant at wo_split=1
+            # (consumer mask `bx>0 && bx<wo_split` empty).
+            pre_wo_arrival_ptr: Int64,
             num_q_heads: Int32,
             num_kv_heads: Int32,
             kv_page_stride: Int32,
@@ -3286,6 +3305,7 @@ class PhaseE_Beta_Kernel:
                 wo_output_ptr,
                 wo_gs_ptr,
                 phase1_arrival_ptr,
+                pre_wo_arrival_ptr,  # Task 6: pre-W_O arrival counter
                 num_q_heads,
                 num_kv_heads,
                 kv_page_stride,
@@ -3347,6 +3367,12 @@ class PhaseE_Beta_Kernel:
             wo_output_ptr: Int64,
             wo_gs_ptr: Int64,
             phase1_arrival_ptr: Int64,
+            # Task 6: pre-W_O arrival counter (i32 [nat]). Producers
+            # (bx==0 attn CTAs, by<num_kv_heads) atomic_add 1 after
+            # attn_output is published; consumers (bx>0 W_O CTAs at
+            # wo_split>1) spin until counter == num_kv_heads. Dormant
+            # at wo_split=1 (consumer mask `bx>0 && bx<wo_split` empty).
+            pre_wo_arrival_ptr: Int64,
             num_q_heads: Int32,
             num_kv_heads: Int32,
             kv_page_stride: Int32,
@@ -4022,6 +4048,24 @@ class PhaseE_Beta_Kernel:
                                 t_exit,
                             )
 
+                    # ========================================================
+                    # Task 6: pre-W_O producer fence + arrival signal.
+                    # Runs INSIDE the bx==0 && by<num_kv_heads parent (this
+                    # block). Each of the 4 attn CTAs (bx==0, by∈[0,4)) does
+                    # one atomic_add 1 after attn_output writes are flushed
+                    # to global. At wo_split=1 no consumer reads the counter
+                    # so the signal is harmless overhead. At wo_split>1 the
+                    # bx>0 W_O CTAs spin-acquire on the counter at kernel-
+                    # level R11 (placed between this parent and R4 entry).
+                    # ========================================================
+                    _threadfence()
+                    cute.arch.sync_threads()
+                    if tid == Int32(0):
+                        _atomic_add_u32(
+                            pre_wo_arrival_ptr
+                            + Int64(seq_idx * Int32(4)),
+                            Int32(1))
+
                     # === Phase B: Fused W_O GEMV ===
                     # Region 2 entry: Phase 1 W_O GEMV body. We are inside
                     # the bx==0 && by<4 block, so just gate on tid==0.
@@ -4358,6 +4402,84 @@ class PhaseE_Beta_Kernel:
                                 phase1_arrival_ptr
                                 + Int64(seq_idx * Int32(4)),
                                 Int32(0) - total_wo_slots)
+
+            # ===================================================================
+            # Task 6: R11 = pre_wo_wait. Consumer-side spin-wait + bracketing
+            # timing. Runs at kernel-level (OUTSIDE the bx==0 parent above).
+            #
+            # At wo_split=1 the consumer mask `bx>0 && bx<wo_split=1 && by<4`
+            # is empty — no CTA executes the body, R11 buffer rows stay zero
+            # and the host nonzero filter drops them. Producer atomic_add at
+            # the end of the parent block (4 attn CTAs) brings the counter to
+            # num_kv_heads each launch; reset to 0 by host .zero_() before
+            # the next launch, so no in-kernel decrement is required (mirrors
+            # mlp_arrival_count.zero_() pattern).
+            #
+            # At wo_split>1 (Task 8), the K-parallel W_O CTAs (bx∈[1, wo_split),
+            # by<num_kv_heads) sit here waiting for the 4 producers, then
+            # acquire-fence and proceed to their per-CTA W_O GEMV slice. The
+            # mask is `bx > 0` (NOT `bx >= 0`) — bx==0 is the producer path
+            # and must not enter the consumer wait or it deadlocks.
+            # ===================================================================
+
+            # Region 11 entry: pre_wo_wait (consumer-only mask).
+            if region_timing_enabled:
+                pre_wo_consumer_active = (
+                    (bx > Int32(0))
+                    and (bx < Int32(self.wo_split))
+                    and (by < Int32(self.num_kv_heads))
+                )
+                if pre_wo_consumer_active and tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(11 * 2 * 8)              # region 11
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
+
+            # Spin-wait for producers (consumer-only mask). At wo_split=1 the
+            # mask is empty so no CTA enters the loop. At wo_split>1 each
+            # consumer CTA (bx>0) loops on a volatile load until the counter
+            # reaches num_kv_heads (= number of producers).
+            if (bx > Int32(0)) and (bx < Int32(self.wo_split)) \
+                    and (by < Int32(self.num_kv_heads)):
+                pre_wo_arrived = Int32(0)
+                while pre_wo_arrived < num_kv_heads:
+                    pre_wo_arrived = _ld_volatile_u32(
+                        pre_wo_arrival_ptr
+                        + Int64(seq_idx * Int32(4))
+                    )
+                _acquire_fence()
+                cute.arch.sync_threads()
+
+            # Region 11 exit: pre_wo_wait (consumer-only mask).
+            if region_timing_enabled:
+                pre_wo_consumer_active2 = (
+                    (bx > Int32(0))
+                    and (bx < Int32(self.wo_split))
+                    and (by < Int32(self.num_kv_heads))
+                )
+                if pre_wo_consumer_active2 and tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(11 * 2 * 8)              # region 11
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit,
+                    )
 
             # Region 4 entry: grid barrier wait (all 64 CTAs participate).
             # Entry tick recorded at the moment a CTA arrives at the
