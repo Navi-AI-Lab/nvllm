@@ -134,6 +134,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Number of active decode tokens (default 1).",
     )
     parser.add_argument(
+        "--slice-ctas", type=int, default=SLICE_CTAS,
+        help=(
+            "Override slice_ctas (production default 8). Total grid CTAs = "
+            "slice_ctas * num_kv_heads. Used for 2026-05-03-parity-gap audit "
+            "to vary the total cooperative-grid size while holding active "
+            "W_O CTAs (= wo_split * num_kv_heads) constant. "
+            "GATHER_CTAS effective-bytes term scales with this value."
+        ),
+    )
+    parser.add_argument(
         "--allow-ncu-multi-launch", action="store_true",
         help="Allow --ncu with --launches > 1 (only valid with --ncu).",
     )
@@ -151,6 +161,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         parser.error(
             f"--num-active-tokens must be >= 1, got {args.num_active_tokens}"
         )
+    if args.slice_ctas < args.wo_split:
+        parser.error(
+            f"--slice-ctas ({args.slice_ctas}) must be >= "
+            f"--wo-split ({args.wo_split})"
+        )
+    if args.slice_ctas < 1:
+        parser.error(f"--slice-ctas must be >= 1, got {args.slice_ctas}")
     return args
 
 
@@ -333,11 +350,17 @@ def main(argv: list[str]) -> int:
 
     # ----- Initial config.json (cache_key filled in after first launch) -----
     total_wo_ctas = NUM_KV_HEADS * args.wo_split
+    slice_ctas = args.slice_ctas
+    gather_ctas = slice_ctas * NUM_KV_HEADS
     cooperative = not args.no_cooperative
     config: dict[str, Any] = {
         "git_sha": git_sha,
         "wo_split": args.wo_split,
         "total_wo_ctas": total_wo_ctas,
+        "slice_ctas": slice_ctas,
+        "gather_ctas": gather_ctas,
+        "total_grid_ctas_per_seq": gather_ctas,
+        "active_wo_ctas": total_wo_ctas,
         "hidden_size": HIDDEN_SIZE,
         "num_kv_heads": NUM_KV_HEADS,
         "num_q_heads": NUM_Q_HEADS,
@@ -368,7 +391,8 @@ def main(argv: list[str]) -> int:
             "PAYLOAD = B*K*2 + H*K//2 + nmt*nkt*32*4*4 + 4 + B*H*4; "
             "SCRATCH = B*total_wo_ctas*H*4 + GATHER_CTAS*total_wo_ctas*B*H*4; "
             "EFFECTIVE = PAYLOAD + SCRATCH; "
-            "GATHER_CTAS = slice_ctas*num_kv_heads = 32"
+            "GATHER_CTAS = slice_ctas*num_kv_heads "
+            f"(this run: {gather_ctas})"
         ),
     }
     config_path = out_dir / "config.json"
@@ -434,10 +458,10 @@ def main(argv: list[str]) -> int:
         num_q_heads=NUM_Q_HEADS,
         head_dim=HEAD_DIM,
         num_threads=NUM_THREADS,
-        slice_ctas=SLICE_CTAS,
+        slice_ctas=slice_ctas,
     )
 
-    # ----- Effective-bytes invariants -----
+    # ----- Effective-bytes invariants (uses run-actual gather_ctas) -----
     payload_bytes = (
         B * K * 2
         + HIDDEN_SIZE * K // 2
@@ -447,7 +471,7 @@ def main(argv: list[str]) -> int:
     )
     scratch_bytes = (
         B * total_wo_ctas * HIDDEN_SIZE * 4
-        + GATHER_CTAS * total_wo_ctas * B * HIDDEN_SIZE * 4
+        + gather_ctas * total_wo_ctas * B * HIDDEN_SIZE * 4
     )
     effective_bytes = payload_bytes + scratch_bytes
 
@@ -594,6 +618,8 @@ def main(argv: list[str]) -> int:
         "[harness] "
         f"wo_split={args.wo_split} "
         f"total_wo_ctas={total_wo_ctas} "
+        f"slice_ctas={slice_ctas} "
+        f"gather_ctas={gather_ctas} "
         f"launches={args.launches} "
         f"gate_passes={passes_so} "
         f"max_abs_so={max_abs_so:.3e} "
