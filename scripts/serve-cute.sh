@@ -76,6 +76,17 @@ mkdir -p /tmp/c2_diag
   echo "CUTE_C2_DIAG_TOL_RTOL=${CUTE_C2_DIAG_TOL_RTOL:-}"
 } > /tmp/c2_diag/ENV
 
+# Optional bind-mount of the cute_paged subdir for Python-only iteration
+# without a docker rebuild. Pure-Python directory (no .so), so safe to
+# overlay onto the in-image editable install at /app/nvllm/...
+# Enable with NVLLM_BIND_MOUNT_CUTE_PAGED=1.
+BIND_MOUNT_CUTE=()
+if [ "${NVLLM_BIND_MOUNT_CUTE_PAGED:-0}" = "1" ]; then
+  HOST_CUTE_DIR="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)/vllm/v1/attention/backends/cute_paged"
+  BIND_MOUNT_CUTE=(-v "$HOST_CUTE_DIR:/app/nvllm/vllm/v1/attention/backends/cute_paged")
+  echo "  Bind mount:  $HOST_CUTE_DIR -> /app/nvllm/vllm/v1/attention/backends/cute_paged"
+fi
+
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -85,6 +96,7 @@ docker run -d \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
   -v "/tmp/nvllm-dumps:/tmp/nvllm-dumps" \
   -v "/tmp/c2_diag:/tmp/c2_diag" \
+  "${BIND_MOUNT_CUTE[@]}" \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \

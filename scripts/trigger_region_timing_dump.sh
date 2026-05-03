@@ -12,10 +12,12 @@ OUT="${1:-./region_timings.npy}"
 
 docker exec "$CONTAINER" touch /tmp/.dump_region_timings
 
-# Force a forward() — one completion is enough.
+# Force a forward() — one completion is enough. Use served-model-name
+# "default" (set by serve-cute.sh), NOT the HF id — the OpenAI-compat
+# server resolves model-name against served names.
 curl -s -X POST http://localhost:8000/v1/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"ig1/Qwen3.5-27B-NVFP4","prompt":"x",
+  -d '{"model":"default","prompt":"x",
        "max_tokens":1,"temperature":0,"ignore_eos":true}' \
   > /dev/null
 

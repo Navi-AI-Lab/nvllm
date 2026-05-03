@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-04-30-2047",
+  "n_replays": 8,
+  "same_prompt_outputs": [
+    " Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris\n\nQ: What is the capital of Germany?\nA: Berlin\n\nQ: What is the capital of Italy?\nA: Rome\n\nQ:",
+    " Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Japan?\nA: Tokyo.",
+    " Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Japan?\nA: Tokyo.",
+    " Paris.\nQ: What is the capital of Germany?\nA: Berlin.\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.",
+    " Paris\n\nQ: What is the capital of Germany?\nA: Berlin\n\nQ: What is the capital of Japan?\nA: Tokyo\n\nQ:"
+  ],
+  "same_prompt_unique_count": 5,
+  "same_prompt_pass": false,
+  "cross_prompt_a_first": " Paris\n\nQ: What is the capital of Germany?\nA: Berlin\n\nQ: What is the capital of Italy?\nA: Rome\n\nQ:",
+  "cross_prompt_a_after_b": " Paris.\n\nQ: What is the capital of Germany?\nA: Berlin.\n\nQ: What is the capital of Italy?\nA: Rome.",
+  "cross_prompt_pass": false,
+  "overall_pass": false
+}

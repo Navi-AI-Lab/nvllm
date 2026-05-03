@@ -351,6 +351,11 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # only when CUTE_BETA_REGION_TIMING=1; otherwise stays None and the
         # run_beta_coop_full kwarg defaults to None → timing-off compile path.
         self._phase_e_coop_region_timing: torch.Tensor | None = None
+        # Tracks slice size of the most recent β-coop launch
+        # (nat * slice_ctas * num_k_tiles). Used by the sentinel-file
+        # dump to write only populated rows (not the max_num_seqs slab).
+        # 0 means no β-coop launch has happened yet.
+        self._phase_e_coop_region_timing_last_ctas: int = 0
         # --- C1.5: Phase F.1 layer-LN bake plumbing disabled. ----------------
         # Skip-flag + this-layer LN module ref were used by the opaque
         # cute_phase_e_skip_input_layernorm op (now no-op'd in _mlp_op.py).
@@ -1638,7 +1643,30 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         # Task 4 plumb: env-gated region-timing scratch (or
                         # None when CUTE_BETA_REGION_TIMING is unset; see
                         # _phase_e_coop_region_timing init above).
-                        region_timing_buf=self._phase_e_coop_region_timing,
+                        # Friend-review fix: persistent buffer is sized for
+                        # max_num_seqs (e.g. 256 = 8*8*4); kernel validates
+                        # against per-call nat (e.g. 64 = 8*8*1). Slice
+                        # mirrors the wo_output[:nat] / mlp_partial[:nat]
+                        # pattern above. Track the last-used slice size so
+                        # the sentinel dump only writes the populated rows.
+                        region_timing_buf=(
+                            None
+                            if self._phase_e_coop_region_timing is None
+                            else self._phase_e_coop_region_timing[
+                                : nat
+                                * self._phase_e_coop_kernel.slice_ctas
+                                * self._phase_e_coop_kernel.num_k_tiles
+                            ]
+                        ),
+                    )
+                # Track the slice size used for the most recent β-coop
+                # launch — the sentinel dump (end of forward) must dump
+                # only this many rows, not the full max_num_seqs buffer.
+                if self._phase_e_coop_region_timing is not None:
+                    self._phase_e_coop_region_timing_last_ctas = (
+                        nat
+                        * self._phase_e_coop_kernel.slice_ctas
+                        * self._phase_e_coop_kernel.num_k_tiles
                     )
                 self._phase_e_consumed = True
                 self._phase_e_use_beta_coop = True
@@ -1963,19 +1991,31 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # Region-timing buffer dump: triggered by host writing a sentinel
         # file; we check + delete + dump per call. Cheap when sentinel
         # is absent (one os.path.exists per forward).
+        # Friend-review fixes: (a) gate on _phase_e_use_beta_coop so we
+        # only dump after a real β-coop launch (not a β-lite fallback or
+        # a non-fusion layer); (b) dump only the populated slice
+        # (last_ctas), not the full max_num_seqs buffer.
         if (
             self._phase_e_coop_region_timing is not None
+            and self._phase_e_use_beta_coop
+            and self._phase_e_coop_region_timing_last_ctas > 0
             and os.path.exists("/tmp/.dump_region_timings")
         ):
             try:
                 import numpy as np
-                buf = self._phase_e_coop_region_timing.detach().cpu().numpy()
+                last_ctas = self._phase_e_coop_region_timing_last_ctas
+                buf = (
+                    self._phase_e_coop_region_timing[:last_ctas]
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
                 out_path = "/root/.cache/vllm/region_timings.npy"
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 np.save(out_path, buf)
                 logger.warning(
-                    "[β-coop region timing] dumped %d bytes to %s",
-                    buf.nbytes, out_path,
+                    "[β-coop region timing] dumped %d bytes (shape=%s) to %s",
+                    buf.nbytes, buf.shape, out_path,
                 )
             finally:
                 # Always clear the sentinel so we don't dump every step.

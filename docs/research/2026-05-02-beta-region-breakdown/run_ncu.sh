@@ -30,9 +30,10 @@ echo "[ncu] this may take 5-10 minutes; ncu replays each kernel ~50x"
 # while ncu attaches.
 (
   sleep 5
+  # Use served-model-name "default" (set by serve-cute.sh), not the HF id.
   curl -s -X POST http://localhost:8000/v1/completions \
     -H 'Content-Type: application/json' \
-    -d '{"model":"ig1/Qwen3.5-27B-NVFP4","prompt":"The capital of France is",
+    -d '{"model":"default","prompt":"The capital of France is",
          "max_tokens":64,"temperature":0,"ignore_eos":true}' \
     > "$OUT_DIR/completion.json"
 ) &

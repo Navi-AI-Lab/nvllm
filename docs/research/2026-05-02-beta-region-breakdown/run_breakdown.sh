@@ -22,10 +22,17 @@ if [ ! -f "$OUT_DIR/profile_DONE" ]; then
   # lower8 production config (β fires on layers 3, 7) + region timing on
   # + torch profiler dir set so /start_profile / /stop_profile endpoints
   # exist (vLLM gates them on VLLM_TORCH_PROFILER_DIR being set).
+  # CUTE_PHASE_E_LAYERS parser is CSV-int only — `0..7` is malformed and
+  # falls back to None (meaning ALL layers). Use the explicit CSV.
+  # CUTE_PHASE_E_FALLBACK_RAISE=1: hard-fail on β-coop launch failure
+  # (e.g. shape mismatch) instead of silently falling back to β-lite,
+  # so orchestration sees the error early.
   CUTE_PHASE_E_FUSION=1 \
-  CUTE_PHASE_E_LAYERS=0..7 \
+  CUTE_PHASE_E_LAYERS=0,1,2,3,4,5,6,7 \
+  CUTE_PHASE_E_FALLBACK_RAISE=1 \
   CUTE_BETA_REGION_TIMING=1 \
   VLLM_TORCH_PROFILER_DIR=/root/.cache/vllm/profiler \
+  NVLLM_BIND_MOUNT_CUTE_PAGED=1 \
     bash scripts/serve-cute.sh \
     > "$OUT_DIR/profile_serve.log" 2>&1 &
   SERVE_PID=$!
@@ -110,8 +117,9 @@ if [ ! -f "$OUT_DIR/sanity_DONE" ]; then
   # Timing OFF + same lower8 production config, so the sanity GSM8K
   # tests the production β-coop path (not a different code path).
   CUTE_PHASE_E_FUSION=1 \
-  CUTE_PHASE_E_LAYERS=0..7 \
+  CUTE_PHASE_E_LAYERS=0,1,2,3,4,5,6,7 \
   CUTE_BETA_REGION_TIMING=0 \
+  NVLLM_BIND_MOUNT_CUTE_PAGED=1 \
     bash scripts/serve-cute.sh \
     > "$OUT_DIR/sanity_serve.log" 2>&1 &
   SERVE_PID=$!
