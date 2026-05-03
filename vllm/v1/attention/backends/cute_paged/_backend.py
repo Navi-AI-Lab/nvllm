@@ -60,7 +60,7 @@ _VERIFY_FRAMEWORK_OUTPUTS: bool = os.environ.get("CUTE_VERIFY_FW", "0") == "1"
 _REGION_TIMING_ENABLED = (
     os.environ.get("CUTE_BETA_REGION_TIMING", "0") == "1"
 )
-_REGION_TIMING_NUM_REGIONS = 11
+_REGION_TIMING_NUM_REGIONS = 13
 
 # CuTe DSL disk cache — runtime hookup. Without this call, the env vars
 # B12X_CUTE_COMPILE_DISK_CACHE and B12X_CUTE_COMPILE_CACHE_DIR are inert

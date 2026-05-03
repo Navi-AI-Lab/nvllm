@@ -33,6 +33,12 @@ logger = logging.getLogger(__name__)
 FP4_BLOCK_SIZE = 16
 LOG2_E = 1.4426950408889634
 
+# Per-CTA stride for the region-timing buffer:
+# regions × 2 slots (entry/exit) × 8 bytes (u64).
+# Must match _REGION_TIMING_NUM_REGIONS in _backend.py and
+# REGION_NAMES len in region_timing.py.
+_REGION_TIMING_PER_CTA_STRIDE = 13 * 2 * 8  # 208 bytes
+
 
 # --- CuTe DSL import guard (mirrors kernel.py / mlp_kernel.py) --------------
 _CUTE_AVAILABLE = False
@@ -341,7 +347,7 @@ class PhaseE_Beta_Kernel:
         )
         # Number of measured regions; matches the host reducer in
         # vllm/v1/attention/backends/cute_paged/region_timing.py.
-        self._region_timing_num_regions = 11
+        self._region_timing_num_regions = 13
 
     # -----------------------------------------------------------------
     # Python-level debug entry point (phase-0-only).
@@ -3432,7 +3438,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(0 * 2 * 8)              # region 0
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -3522,7 +3528,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(0 * 2 * 8)              # region 0
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -3543,7 +3549,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(1 * 2 * 8)              # region 1
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -4010,7 +4016,7 @@ class PhaseE_Beta_Kernel:
                             t_exit = _read_globaltimer_u64()
                             _st_global_u64(
                                 region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                                 + Int64(1 * 2 * 8)              # region 1
                                 + Int64(1 * 8),                  # slot 1 = exit
                                 t_exit,
@@ -4030,7 +4036,7 @@ class PhaseE_Beta_Kernel:
                             t_entry = _read_globaltimer_u64()
                             _st_global_u64(
                                 region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                                 + Int64(2 * 2 * 8)              # region 2
                                 + Int64(0 * 8),                  # slot 0 = entry
                                 t_entry,
@@ -4171,7 +4177,7 @@ class PhaseE_Beta_Kernel:
                             t_exit = _read_globaltimer_u64()
                             _st_global_u64(
                                 region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                                 + Int64(2 * 2 * 8)              # region 2
                                 + Int64(1 * 8),                  # slot 1 = exit
                                 t_exit,
@@ -4190,7 +4196,7 @@ class PhaseE_Beta_Kernel:
                             t_entry = _read_globaltimer_u64()
                             _st_global_u64(
                                 region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                                 + Int64(3 * 2 * 8)              # region 3
                                 + Int64(0 * 8),                  # slot 0 = entry
                                 t_entry,
@@ -4209,7 +4215,7 @@ class PhaseE_Beta_Kernel:
                             t_exit = _read_globaltimer_u64()
                             _st_global_u64(
                                 region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                                 + Int64(3 * 2 * 8)              # region 3
                                 + Int64(1 * 8),                  # slot 1 = exit
                                 t_exit,
@@ -4368,7 +4374,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(4 * 2 * 8)              # region 4
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -4410,7 +4416,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(4 * 2 * 8)              # region 4
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -4432,7 +4438,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(5 * 2 * 8)              # region 5
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -4507,7 +4513,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(5 * 2 * 8)              # region 5
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -4526,7 +4532,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(6 * 2 * 8)              # region 6
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -4595,7 +4601,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(6 * 2 * 8)              # region 6
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -4617,7 +4623,7 @@ class PhaseE_Beta_Kernel:
                         t_entry = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(7 * 2 * 8)              # region 7
                             + Int64(0 * 8),                  # slot 0 = entry
                             t_entry,
@@ -4756,7 +4762,7 @@ class PhaseE_Beta_Kernel:
                         t_exit = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(7 * 2 * 8)              # region 7
                             + Int64(1 * 8),                  # slot 1 = exit
                             t_exit,
@@ -4775,7 +4781,7 @@ class PhaseE_Beta_Kernel:
                         t_entry = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(8 * 2 * 8)              # region 8
                             + Int64(0 * 8),                  # slot 0 = entry
                             t_entry,
@@ -4888,7 +4894,7 @@ class PhaseE_Beta_Kernel:
                         t_exit = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(8 * 2 * 8)              # region 8
                             + Int64(1 * 8),                  # slot 1 = exit
                             t_exit,
@@ -4907,7 +4913,7 @@ class PhaseE_Beta_Kernel:
                         t_entry = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(9 * 2 * 8)              # region 9
                             + Int64(0 * 8),                  # slot 0 = entry
                             t_entry,
@@ -5107,7 +5113,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(9 * 2 * 8)              # region 9
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -5124,7 +5130,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(10 * 2 * 8)             # region 10
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -5223,7 +5229,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(10 * 2 * 8)             # region 10
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,

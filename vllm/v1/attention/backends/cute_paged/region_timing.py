@@ -44,10 +44,13 @@ REGION_NAMES = [
     "phase3_3b_quant",
     "phase3_3c_fc2_atomic",
     "phase3_3d_arrival",
+    "phase1_pre_wo_wait",      # NEW R11: bx>0 W_O CTAs wait for attn producers
+    "phase1_gather_reduce",    # NEW R12: last-CTA gather of total_wo_slots partials
 ]
 PHASE0_REGIONS = {0}                        # single CTA per seq
 PHASE1_REGIONS = {1, 2, 3}                  # 4 CTAs per seq (bx==0, by<4)
-WAIT_NOT_WORK_REGIONS = {4}                 # all CTAs but reported separately
+WAIT_NOT_WORK_REGIONS = {4, 11}             # R4 grid barrier + R11 pre-W_O wait
+DYNAMIC_SINGLE_CTA_REGIONS = {12}           # R12 elected gather/reduce
 PHASE3_REGIONS = {5, 6, 7, 8, 9, 10}        # all CTAs
 
 
@@ -69,12 +72,31 @@ def _phase1_cta_ids(slice_ctas: int, num_k_tiles: int, num_seqs: int) -> np.ndar
     return np.array(out, dtype=np.int64)
 
 
+def _phase1_wo_split_cta_ids(
+    slice_ctas: int,
+    num_k_tiles: int,
+    num_seqs: int,
+    wo_split: int,
+    num_kv_heads: int,
+) -> np.ndarray:
+    """W_O active CTAs with K-parallel split: bx<wo_split && by<num_kv_heads.
+    Each CTA's id = bz * (slice_ctas * num_k_tiles) + by * slice_ctas + bx.
+    """
+    out: list[int] = []
+    for s in range(num_seqs):
+        base = s * slice_ctas * num_k_tiles
+        for by in range(min(num_kv_heads, num_k_tiles)):
+            for bx in range(min(wo_split, slice_ctas)):
+                out.append(base + by * slice_ctas + bx)
+    return np.array(out, dtype=np.int64)
+
+
 @dataclass
 class RegionRow:
     region_id: int
     region: str
     n_active_ctas: int
-    cta_class: str             # "phase0" | "phase1" | "phase3" | "barrier_wait"
+    cta_class: str             # "phase0" | "phase1" | "phase3" | "barrier_wait" | "dynamic_single"
     tick_source: str           # "globaltimer" | "clock64"
     mean_ticks: float
     median_ticks: float
@@ -92,13 +114,20 @@ def reduce_region_timings(
     num_seqs: int,
     tick_source: str,                       # "globaltimer" | "clock64"
     nsys_total_us: Optional[float] = None,
+    wo_split: int = 1,
+    num_kv_heads: int = 0,
 ) -> pd.DataFrame:
-    """Reduce a (num_ctas, 11, 2) tick buffer to per-region rows.
+    """Reduce a (num_ctas, 13, 2) tick buffer to per-region rows.
 
     Active-CTA masks are derived from (slice_ctas, num_k_tiles, num_seqs)
     so callers do NOT pass a "num_attn_active_ctas" count — that count
     is wrong for Phase 0 (1 CTA/seq) vs Phase 1 (4 CTAs/seq) which the
     earlier draft conflated as "32".
+
+    When wo_split > 1, regions {2, 3, 11, 12} are masked using the
+    K-parallel W_O active-CTA layout (bx<wo_split && by<num_kv_heads)
+    via _phase1_wo_split_cta_ids. wo_split=1 falls through to the
+    legacy _phase1_cta_ids mask for full backward compatibility.
 
     median_us is reported ONLY when nsys_total_us is provided AND
     tick_source is globaltimer. With clock64, dynamic-clock effects make
@@ -126,6 +155,17 @@ def reduce_region_timings(
     p0_ids = _phase0_cta_ids(slice_ctas, num_k_tiles, num_seqs)
     p1_ids = _phase1_cta_ids(slice_ctas, num_k_tiles, num_seqs)
     all_ids = np.arange(num_ctas, dtype=np.int64)
+    # K-parallel W_O mask: only valid when wo_split > 1 AND caller
+    # supplied num_kv_heads. Used for R2/R3/R11/R12.
+    if wo_split > 1:
+        assert num_kv_heads > 0, (
+            "wo_split>1 requires num_kv_heads>0 for the K-parallel mask"
+        )
+        wo_split_ids = _phase1_wo_split_cta_ids(
+            slice_ctas, num_k_tiles, num_seqs, wo_split, num_kv_heads,
+        )
+    else:
+        wo_split_ids = None
 
     rows: list[RegionRow] = []
     for r in range(num_regions):
@@ -134,11 +174,29 @@ def reduce_region_timings(
             active_ids = p0_ids
             cta_class = "phase0"
         elif r in PHASE1_REGIONS:
-            active_ids = p1_ids
+            # When wo_split>1, R2/R3 are the W_O GEMV/post regions and
+            # use the K-parallel mask. R1 (phase1_attn_pre_wo) is still
+            # the bx==0 && by<4 set so it stays on p1_ids.
+            if wo_split_ids is not None and r in (2, 3):
+                active_ids = wo_split_ids
+            else:
+                active_ids = p1_ids
             cta_class = "phase1"
         elif r in WAIT_NOT_WORK_REGIONS:
-            active_ids = all_ids
+            # R11 (phase1_pre_wo_wait) uses the K-parallel mask when
+            # wo_split>1 — it's the consumer wait for bx>0 W_O CTAs.
+            # R4 (grid_barrier_wait) stays on all_ids.
+            if wo_split_ids is not None and r == 11:
+                active_ids = wo_split_ids
+            else:
+                active_ids = all_ids
             cta_class = "barrier_wait"
+        elif r in DYNAMIC_SINGLE_CTA_REGIONS:
+            # R12 (phase1_gather_reduce) is the elected single-CTA
+            # gather. Even with wo_split>1 only one CTA writes a tick;
+            # nonzero filter handles it. Mask is all_ids.
+            active_ids = all_ids
+            cta_class = "dynamic_single"
         else:
             active_ids = all_ids
             cta_class = "phase3"
@@ -170,7 +228,7 @@ def reduce_region_timings(
         # source. For globaltimer that's *1000 (ns/μs); for clock64 we
         # cannot convert, so frac is reported as NaN unless caller
         # passes a clock64-calibrated total (not in the v1 reducer API).
-        if r in WAIT_NOT_WORK_REGIONS:
+        if r in WAIT_NOT_WORK_REGIONS or r in DYNAMIC_SINGLE_CTA_REGIONS:
             frac = float("nan")
         elif nsys_total_us is None:
             frac = float("nan")
