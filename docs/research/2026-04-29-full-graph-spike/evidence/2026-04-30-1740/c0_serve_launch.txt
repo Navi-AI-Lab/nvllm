@@ -1,0 +1,13 @@
+Host memory: 112 GiB available (threshold 90 GiB) — OK
+=== Launching Qwen3.5-27B-NVFP4 (ig1/Qwen3.5-27B-NVFP4) — CuTe Paged Attention ===
+  Model:       ig1/Qwen3.5-27B-NVFP4
+  Attention:   CUTE_PAGED
+  KV cache:    fp8_e4m3
+  Context:     65536 tokens
+  Max seqs:    4
+  Port:        8000
+
+cfbf762344b33292970ec2098203ab9df551c5fef7a6c29601f0654c9d207218
+Container started: nvllm
+  API:  http://localhost:8000/v1
+  Logs: docker logs -f nvllm

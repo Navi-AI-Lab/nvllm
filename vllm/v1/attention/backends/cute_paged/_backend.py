@@ -51,6 +51,17 @@ _CUTE_DUMP_TENSORS: bool = os.environ.get("CUTE_DUMP_TENSORS", "0") == "1"
 # firing (a successful framework route always satisfies them).
 _VERIFY_FRAMEWORK_OUTPUTS: bool = os.environ.get("CUTE_VERIFY_FW", "0") == "1"
 
+# β-coop region-timing instrumentation gate. When set, allocates a
+# (num_ctas, _REGION_TIMING_NUM_REGIONS, 2) u64 scratch tensor and
+# plumbs it to run_beta_coop_full as `region_timing_buf`. Production
+# path is unchanged: env unset → buffer is None → kernel sees the
+# timing-off compile path. See plan
+# docs/superpowers/plans/2026-05-02-beta-region-breakdown.md (Task 4).
+_REGION_TIMING_ENABLED = (
+    os.environ.get("CUTE_BETA_REGION_TIMING", "0") == "1"
+)
+_REGION_TIMING_NUM_REGIONS = 11
+
 # CuTe DSL disk cache — runtime hookup. Without this call, the env vars
 # B12X_CUTE_COMPILE_DISK_CACHE and B12X_CUTE_COMPILE_CACHE_DIR are inert
 # at serve time. apply_disk_cache_patch() monkey-patches
@@ -335,6 +346,16 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # _use_beta_coop predicate.
         self._phase_e_coop_kernel = None
         self._phase_e_use_beta_coop = False
+        # β-coop region-timing scratch (Task 4 of beta-region-breakdown plan).
+        # Allocated below in the same try-block as _phase_e_coop_wo_output
+        # only when CUTE_BETA_REGION_TIMING=1; otherwise stays None and the
+        # run_beta_coop_full kwarg defaults to None → timing-off compile path.
+        self._phase_e_coop_region_timing: torch.Tensor | None = None
+        # Tracks slice size of the most recent β-coop launch
+        # (nat * slice_ctas * num_k_tiles). Used by the sentinel-file
+        # dump to write only populated rows (not the max_num_seqs slab).
+        # 0 means no β-coop launch has happened yet.
+        self._phase_e_coop_region_timing_last_ctas: int = 0
         # --- C1.5: Phase F.1 layer-LN bake plumbing disabled. ----------------
         # Skip-flag + this-layer LN module ref were used by the opaque
         # cute_phase_e_skip_input_layernorm op (now no-op'd in _mlp_op.py).
@@ -907,6 +928,30 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 self._phase_e_coop_phase1_arrival_count = torch.zeros(
                     max_num_seqs, dtype=torch.int32, device="cuda",
                 )
+                if _REGION_TIMING_ENABLED:
+                    # Per-CTA region timing scratch. Layout:
+                    #   (num_ctas, num_regions, 2) u64 — entry+exit ticks.
+                    # See vllm/v1/attention/backends/cute_paged/region_timing.py
+                    # for reducer + region taxonomy. Last-launch only for v1
+                    # (caller does not increment a sample index; each launch
+                    # overwrites the previous launch's data).
+                    num_ctas = (
+                        self._phase_e_coop_kernel.slice_ctas
+                        * self._phase_e_coop_kernel.num_k_tiles
+                        * max_num_seqs
+                    )
+                    self._phase_e_coop_region_timing = torch.zeros(
+                        num_ctas, _REGION_TIMING_NUM_REGIONS, 2,
+                        dtype=torch.int64, device="cuda",
+                    )
+                    logger.warning(
+                        "[β-coop region timing] enabled; scratch shape=%s "
+                        "(%d bytes). Last-launch-only.",
+                        tuple(self._phase_e_coop_region_timing.shape),
+                        self._phase_e_coop_region_timing.numel() * 8,
+                    )
+                else:
+                    self._phase_e_coop_region_timing = None
                 # C1.5: probe resident-CTA cap here (was previously inside
                 # attach_next_input_layernorm). 45568 B matches the β kernel
                 # SMEM footprint (spec §6). Read by the β-coop dispatch
@@ -1595,6 +1640,33 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                         mlp_arrival_count=self._phase_e_coop_mlp_arrival_count[:nat],
                         grid_barrier_i32=self._phase_e_coop_grid_barrier_i32[:nat],
                         phase1_arrival_count=self._phase_e_coop_phase1_arrival_count[:nat],
+                        # Task 4 plumb: env-gated region-timing scratch (or
+                        # None when CUTE_BETA_REGION_TIMING is unset; see
+                        # _phase_e_coop_region_timing init above).
+                        # Friend-review fix: persistent buffer is sized for
+                        # max_num_seqs (e.g. 256 = 8*8*4); kernel validates
+                        # against per-call nat (e.g. 64 = 8*8*1). Slice
+                        # mirrors the wo_output[:nat] / mlp_partial[:nat]
+                        # pattern above. Track the last-used slice size so
+                        # the sentinel dump only writes the populated rows.
+                        region_timing_buf=(
+                            None
+                            if self._phase_e_coop_region_timing is None
+                            else self._phase_e_coop_region_timing[
+                                : nat
+                                * self._phase_e_coop_kernel.slice_ctas
+                                * self._phase_e_coop_kernel.num_k_tiles
+                            ]
+                        ),
+                    )
+                # Track the slice size used for the most recent β-coop
+                # launch — the sentinel dump (end of forward) must dump
+                # only this many rows, not the full max_num_seqs buffer.
+                if self._phase_e_coop_region_timing is not None:
+                    self._phase_e_coop_region_timing_last_ctas = (
+                        nat
+                        * self._phase_e_coop_kernel.slice_ctas
+                        * self._phase_e_coop_kernel.num_k_tiles
                     )
                 self._phase_e_consumed = True
                 self._phase_e_use_beta_coop = True
@@ -1915,6 +1987,42 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # redundant — skip the copy on this route.
         if result is not None and not _framework_output_route:
             output[:num_actual_tokens].copy_(result)
+
+        # Region-timing buffer dump: triggered by host writing a sentinel
+        # file; we check + delete + dump per call. Cheap when sentinel
+        # is absent (one os.path.exists per forward).
+        # Friend-review fixes: (a) gate on _phase_e_use_beta_coop so we
+        # only dump after a real β-coop launch (not a β-lite fallback or
+        # a non-fusion layer); (b) dump only the populated slice
+        # (last_ctas), not the full max_num_seqs buffer.
+        if (
+            self._phase_e_coop_region_timing is not None
+            and self._phase_e_use_beta_coop
+            and self._phase_e_coop_region_timing_last_ctas > 0
+            and os.path.exists("/tmp/.dump_region_timings")
+        ):
+            try:
+                import numpy as np
+                last_ctas = self._phase_e_coop_region_timing_last_ctas
+                buf = (
+                    self._phase_e_coop_region_timing[:last_ctas]
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
+                out_path = "/root/.cache/vllm/region_timings.npy"
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                np.save(out_path, buf)
+                logger.warning(
+                    "[β-coop region timing] dumped %d bytes (shape=%s) to %s",
+                    buf.nbytes, buf.shape, out_path,
+                )
+            finally:
+                # Always clear the sentinel so we don't dump every step.
+                try:
+                    os.remove("/tmp/.dump_region_timings")
+                except FileNotFoundError:
+                    pass
         return output
 
     def _debug_fusion_diff(

@@ -302,6 +302,13 @@ benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.pt.trace.json.gz
 !benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.csv
 !benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.log
 !benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.md
+
+# β-coop region-timing evidence tree (2026-05-02) — region_breakdown.csv,
+# sanity_gsm8k.json, profile_serve.log, ncu/* are the committed evidence
+# this experiment produced. Same narrow-exception pattern.
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-beta-region-breakdown/**/*.csv
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-beta-region-breakdown/**/*.json
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-beta-region-breakdown/**/*.log
 !benchmarks/nvllm/traces/gemm_winners_table_smallM/**/*.txt
 
 # Phase 6b supplemental microbench (GDN in_proj_qkv shape — committed CSV is

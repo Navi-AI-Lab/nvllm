@@ -29,7 +29,7 @@ try:
     from cutlass import cute
     from cutlass._mlir import ir as _mlir_ir
     from cutlass._mlir.dialects import llvm as _llvm_dialect
-    from cutlass.cute.typing import BFloat16, Float32, Int32, Int64, Uint32
+    from cutlass.cute.typing import BFloat16, Float32, Int32, Int64, Uint32, Uint64
     from cutlass.cutlass_dsl import T, dsl_user_op
     import cuda.bindings.driver as _cuda_driver
     _CUTE_AVAILABLE = True
@@ -965,6 +965,44 @@ if _CUTE_AVAILABLE:
             None, [addr_ir, val_ir],
             "{.reg .b16 t; cvt.rn.bf16.f32 t, $1; st.global.b16 [$0], t;}",
             "l,f",
+            has_side_effects=True, loc=loc, ip=ip)
+
+    @dsl_user_op
+    def _read_globaltimer_u64(*, loc=None, ip=None) -> Uint64:
+        """Read %globaltimer (64-bit nanosecond clock, globally synchronized).
+
+        Available since Kepler. Synchronized across SMs — cross-CTA
+        timeline diffs are meaningful (unlike %clock64 which is per-SM).
+        Resolution is ~1 ns.
+        """
+        result_ir = _llvm_dialect.inline_asm(
+            T.i64(), [],
+            "mov.u64 $0, %globaltimer;", "=l",
+            has_side_effects=True, loc=loc, ip=ip)
+        return Uint64(result_ir)
+
+    @dsl_user_op
+    def _read_clock64_u64(*, loc=None, ip=None) -> Uint64:
+        """Read %clock64 (64-bit per-SM cycle counter).
+
+        Per-SM, NOT synchronized across SMs. CTA-local diffs are valid;
+        cross-CTA absolute diffs are not. Use as fallback if globaltimer
+        plumbing fails.
+        """
+        result_ir = _llvm_dialect.inline_asm(
+            T.i64(), [],
+            "mov.u64 $0, %clock64;", "=l",
+            has_side_effects=True, loc=loc, ip=ip)
+        return Uint64(result_ir)
+
+    @dsl_user_op
+    def _st_global_u64(addr: Int64, val: Uint64, *, loc=None, ip=None) -> None:
+        """Store 64-bit unsigned to global memory at byte address."""
+        addr_ir = Int64(addr).ir_value(loc=loc, ip=ip)
+        val_ir = Uint64(val).ir_value(loc=loc, ip=ip)
+        _llvm_dialect.inline_asm(
+            None, [addr_ir, val_ir],
+            "st.global.b64 [$0], $1;", "l,l",
             has_side_effects=True, loc=loc, ip=ip)
 
     # --- DecodeKernel -------------------------------------------------------
