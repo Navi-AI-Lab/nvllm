@@ -48,7 +48,7 @@ Also on Docker Hub: `docker.io/naviailab/nvllm:latest`
 - `~/.cache/flashinfer` — FlashInfer JIT kernels
 - `~/.cache/vllm_compile` → `/root/.cache/vllm/torch_compile_cache` — CUDA graph cache
 
-**For gated models** (e.g., Gemma 4): pass `-e HF_TOKEN=hf_...` or mount a token file.
+**For gated models** (e.g., Gemma 4): pass `HF_TOKEN` via env or mount a credentials file.
 
 ### Prerequisites
 - NVIDIA DGX Spark (GB10) or GH200
@@ -88,8 +88,8 @@ curl http://localhost:8000/v1/chat/completions \
 
 | Script | Model | Status | Context |
 |--------|-------|--------|---------|
-| `serve.sh` | [Qwen3.5-27B-NVFP4-Opus-GB10](https://huggingface.co/natfii/Qwen3.5-27B-NVFP4-Opus-GB10) | Active (default) | 64K |
-| `serve-cute.sh` | [Qwen3.5-27B with CuTe Paged Attention](https://huggingface.co/ig1/Qwen3.5-35B-A3B-NVFP4) | Active (kernel dev) | 64K |
+| `serve.sh` | [Qwen3.5-27B-NVFP4](https://huggingface.co/ig1/Qwen3.5-27B-NVFP4) | Active (default) | 64K |
+| `serve-cute.sh` | [Qwen3.5-27B-NVFP4](https://huggingface.co/ig1/Qwen3.5-27B-NVFP4) (CuTe Paged Attention; override `HF_MODEL` env) | Active (kernel dev) | 64K |
 | `serve-nemotron.sh` | Nemotron-3-Super-120B-A12B-NVFP4 | Not Ready | 128K |
 | `serve-gemma4.sh` | Gemma 4 31B IT NVFP4 | Degraded (see script) | 32K |
 
@@ -104,6 +104,7 @@ curl http://localhost:8000/v1/chat/completions \
 
 **Now — Qwen3.5-27B kernel work**
 - CuTe DSL paged attention uber-kernel (fused attention + W_O GEMV + RMSNorm)
+- `CUTE_WO_SPLIT=8` opt-in K-parallel W_O GEMV prototype (default off; opt-in via env on `serve-cute.sh`). Region cluster (R2+R4+R11+R12) shrinks 6.49× at synthetic load; ~5% per-token speedup at GSM8K workload. See [evidence summary](benchmarks/nvllm/traces/wo_k_parallel_audit/2026-05-03-wo-split-8-prod/summary.md).
 - CUDA graph support (FULL_AND_PIECEWISE mode)
 - End-to-end fusion validation through Qwen3NextAttention
 
@@ -128,15 +129,17 @@ Benchmarked on Qwen3.5-27B-NVFP4 (rate=8, max-num-seqs=4):
 | TPOT p50 | 89.2 ms | 80.0 ms | **-10.2%** |
 | TPOT p99 | 91.7 ms | 82.7 ms | **-9.8%** |
 
-> **Warning:** Large models (>75 GB) that leave minimal memory headroom on the GB10's 128 GB unified memory may crash during CUDA graph capture with the stream-K kernel. Use `--debug` (eager mode) to test first, or use a smaller model.
+[Trace](benchmarks/nvllm/traces/gemm_stream_k_cudagraph/2026-04-21/) — committed `streamk_graphs.pt.trace.json.gz` + per-kernel CSVs.
+
+> **Warning:** Large models (>75 GB) that leave minimal memory headroom on the GB10's 128 GB unified memory may crash during CUDA graph capture with the stream-K kernel. Use a smaller model to test first.
 
 ### CuTe Paged Attention Backend (Prototype)
 
 Custom paged attention backend using CuTe Python DSL, targeting SM120/SM121 FP8 MMA instructions. Registered as `CUTE_PAGED` in vLLM's attention backend registry.
 
-**Status:** Backend interface validated end-to-end. PyTorch prototype serves live inference. CuTe DSL kernel replacement in progress.
+**Status:** Experimental CuTe DSL backend; production decode path since v0.3.0. β-coop fused kernel (attention + W_O + RMSNorm + MLP) is the default. Opt-in `CUTE_WO_SPLIT=8` K-parallel W_O GEMV prototype lands the W_O bottleneck reduction (5.99× R2, 8.68× R4 grid-barrier; see [evidence summary](benchmarks/nvllm/traces/wo_k_parallel_audit/2026-05-03-wo-split-8-prod/summary.md)).
 
-Launch with: `./scripts/serve-cute.sh --debug`
+Launch with: `./scripts/serve-cute.sh` (default PIECEWISE CUDA graphs). Avoid `--debug` (eager mode) on SM120 — it produces gibberish unrelated to kernel correctness; PIECEWISE is the validation path.
 
 ## Acknowledgments
 
@@ -147,5 +150,5 @@ Launch with: `./scripts/serve-cute.sh --debug`
 - **[CUTLASS PR #3030](https://github.com/NVIDIA/cutlass/pull/3030)** by blake-snc (Second Nature Computing) — SM120 Flash Attention v2 reference for fused multi-head attention on Blackwell.
   - [`docs/kernel-insights/2026-04-10-cutlass-pr3030-sm120-fmha.md`](docs/kernel-insights/2026-04-10-cutlass-pr3030-sm120-fmha.md) — SM120 FMHA patterns and tile configs
 - **[CUTLASS](https://github.com/NVIDIA/cutlass)** by NVIDIA — CuTe Python DSL for SM120 kernel development. The FP4 decode GEMM kernel with stream-K scheduling is adapted from CUTLASS test kernels.
-- **[Simon Veitner's CuTe DSL / NVFP4 blog](https://veitner.bearblog.dev/blog/)** — Reference reading for NVFP4 GEMV K-parallel reduction patterns identified as the next β-coop optimization direction (see [phaseE-tax bench](benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/summary.md)).
+- **[Simon Veitner's CuTe DSL / NVFP4 blog](https://veitner.bearblog.dev/blog/)** — Reference reading for NVFP4 GEMV K-parallel reduction patterns. Applied to W_O GEMV in the `CUTE_WO_SPLIT=8` opt-in prototype (see [wo_split=8 evidence summary](benchmarks/nvllm/traces/wo_k_parallel_audit/2026-05-03-wo-split-8-prod/summary.md)).
 - **[vLLM](https://github.com/vllm-project/vllm)** — The upstream project this fork is based on.
