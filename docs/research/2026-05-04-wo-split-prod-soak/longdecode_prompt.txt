@@ -1,0 +1,14 @@
+Write a detailed essay (around 1500-2000 words) on the history and architecture of transformer language models. Cover the following topics in order, with concrete examples and references where appropriate:
+
+1. Pre-transformer sequence models — RNN, LSTM, GRU — and their limitations for long-range dependencies and parallel training.
+2. The "Attention Is All You Need" paper (Vaswani et al., 2017) and the original encoder-decoder transformer.
+3. Self-attention mechanics: query/key/value projections, scaled dot-product attention, multi-head attention, positional encodings.
+4. The split into encoder-only (BERT family), decoder-only (GPT family), and encoder-decoder (T5, BART) architectures, and what each is best suited for.
+5. The GPT family evolution from GPT-1 through GPT-4, with notes on scaling, training data, and emergent capabilities.
+6. Scaling laws (Kaplan et al., Chinchilla) and what they tell us about compute-optimal training.
+7. Instruction tuning, RLHF, and the shift from foundation models to instruction-following assistants.
+8. Recent open-source families — Llama, Mistral, Qwen, DeepSeek — and how they compare on architecture, training data, and licensing.
+9. Multimodal extensions — vision-language models, audio, video — and the current state of unified multimodal architectures.
+10. Open research directions: efficient attention (FlashAttention, Mamba/SSMs), long-context techniques, mixture-of-experts, distillation, quantization, and inference optimization.
+
+Be precise about technical claims, structure the essay with clear section headers, and provide at least one concrete example per section. Avoid filler and hedging.
