@@ -3085,6 +3085,8 @@ class PhaseE_Beta_Kernel:
         all_args = all_args + (
             timing_ptr_i64,
             self._region_timing_enabled,
+            # Task 8: K-parallel W_O split factor (Constexpr at trace).
+            int(self.wo_split),
         )
 
         self._compile_coop_full(*all_args)
@@ -3278,6 +3280,12 @@ class PhaseE_Beta_Kernel:
             # passing 0 is safe.
             region_timing_ptr: Int64,
             region_timing_enabled: cutlass.Constexpr[bool],
+            # Task 8: K-parallel W_O split factor (Constexpr so
+            # range_constexpr can iterate over slices). At wo_split=1
+            # the new W_O gate `bx < wo_split && by < num_kv_heads` is
+            # equivalent to the legacy `bx == 0 && by < 4`; behavior is
+            # bit-exact preserved.
+            wo_split_const: cutlass.Constexpr[int],
         ):
             """JIT host wrapper for the unified β-coop launch.
 
@@ -3338,6 +3346,8 @@ class PhaseE_Beta_Kernel:
                 # Task 3: forward region-timing scratch + constexpr gate.
                 region_timing_ptr,
                 region_timing_enabled,
+                # Task 8: forward Constexpr wo_split.
+                wo_split_const,
             ).launch(
                 grid=[self.slice_ctas, self.num_k_tiles, nat],
                 block=[self.num_threads, 1, 1],
@@ -3417,6 +3427,13 @@ class PhaseE_Beta_Kernel:
             # production path pays only the two scalar arg slots.
             region_timing_ptr: Int64,
             region_timing_enabled: cutlass.Constexpr[bool],
+            # Task 8: K-parallel W_O split factor (Constexpr so
+            # range_constexpr can iterate over slices). The new W_O
+            # gate is `bx < wo_split_const && by < num_kv_heads`. At
+            # wo_split_const=1 it is equivalent to `bx == 0 && by < 4`,
+            # so the legacy single-CTA-per-KV-head behavior is bit-exact
+            # preserved.
+            wo_split_const: cutlass.Constexpr[int],
         ):
             """β-coop unified kernel — Phase 0 → 1 → grid barrier → 3."""
             bx, by, bz = cute.arch.block_idx()
@@ -4056,7 +4073,8 @@ class PhaseE_Beta_Kernel:
                     # to global. At wo_split=1 no consumer reads the counter
                     # so the signal is harmless overhead. At wo_split>1 the
                     # bx>0 W_O CTAs spin-acquire on the counter at kernel-
-                    # level R11 (placed between this parent and R4 entry).
+                    # level R11 (placed between this parent and the new
+                    # W_O block).
                     # ========================================================
                     _threadfence()
                     cute.arch.sync_threads()
@@ -4065,377 +4083,8 @@ class PhaseE_Beta_Kernel:
                             pre_wo_arrival_ptr
                             + Int64(seq_idx * Int32(4)),
                             Int32(1))
-
-                    # === Phase B: Fused W_O GEMV ===
-                    # Region 2 entry: Phase 1 W_O GEMV body. We are inside
-                    # the bx==0 && by<4 block, so just gate on tid==0.
-                    # K-reduction candidate site #1.
-                    if region_timing_enabled:
-                        if tid == Int32(0):
-                            cta_id = (
-                                bz * Int32(self.slice_ctas * self.num_k_tiles)
-                                + by * Int32(self.slice_ctas)
-                                + bx
-                            )
-                            t_entry = _read_globaltimer_u64()
-                            _st_global_u64(
-                                region_timing_ptr
-                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
-                                + Int64(2 * 2 * 8)              # region 2
-                                + Int64(0 * 8),                  # slot 0 = entry
-                                t_entry,
-                            )
-
-                    _threadfence()
-                    cute.arch.sync_threads()
-
-                    attn_base = seq_idx * num_q_heads * hd \
-                        + q_head_start * hd
-                    hd_wo = Int32(self.hidden_size)
-                    n_per_thr_wo = Int32(
-                        self.hidden_size // self.num_threads)
-                    my_row_base = tid * n_per_thr_wo
-
-                    wo_gs = _ld_global_f32(wo_gs_ptr)
-
-                    for _out_group in cutlass.range_constexpr(
-                        self.hidden_size // self.num_threads // 8
-                    ):
-                        out_base_wo = my_row_base \
-                            + Int32(_out_group * 8)
-
-                        a0 = Float32(0.0)
-                        a1 = Float32(0.0)
-                        a2 = Float32(0.0)
-                        a3 = Float32(0.0)
-                        a4 = Float32(0.0)
-                        a5 = Float32(0.0)
-                        a6 = Float32(0.0)
-                        a7 = Float32(0.0)
-
-                        k_dim = group_size_p1 * hd
-                        k_idx = Int32(0)
-                        while k_idx < k_dim:
-                            attn_val = _ld_global_b16_to_f32(
-                                attn_output_ptr
-                                + Int64((attn_base + k_idx) * Int32(2)))
-                            abs_k = (kv_head_idx * group_size_p1 * hd
-                                     + k_idx)
-                            k_byte = abs_k >> Int32(1)
-                            k_is_hi = abs_k & Int32(1)
-                            k_grp = abs_k >> Int32(4)
-
-                            for _oi in cutlass.range_constexpr(8):
-                                out_row = out_base_wo + Int32(_oi)
-                                if out_row < hd_wo:
-                                    w_addr = wo_weight_ptr + Int64(
-                                        out_row * wo_weight_row_stride
-                                        + k_byte)
-                                    aligned = w_addr & Int64(
-                                        0xFFFFFFFFFFFFFFFC)
-                                    raw = _ld_global_b32(aligned)
-                                    bpos = Int32(w_addr & Int64(3))
-                                    the_byte = _extract_byte_from_b32(
-                                        raw, bpos)
-                                    nib_shift = k_is_hi << Int32(2)
-                                    nib = (the_byte >> nib_shift) \
-                                        & Int32(0x0F)
-                                    w_f32 = _fp4_nibble_to_f32(nib)
-                                    sf = _ld_swizzled_scale(
-                                        wo_scale_ptr, out_row, k_grp,
-                                        wo_num_k_tiles)
-                                    w_dequant = w_f32 * sf * wo_gs
-
-                                    if _oi == 0:
-                                        a0 = a0 + w_dequant * attn_val
-                                    if _oi == 1:
-                                        a1 = a1 + w_dequant * attn_val
-                                    if _oi == 2:
-                                        a2 = a2 + w_dequant * attn_val
-                                    if _oi == 3:
-                                        a3 = a3 + w_dequant * attn_val
-                                    if _oi == 4:
-                                        a4 = a4 + w_dequant * attn_val
-                                    if _oi == 5:
-                                        a5 = a5 + w_dequant * attn_val
-                                    if _oi == 6:
-                                        a6 = a6 + w_dequant * attn_val
-                                    if _oi == 7:
-                                        a7 = a7 + w_dequant * attn_val
-
-                            k_idx = k_idx + Int32(1)
-
-                        cta_idx = bx * num_kv_heads + by  # UNCHANGED — Task 8 lifts to by*wo_split+bx
-                        wo_slot_base = wo_output_ptr + Int64(
-                            (seq_idx * total_wo_slots + cta_idx)
-                            * hd_wo * Int32(4))
-                        for _oi in cutlass.range_constexpr(8):
-                            out_row = out_base_wo + Int32(_oi)
-                            if out_row < hd_wo:
-                                if _oi == 0:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a0)
-                                if _oi == 1:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a1)
-                                if _oi == 2:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a2)
-                                if _oi == 3:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a3)
-                                if _oi == 4:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a4)
-                                if _oi == 5:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a5)
-                                if _oi == 6:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a6)
-                                if _oi == 7:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a7)
-
-                    # === Phase B.5 + C: last-CTA gather + RMSNorm ===
-                    _threadfence()
-
-                    # Region 2 exit: Phase 1 W_O GEMV body. Recorded just
-                    # after the W_O writes are published by _threadfence.
-                    # We are inside the bx==0 && by<4 block, gate on tid==0.
-                    if region_timing_enabled:
-                        if tid == Int32(0):
-                            cta_id = (
-                                bz * Int32(self.slice_ctas * self.num_k_tiles)
-                                + by * Int32(self.slice_ctas)
-                                + bx
-                            )
-                            t_exit = _read_globaltimer_u64()
-                            _st_global_u64(
-                                region_timing_ptr
-                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
-                                + Int64(2 * 2 * 8)              # region 2
-                                + Int64(1 * 8),                  # slot 1 = exit
-                                t_exit,
-                            )
-
-                    # Region 3 entry: W_O end → barrier-arrive (cleanup).
-                    # Same site as region 2 exit (W_O sync), but recorded
-                    # as a separate block to keep the buffer boundary clean.
-                    if region_timing_enabled:
-                        if tid == Int32(0):
-                            cta_id = (
-                                bz * Int32(self.slice_ctas * self.num_k_tiles)
-                                + by * Int32(self.slice_ctas)
-                                + bx
-                            )
-                            t_entry = _read_globaltimer_u64()
-                            _st_global_u64(
-                                region_timing_ptr
-                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
-                                + Int64(3 * 2 * 8)              # region 3
-                                + Int64(0 * 8),                  # slot 0 = entry
-                                t_entry,
-                            )
-
-                    # Region 3 exit: just before the _atomic_add_u32 to
-                    # phase1_arrival_count (the per-CTA barrier-arrive
-                    # signal). We are inside bx==0 && by<4, gate on tid==0.
-                    if region_timing_enabled:
-                        if tid == Int32(0):
-                            cta_id = (
-                                bz * Int32(self.slice_ctas * self.num_k_tiles)
-                                + by * Int32(self.slice_ctas)
-                                + bx
-                            )
-                            t_exit = _read_globaltimer_u64()
-                            _st_global_u64(
-                                region_timing_ptr
-                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
-                                + Int64(3 * 2 * 8)              # region 3
-                                + Int64(1 * 8),                  # slot 1 = exit
-                                t_exit,
-                            )
-
-                    if tid == Int32(0):
-                        old_count = _atomic_add_u32(
-                            phase1_arrival_ptr
-                            + Int64(seq_idx * Int32(4)),
-                            Int32(1))
-                        if old_count == total_wo_slots - Int32(1):
-                            _st_shared_f32(sync_md, Float32(1.0))
-                        else:
-                            _st_shared_f32(sync_md, Float32(0.0))
-                    cute.arch.sync_threads()
-
-                    is_last_cta = _ld_shared_f32(sync_md)
-
-                    if is_last_cta > Float32(0.5):
-                        # Region 12 entry: gather_reduce (elected single-CTA only).
-                        if region_timing_enabled:
-                            if tid == Int32(0):
-                                cta_id = (
-                                    bz * Int32(self.slice_ctas * self.num_k_tiles)
-                                    + by * Int32(self.slice_ctas)
-                                    + bx
-                                )
-                                t_entry = _read_globaltimer_u64()
-                                _st_global_u64(
-                                    region_timing_ptr
-                                    + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
-                                    + Int64(12 * 2 * 8)              # region 12
-                                    + Int64(0 * 8),                  # slot 0 = entry
-                                    t_entry,
-                                )
-
-                        hd_c = hidden_dim
-                        n_per_thr_c = hd_c // Int32(128)
-
-                        res_base_c = residual_in_ptr + Int64(
-                            seq_idx * hd_c * Int32(2))
-                        wo_base_c = wo_output_ptr + Int64(
-                            seq_idx * total_wo_slots
-                            * hd_c * Int32(4))
-                        gamma_base_c = post_attn_gamma_ptr
-                        out_base_c = attn_output_ptr + Int64(
-                            seq_idx * hd_c * Int32(2))
-                        resout_base_c = residual_output_ptr + Int64(
-                            seq_idx * hd_c * Int32(2))
-
-                        my_start_c = tid * n_per_thr_c
-
-                        # Phase B.5: gather per-CTA slots into slot 0.
-                        for _grp in cutlass.range_constexpr(
-                            self.hidden_size // self.num_threads // 8
-                        ):
-                            for _ei in cutlass.range_constexpr(8):
-                                idx_c = my_start_c + Int32(_grp * 8 + _ei)
-                                gather_acc = Float32(0.0)
-                                cta_i = Int32(0)
-                                while cta_i < total_wo_slots:
-                                    slot_addr = wo_output_ptr + Int64(
-                                        (seq_idx * total_wo_slots
-                                         + cta_i)
-                                        * hd_c * Int32(4)
-                                        + idx_c * Int32(4))
-                                    gather_acc = gather_acc \
-                                        + _ld_global_f32(slot_addr)
-                                    cta_i = cta_i + Int32(1)
-                                _st_global_f32(
-                                    wo_base_c
-                                    + Int64(idx_c * Int32(4)),
-                                    gather_acc,
-                                )
-                        _threadfence()
-                        cute.arch.sync_threads()
-
-                        # Pass 1: residual add + sum-of-squares
-                        ss = Float32(0.0)
-                        for _grp in cutlass.range_constexpr(
-                            self.hidden_size // self.num_threads // 8
-                        ):
-                            base_idx = my_start_c + Int32(_grp * 8)
-                            for _ei in cutlass.range_constexpr(8):
-                                idx_c = base_idx + Int32(_ei)
-                                res_f32 = _ld_global_b16_to_f32(
-                                    res_base_c
-                                    + Int64(idx_c * Int32(2)))
-                                wo_f32 = _ld_global_f32(
-                                    wo_base_c
-                                    + Int64(idx_c * Int32(4)))
-                                nr = res_f32 + wo_f32
-                                ss = ss + nr * nr
-
-                        ss = ss + shfl_xor_sync(ss, Int32(1))
-                        ss = ss + shfl_xor_sync(ss, Int32(2))
-                        ss = ss + shfl_xor_sync(ss, Int32(4))
-                        ss = ss + shfl_xor_sync(ss, Int32(8))
-                        ss = ss + shfl_xor_sync(ss, Int32(16))
-
-                        if lane == Int32(0):
-                            _st_shared_f32(
-                                sync_md + Int64(warp * Int32(4)), ss)
-                        cute.arch.sync_threads()
-
-                        if warp == Int32(0):
-                            if lane == Int32(0):
-                                total_ss = _ld_shared_f32(sync_md)
-                                total_ss = total_ss + _ld_shared_f32(
-                                    sync_md + Int64(4))
-                                total_ss = total_ss + _ld_shared_f32(
-                                    sync_md + Int64(8))
-                                total_ss = total_ss + _ld_shared_f32(
-                                    sync_md + Int64(12))
-                                variance = total_ss / Float32(hd_c)
-                                inv_rms = _rsqrt_approx_f32(
-                                    variance + rms_eps)
-                                _st_shared_f32(sync_md, inv_rms)
-                        cute.arch.sync_threads()
-
-                        inv_rms_val = _ld_shared_f32(sync_md)
-
-                        # Pass 3: re-read, scale, write BF16 output
-                        for _grp in cutlass.range_constexpr(
-                            self.hidden_size // self.num_threads // 8
-                        ):
-                            base_idx = my_start_c + Int32(_grp * 8)
-                            for _oi in cutlass.range_constexpr(8):
-                                idx_c = base_idx + Int32(_oi)
-                                res_f32 = _ld_global_b16_to_f32(
-                                    res_base_c
-                                    + Int64(idx_c * Int32(2)))
-                                wo_f32 = _ld_global_f32(
-                                    wo_base_c
-                                    + Int64(idx_c * Int32(4)))
-                                new_res = res_f32 + wo_f32
-
-                                gamma_f32 = _ld_global_b16_to_f32(
-                                    gamma_base_c
-                                    + Int64(idx_c * Int32(2)))
-                                # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
-                                hidden_val = new_res * inv_rms_val \
-                                    * (Float32(1.0) + gamma_f32)
-
-                                _st_global_bf16_from_f32(
-                                    out_base_c
-                                    + Int64(idx_c * Int32(2)),
-                                    hidden_val)
-                                _st_global_bf16_from_f32(
-                                    resout_base_c
-                                    + Int64(idx_c * Int32(2)),
-                                    new_res)
-
-                        # Region 12 exit: gather_reduce.
-                        if region_timing_enabled:
-                            if tid == Int32(0):
-                                cta_id = (
-                                    bz * Int32(self.slice_ctas * self.num_k_tiles)
-                                    + by * Int32(self.slice_ctas)
-                                    + bx
-                                )
-                                t_exit = _read_globaltimer_u64()
-                                _st_global_u64(
-                                    region_timing_ptr
-                                    + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
-                                    + Int64(12 * 2 * 8)
-                                    + Int64(1 * 8),                  # slot 1 = exit
-                                    t_exit,
-                                )
-
-                        # Reset arrival counter for next call.
-                        if tid == Int32(0):
-                            _atomic_add_u32(
-                                phase1_arrival_ptr
-                                + Int64(seq_idx * Int32(4)),
-                                Int32(0) - total_wo_slots)
+                    # End of attn-producer parent block. Task 8 lifted W_O
+                    # body out to kernel-level (after R11 wait).
 
             # ===================================================================
             # Task 6: R11 = pre_wo_wait. Consumer-side spin-wait + bracketing
@@ -4514,6 +4163,418 @@ class PhaseE_Beta_Kernel:
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
                     )
+
+            # ===================================================================
+            # Task 8: K-parallel W_O GEMV body (lifted out of attn-producer
+            # parent). Mask: `bx < wo_split && by < num_kv_heads`.
+            #
+            # At wo_split_const=1, mask `bx<1 && by<4` ≡ `bx==0 && by<4` —
+            # the legacy single-CTA-per-KV-head behavior is bit-exact preserved.
+            #
+            # At wo_split_const>1, mask spans `bx ∈ [0, wo_split)` × `by ∈ [0,
+            # num_kv_heads)`, giving total_wo_slots = num_kv_heads * wo_split
+            # K-parallel partial-GEMV CTAs. Each CTA owns a 1/wo_split slice
+            # of one KV-head's K range, accumulates a chained-FMA partial,
+            # and writes to wo_output[seq, slot, :] where slot = by*wo_split+bx
+            # (matches torch_reference.py:438-439, microkernel.py:225-227).
+            #
+            # K-range slicing follows torch_reference.py:443-446 EXACTLY:
+            #     K_per_head      = K // num_kv_heads
+            #     k_start_in_head = (K_per_head * bx) // wo_split
+            #     k_end_in_head   = (K_per_head * (bx + 1)) // wo_split
+            #     k_start = by * K_per_head + k_start_in_head
+            #     k_end   = by * K_per_head + k_end_in_head
+            # ===================================================================
+            if (bx < Int32(wo_split_const)) and (by < Int32(self.num_kv_heads)):
+                # Region 2 entry: Phase 1 W_O GEMV body (now at kernel-level).
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_entry = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(2 * 2 * 8)              # region 2
+                            + Int64(0 * 8),                  # slot 0 = entry
+                            t_entry,
+                        )
+
+                _threadfence()
+                cute.arch.sync_threads()
+
+                # --- W_O body locals (recomputed; no longer inherited from
+                # attn-producer parent).
+                kv_head_idx_wo = by
+                group_size_p1_wo = num_q_heads // num_kv_heads
+                q_head_start_wo = kv_head_idx_wo * group_size_p1_wo
+                hd_wo_dim = Int32(self.head_dim)
+                attn_base_wo = (seq_idx * num_q_heads * hd_wo_dim
+                                + q_head_start_wo * hd_wo_dim)
+
+                # K_per_head as constexpr (= num_q_heads*head_dim/num_kv_heads).
+                # The runtime form `group_size_p1_wo * hd_wo_dim` agrees on
+                # non-negative operands. Use runtime form to honor the
+                # kernel's existing dynamic shape contract.
+                k_per_head = group_size_p1_wo * hd_wo_dim
+                # K-range slicing (Python integer-divide; PTX i32 sdiv agrees
+                # for non-negative operands).
+                k_start_in_head = (k_per_head * bx) // Int32(wo_split_const)
+                k_end_in_head = (k_per_head * (bx + Int32(1))) // Int32(wo_split_const)
+
+                hd_wo = Int32(self.hidden_size)
+                n_per_thr_wo = Int32(
+                    self.hidden_size // self.num_threads)
+                my_row_base = tid * n_per_thr_wo
+
+                wo_gs = _ld_global_f32(wo_gs_ptr)
+
+                for _out_group in cutlass.range_constexpr(
+                    self.hidden_size // self.num_threads // 8
+                ):
+                    out_base_wo = my_row_base \
+                        + Int32(_out_group * 8)
+
+                    a0 = Float32(0.0)
+                    a1 = Float32(0.0)
+                    a2 = Float32(0.0)
+                    a3 = Float32(0.0)
+                    a4 = Float32(0.0)
+                    a5 = Float32(0.0)
+                    a6 = Float32(0.0)
+                    a7 = Float32(0.0)
+
+                    # K-loop iterates over [k_start_in_head, k_end_in_head)
+                    # local-in-head. abs_k = kv_head_idx*K_per_head + k_idx
+                    # (matches the attn_output layout: K dim is
+                    # num_kv_heads-major → K_per_head-minor).
+                    k_idx = k_start_in_head
+                    while k_idx < k_end_in_head:
+                        attn_val = _ld_global_b16_to_f32(
+                            attn_output_ptr
+                            + Int64((attn_base_wo + k_idx) * Int32(2)))
+                        abs_k = (kv_head_idx_wo * k_per_head
+                                 + k_idx)
+                        k_byte = abs_k >> Int32(1)
+                        k_is_hi = abs_k & Int32(1)
+                        k_grp = abs_k >> Int32(4)
+
+                        for _oi in cutlass.range_constexpr(8):
+                            out_row = out_base_wo + Int32(_oi)
+                            if out_row < hd_wo:
+                                w_addr = wo_weight_ptr + Int64(
+                                    out_row * wo_weight_row_stride
+                                    + k_byte)
+                                aligned = w_addr & Int64(
+                                    0xFFFFFFFFFFFFFFFC)
+                                raw = _ld_global_b32(aligned)
+                                bpos = Int32(w_addr & Int64(3))
+                                the_byte = _extract_byte_from_b32(
+                                    raw, bpos)
+                                nib_shift = k_is_hi << Int32(2)
+                                nib = (the_byte >> nib_shift) \
+                                    & Int32(0x0F)
+                                w_f32 = _fp4_nibble_to_f32(nib)
+                                sf = _ld_swizzled_scale(
+                                    wo_scale_ptr, out_row, k_grp,
+                                    wo_num_k_tiles)
+                                w_dequant = w_f32 * sf * wo_gs
+
+                                if _oi == 0:
+                                    a0 = a0 + w_dequant * attn_val
+                                if _oi == 1:
+                                    a1 = a1 + w_dequant * attn_val
+                                if _oi == 2:
+                                    a2 = a2 + w_dequant * attn_val
+                                if _oi == 3:
+                                    a3 = a3 + w_dequant * attn_val
+                                if _oi == 4:
+                                    a4 = a4 + w_dequant * attn_val
+                                if _oi == 5:
+                                    a5 = a5 + w_dequant * attn_val
+                                if _oi == 6:
+                                    a6 = a6 + w_dequant * attn_val
+                                if _oi == 7:
+                                    a7 = a7 + w_dequant * attn_val
+
+                        k_idx = k_idx + Int32(1)
+
+                    # Slot index: slot = by * wo_split + bx (matches
+                    # torch_reference.py:438-439 — slot_id // wo_split == by,
+                    # slot_id %  wo_split == bx).
+                    slot_idx = by * Int32(wo_split_const) + bx
+                    wo_slot_base = wo_output_ptr + Int64(
+                        (seq_idx * total_wo_slots + slot_idx)
+                        * hd_wo * Int32(4))
+                    for _oi in cutlass.range_constexpr(8):
+                        out_row = out_base_wo + Int32(_oi)
+                        if out_row < hd_wo:
+                            if _oi == 0:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a0)
+                            if _oi == 1:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a1)
+                            if _oi == 2:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a2)
+                            if _oi == 3:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a3)
+                            if _oi == 4:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a4)
+                            if _oi == 5:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a5)
+                            if _oi == 6:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a6)
+                            if _oi == 7:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a7)
+
+                # === Phase B.5 + C: last-CTA gather + RMSNorm ===
+                _threadfence()
+
+                # Region 2 exit: Phase 1 W_O GEMV body. Recorded just after
+                # the W_O writes are published by _threadfence.
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_exit = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(2 * 2 * 8)              # region 2
+                            + Int64(1 * 8),                  # slot 1 = exit
+                            t_exit,
+                        )
+
+                # Region 3 entry: W_O end → barrier-arrive (cleanup).
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_entry = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(3 * 2 * 8)              # region 3
+                            + Int64(0 * 8),                  # slot 0 = entry
+                            t_entry,
+                        )
+
+                # Region 3 exit: just before _atomic_add_u32 to
+                # phase1_arrival_count (the per-CTA barrier-arrive signal).
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_exit = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(3 * 2 * 8)              # region 3
+                            + Int64(1 * 8),                  # slot 1 = exit
+                            t_exit,
+                        )
+
+                # Election: each W_O CTA's tid==0 atomic-adds 1; the writer
+                # of (total_wo_slots-1) wins and broadcasts is_last_cta=1
+                # via SMEM. Other CTAs broadcast 0.
+                if tid == Int32(0):
+                    old_count = _atomic_add_u32(
+                        phase1_arrival_ptr
+                        + Int64(seq_idx * Int32(4)),
+                        Int32(1))
+                    if old_count == total_wo_slots - Int32(1):
+                        _st_shared_f32(sync_md, Float32(1.0))
+                    else:
+                        _st_shared_f32(sync_md, Float32(0.0))
+                cute.arch.sync_threads()
+
+                is_last_cta = _ld_shared_f32(sync_md)
+
+                if is_last_cta > Float32(0.5):
+                    # Region 12 entry: gather_reduce (elected single-CTA only).
+                    if region_timing_enabled:
+                        if tid == Int32(0):
+                            cta_id = (
+                                bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                + by * Int32(self.slice_ctas)
+                                + bx
+                            )
+                            t_entry = _read_globaltimer_u64()
+                            _st_global_u64(
+                                region_timing_ptr
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                                + Int64(12 * 2 * 8)              # region 12
+                                + Int64(0 * 8),                  # slot 0 = entry
+                                t_entry,
+                            )
+
+                    hd_c = hidden_dim
+                    n_per_thr_c = hd_c // Int32(128)
+
+                    res_base_c = residual_in_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))
+                    wo_base_c = wo_output_ptr + Int64(
+                        seq_idx * total_wo_slots
+                        * hd_c * Int32(4))
+                    gamma_base_c = post_attn_gamma_ptr
+                    out_base_c = attn_output_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))
+                    resout_base_c = residual_output_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))
+
+                    my_start_c = tid * n_per_thr_c
+
+                    # Phase B.5: gather per-CTA slots into slot 0.
+                    for _grp in cutlass.range_constexpr(
+                        self.hidden_size // self.num_threads // 8
+                    ):
+                        for _ei in cutlass.range_constexpr(8):
+                            idx_c = my_start_c + Int32(_grp * 8 + _ei)
+                            gather_acc = Float32(0.0)
+                            cta_i = Int32(0)
+                            while cta_i < total_wo_slots:
+                                slot_addr = wo_output_ptr + Int64(
+                                    (seq_idx * total_wo_slots
+                                     + cta_i)
+                                    * hd_c * Int32(4)
+                                    + idx_c * Int32(4))
+                                gather_acc = gather_acc \
+                                    + _ld_global_f32(slot_addr)
+                                cta_i = cta_i + Int32(1)
+                            _st_global_f32(
+                                wo_base_c
+                                + Int64(idx_c * Int32(4)),
+                                gather_acc,
+                            )
+                    _threadfence()
+                    cute.arch.sync_threads()
+
+                    # Pass 1: residual add + sum-of-squares
+                    ss = Float32(0.0)
+                    for _grp in cutlass.range_constexpr(
+                        self.hidden_size // self.num_threads // 8
+                    ):
+                        base_idx = my_start_c + Int32(_grp * 8)
+                        for _ei in cutlass.range_constexpr(8):
+                            idx_c = base_idx + Int32(_ei)
+                            res_f32 = _ld_global_b16_to_f32(
+                                res_base_c
+                                + Int64(idx_c * Int32(2)))
+                            wo_f32 = _ld_global_f32(
+                                wo_base_c
+                                + Int64(idx_c * Int32(4)))
+                            nr = res_f32 + wo_f32
+                            ss = ss + nr * nr
+
+                    ss = ss + shfl_xor_sync(ss, Int32(1))
+                    ss = ss + shfl_xor_sync(ss, Int32(2))
+                    ss = ss + shfl_xor_sync(ss, Int32(4))
+                    ss = ss + shfl_xor_sync(ss, Int32(8))
+                    ss = ss + shfl_xor_sync(ss, Int32(16))
+
+                    if lane == Int32(0):
+                        _st_shared_f32(
+                            sync_md + Int64(warp * Int32(4)), ss)
+                    cute.arch.sync_threads()
+
+                    if warp == Int32(0):
+                        if lane == Int32(0):
+                            total_ss = _ld_shared_f32(sync_md)
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(4))
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(8))
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(12))
+                            variance = total_ss / Float32(hd_c)
+                            inv_rms = _rsqrt_approx_f32(
+                                variance + rms_eps)
+                            _st_shared_f32(sync_md, inv_rms)
+                    cute.arch.sync_threads()
+
+                    inv_rms_val = _ld_shared_f32(sync_md)
+
+                    # Pass 3: re-read, scale, write BF16 output
+                    for _grp in cutlass.range_constexpr(
+                        self.hidden_size // self.num_threads // 8
+                    ):
+                        base_idx = my_start_c + Int32(_grp * 8)
+                        for _oi in cutlass.range_constexpr(8):
+                            idx_c = base_idx + Int32(_oi)
+                            res_f32 = _ld_global_b16_to_f32(
+                                res_base_c
+                                + Int64(idx_c * Int32(2)))
+                            wo_f32 = _ld_global_f32(
+                                wo_base_c
+                                + Int64(idx_c * Int32(4)))
+                            new_res = res_f32 + wo_f32
+
+                            gamma_f32 = _ld_global_b16_to_f32(
+                                gamma_base_c
+                                + Int64(idx_c * Int32(2)))
+                            # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                            hidden_val = new_res * inv_rms_val \
+                                * (Float32(1.0) + gamma_f32)
+
+                            _st_global_bf16_from_f32(
+                                out_base_c
+                                + Int64(idx_c * Int32(2)),
+                                hidden_val)
+                            _st_global_bf16_from_f32(
+                                resout_base_c
+                                + Int64(idx_c * Int32(2)),
+                                new_res)
+
+                    # Region 12 exit: gather_reduce.
+                    if region_timing_enabled:
+                        if tid == Int32(0):
+                            cta_id = (
+                                bz * Int32(self.slice_ctas * self.num_k_tiles)
+                                + by * Int32(self.slice_ctas)
+                                + bx
+                            )
+                            t_exit = _read_globaltimer_u64()
+                            _st_global_u64(
+                                region_timing_ptr
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                                + Int64(12 * 2 * 8)
+                                + Int64(1 * 8),                  # slot 1 = exit
+                                t_exit,
+                            )
+
+                    # Reset arrival counter for next call.
+                    if tid == Int32(0):
+                        _atomic_add_u32(
+                            phase1_arrival_ptr
+                            + Int64(seq_idx * Int32(4)),
+                            Int32(0) - total_wo_slots)
 
             # Region 4 entry: grid barrier wait (all 64 CTAs participate).
             # Entry tick recorded at the moment a CTA arrives at the
