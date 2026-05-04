@@ -255,8 +255,9 @@ class PhaseE_Beta_Kernel:
         # Restricted to the evidenced set {1, 2, 4, 8}: the kernel's
         # bounds are robust for arbitrary 1..slice_ctas, but only the
         # powers-of-2 subset has the bench/correctness story this PR
-        # ships (reference_split_order at /tmp/wo_split_repro_workdir/
-        # torch_reference.py only validates these). wo_split must also
+        # ships (reference_split_order at docs/research/2026-05-03-w-o-
+        # k-parallel-harness/torch_reference.py only validates these).
+        # wo_split must also
         # be <= slice_ctas (wo_split>slice_ctas requires grid changes).
         self.wo_split = int(os.environ.get("CUTE_WO_SPLIT", "1"))
         assert self.wo_split in (1, 2, 4, 8) \
@@ -3158,7 +3159,7 @@ class PhaseE_Beta_Kernel:
             self.slice_ctas,
             self.num_slices,
             self.num_k_tiles,
-            self.wo_split,  # NEW: K-parallel W_O split factor
+            self.wo_split,  # K-parallel W_O split factor
             self.slices_per_cta,
             self._rows_per_thread,
             self._threads_per_row,
@@ -4112,13 +4113,17 @@ class PhaseE_Beta_Kernel:
             # and must not enter the consumer wait or it deadlocks.
             # ===================================================================
 
+            # bx==0 producer CTAs skip the R11 wait (consumer mask FALSE) and
+            # re-enter the W_O gate below: their attn_output reads are intra-CTA,
+            # no acquire-fence needed (only bx>0 consumers acquire below).
+            pre_wo_consumer_active = (
+                (bx > Int32(0))
+                and (bx < Int32(wo_split_const))
+                and (by < Int32(self.num_kv_heads))
+            )
+
             # Region 11 entry: pre_wo_wait (consumer-only mask).
             if region_timing_enabled:
-                pre_wo_consumer_active = (
-                    (bx > Int32(0))
-                    and (bx < Int32(self.wo_split))
-                    and (by < Int32(self.num_kv_heads))
-                )
                 if pre_wo_consumer_active and tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -4138,8 +4143,7 @@ class PhaseE_Beta_Kernel:
             # mask is empty so no CTA enters the loop. At wo_split>1 each
             # consumer CTA (bx>0) loops on a volatile load until the counter
             # reaches num_kv_heads (= number of producers).
-            if (bx > Int32(0)) and (bx < Int32(self.wo_split)) \
-                    and (by < Int32(self.num_kv_heads)):
+            if pre_wo_consumer_active:
                 pre_wo_arrived = Int32(0)
                 while pre_wo_arrived < num_kv_heads:
                     pre_wo_arrived = _ld_volatile_u32(
@@ -4151,12 +4155,7 @@ class PhaseE_Beta_Kernel:
 
             # Region 11 exit: pre_wo_wait (consumer-only mask).
             if region_timing_enabled:
-                pre_wo_consumer_active2 = (
-                    (bx > Int32(0))
-                    and (bx < Int32(self.wo_split))
-                    and (by < Int32(self.num_kv_heads))
-                )
-                if pre_wo_consumer_active2 and tid == Int32(0):
+                if pre_wo_consumer_active and tid == Int32(0):
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
                         + by * Int32(self.slice_ctas)
