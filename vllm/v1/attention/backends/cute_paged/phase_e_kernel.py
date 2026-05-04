@@ -2885,9 +2885,11 @@ class PhaseE_Beta_Kernel:
         # Spec 2026-04-30 §4.3: hoisted to CutePagedAttentionImpl in
         # attach_mlp_fusion. Per-call alloc here was unsafe under FULL
         # graph capture (vLLM #35175 analog).
-        # Phase 1 attn-producer CTA count — drives the R1 attn-pre-W_O mask.
-        total_ctas_per_seq_attn = self.num_kv_heads  # = 4 by default
         # Phase 1 W_O slot count — drives wo_output shape, gather, election, reset.
+        # The R1 attn-pre-W_O mask uses the literal `by < Int32(4)` in the kernel
+        # body (= num_kv_heads producers); kept as a literal because it doesn't
+        # change with wo_split (wo_split scales the W_O CTA count, not the
+        # attn-producer count).
         total_wo_slots = self.num_kv_heads * self.wo_split  # = 4 at wo_split=1
         assert wo_output.shape == (nat, total_wo_slots, hidden), (
             f"wo_output shape {wo_output.shape} != "
@@ -3047,7 +3049,6 @@ class PhaseE_Beta_Kernel:
             kv_page_stride,
             wo_nkt,
             wo_row_stride,
-            Int32(total_ctas_per_seq_attn),
             Int32(total_wo_slots),
             Int32(hidden),
             Float32(float(scale)),
@@ -3247,7 +3248,6 @@ class PhaseE_Beta_Kernel:
             kv_page_stride: Int32,
             wo_num_k_tiles: Int32,
             wo_weight_row_stride: Int32,
-            total_ctas_per_seq_attn: Int32,
             total_wo_slots: Int32,
             hidden_dim: Int32,
             scale: Float32,
@@ -3327,7 +3327,6 @@ class PhaseE_Beta_Kernel:
                 kv_page_stride,
                 wo_num_k_tiles,
                 wo_weight_row_stride,
-                total_ctas_per_seq_attn,
                 total_wo_slots,
                 hidden_dim,
                 scale,
@@ -3396,7 +3395,6 @@ class PhaseE_Beta_Kernel:
             kv_page_stride: Int32,
             wo_num_k_tiles: Int32,
             wo_weight_row_stride: Int32,
-            total_ctas_per_seq_attn: Int32,
             total_wo_slots: Int32,
             hidden_dim: Int32,
             scale: Float32,
