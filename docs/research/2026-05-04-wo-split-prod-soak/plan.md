@@ -150,6 +150,7 @@ docs/research/2026-05-04-wo-split-prod-soak/    # pre-run scripts (this dir)
   sharegpt_slice.jsonl          # committed deterministic trace (header records revision SHA + license)
   longdecode_prompt.txt         # the 2048-token-target prompt
   runner.sh                     # multi-arm bash driver
+  _replay.py                    # /v1/completions replay + streaming TPOT capture
   coherence_check.py            # warning heuristics for long decode
   parse_results.py              # raw → summary table
 

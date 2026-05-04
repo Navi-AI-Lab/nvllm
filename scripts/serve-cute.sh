@@ -50,6 +50,11 @@ if [ "$DEBUG" -eq 1 ]; then
 else
   EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"PIECEWISE"}')
 fi
+if [ "${NVLLM_TORCH_PROFILER:-0}" = "1" ]; then
+  PROFILER_DIR="${VLLM_TORCH_PROFILER_DIR:-/root/.cache/vllm/profiler}"
+  PROFILER_CONFIG="{\"profiler\":\"torch\",\"torch_profiler_dir\":\"${PROFILER_DIR}\",\"ignore_frontend\":true,\"delay_iterations\":0,\"active_iterations\":200,\"torch_profiler_with_stack\":false,\"torch_profiler_use_gzip\":true,\"torch_profiler_record_shapes\":false}"
+  EXTRA_ARGS+=(--profiler-config "$PROFILER_CONFIG")
+fi
 
 echo "=== Launching Qwen3.5-27B-NVFP4 ($HF_MODEL) — CuTe Paged Attention ==="
 echo "  Model:       $HF_MODEL"
