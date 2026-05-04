@@ -20,7 +20,7 @@ PR #7 proved correctness (bit-exact at wo_split ∈ {1, 2, 4, 8}, the prod-gated
 - N=5 sequential workload replays per arm (one container per arm; cold-restart only between arms / between measurement passes within an arm)
 - Four workload phases per arm: GSM8K-50 quality anchor, ShareGPT mixed-length serve, single 2048-token long-decode probe, lightweight 2-concurrent probe
 - Two measurement modes per arm: primary `CUTE_BETA_REGION_TIMING=0` for clean wall/TPOT; supplementary `CUTE_BETA_REGION_TIMING=1` for one-shot region breakdown
-- Metrics: wall time, token-level TPOT p50/p95/p99, region timing (supplementary pass only), nsys total kernel + kernel mix (one representative trace per arm per phase B/C)
+- Metrics: wall time, token-level TPOT p50/p95/p99, region timing (supplementary pass only), torch-profiler kernel mix via `VLLM_TORCH_PROFILER_DIR` (one representative trace per arm per phase B/C)
 - Coherence checks on long-decode output (warning-only, not a gate)
 - Verdict doc
 
@@ -105,7 +105,7 @@ Two-pass measurement to avoid the debug-instrumented kernel polluting default-de
 | Pass | `CUTE_BETA_REGION_TIMING` | Phases run | Purpose |
 |---|---|---|---|
 | Primary | `0` (OFF) | A (1×) + B (5×) + C (5×) + D (1×) | Wall, TPOT, GSM8K — feeds the "default candidate" decision |
-| Supplementary | `1` (ON) | B (1×, nsys ON) + C (1×, nsys ON) | Region breakdown across R2/R11/R12; nsys kernel mix |
+| Supplementary | `1` (ON) | B (1×, torch profiler ON) + C (1×, torch profiler ON) | Region breakdown across R2/R11/R12; profiler kernel mix |
 
 Container is restarted between primary and supplementary passes within an arm because the timing constexpr is part of the compile-cache key (per `apply_disk_cache_patch`).
 
@@ -117,23 +117,28 @@ Container is restarted between primary and supplementary passes within an arm be
 4. Wait for `/v1/models` ready via active probe, not docker-up time (per `feedback_active_serve_readiness_probe`)
 5. **Primary pass:** A (1×) → B (5×) → C (5×) → D (1×). All wall/TPOT measurements come from this pass.
 6. Stop container; restart with `CUTE_BETA_REGION_TIMING=1` (same `CUTE_WO_SPLIT`)
-7. **Supplementary pass:** B (1×, nsys ON) → C (1×, nsys ON). Region timing CSV + nsys traces come from this pass only.
+7. **Supplementary pass:** B (1×, torch profiler ON) → C (1×, torch profiler ON). Region timing CSV + profiler traces come from this pass only.
 8. Stop container before next arm.
 
 Cold compile cost: each (`wo_split`, `region_timing_enabled`) constexpr combination has a unique compile-cache key. Two compiles per arm × 4 arms = ~8 × 24 s = ~192 s total. Negligible vs total soak wall.
 
-## nsys sampling strategy
+## Supplementary profiler strategy
 
-Explicit to avoid 40-trace bloat:
+Explicit to avoid 40-trace bloat and to avoid relying on `nsys` for vLLM V1
+serving. Per `feedback_vllm_profiling`, V1 EngineCore is a spawned subprocess
+and CUPTI injection is not inherited reliably, so serving kernel-mix evidence
+uses the vLLM torch profiler API with `VLLM_TORCH_PROFILER_DIR`.
 
-- Phase A: no nsys (quality gate, kernel mix uninteresting)
-- Phase B (5× primary): **no nsys** — instrumentation perturbs the perf measurement
-- Phase B (1× supplementary, timing ON): **nsys ON** — single representative trace
-- Phase C (5× primary): no nsys
-- Phase C (1× supplementary, timing ON): **nsys ON** — single representative trace
-- Phase D: no nsys (small probe, kernel mix coverage from B suffices)
+- Phase A: no profiler (quality gate, kernel mix uninteresting)
+- Phase B (5× primary): **no profiler** — instrumentation perturbs the perf measurement
+- Phase B (1× supplementary, timing ON): **torch profiler ON** — single representative trace
+- Phase C (5× primary): no profiler
+- Phase C (1× supplementary, timing ON): **torch profiler ON** — single representative trace
+- Phase D: no profiler (small probe, kernel mix coverage from B suffices)
 
-Total: 4 arms × 2 phases (B + C) = **8 nsys traces**, ~5-20 MB each per AGENTS.md §4.
+Total: 4 arms × 2 phases (B + C) = **8 torch-profiler traces**. The nsys
+evidence for the W_O kernel path remains the committed PR #7 harness /
+production-grid microkernel trace set.
 
 ## Evidence layout
 
@@ -164,9 +169,9 @@ benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/   # post-run artifac
         wall_tpot.csv
     supplementary/              # CUTE_BETA_REGION_TIMING=1 pass
       sharegpt_region_timing.csv  # 13-region breakdown (R2/R11/R12 highlighted)
-      serve.nsys-rep              # Phase B nsys
+      serve_trace/                # Phase B torch-profiler trace
       longdecode_region_timing.csv
-      longdecode.nsys-rep         # Phase C nsys
+      longdecode_trace/           # Phase C torch-profiler trace
   summary.md                    # verdict, tables, repro commands
 ```
 
@@ -215,7 +220,7 @@ If verdict says default candidate, `feat/wo-split-N-prototype` opens with a one-
 - Region names: `vllm/v1/attention/backends/cute_paged/region_timing.py:35-49` (commit `69c530082`)
 - Region timing kernel gate: `vllm/v1/attention/backends/cute_paged/phase_e_kernel.py:354` (commit `69c530082`)
 - W_O K-parallel CTA-id helper: `vllm/v1/attention/backends/cute_paged/region_timing.py:75-91` (commit `69c530082`)
-- AGENTS.md §4 evidence standard: nsys + commit hash + reproduce commands required in `summary.md`
+- AGENTS.md §4 evidence standard: nsys + commit hash + reproduce commands required for performance claims; serving soak records torch profiler traces because V1 EngineCore cannot be captured reliably by nsys
 - ShareGPT dataset: `anon8231489123/ShareGPT_Vicuna_unfiltered` on HF; revision pinned in `gen_sharegpt_slice.py`
 - Concurrent target: `project_num_seqs_2_target` (Hermes + interactive use is num_seqs=2 steady state)
 - Eval thinking modes: `feedback_eval_think_modes` (/no_think for GSM8K)
