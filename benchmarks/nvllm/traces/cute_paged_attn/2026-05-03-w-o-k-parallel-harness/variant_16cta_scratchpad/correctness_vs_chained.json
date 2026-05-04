@@ -1,0 +1,6 @@
+{
+  "max_abs": 0.0546875,
+  "max_rel": 0.00482425931841135,
+  "ref_function": "reference_chained_fma",
+  "kind": "DIAGNOSTIC"
+}

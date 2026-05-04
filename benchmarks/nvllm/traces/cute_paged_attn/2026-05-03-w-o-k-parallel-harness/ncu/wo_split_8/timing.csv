@@ -1,0 +1,2 @@
+launch_idx,elapsed_us,payload_bytes,scratch_bytes,effective_bytes,effective_gbps,is_warmup
+0,64134.559631,17727492,21626880,39354372,0.613622,0

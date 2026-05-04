@@ -1,0 +1,4 @@
+NCU run #2 — kernel-name filtered, after #1 aborted at 5h31m
+Filter: --kernel-name regex:wo_kernel_body
+Replay mode: application (cooperative barrier requires it)
+target-processes all: NOT used (harness uses execvp, no fork)

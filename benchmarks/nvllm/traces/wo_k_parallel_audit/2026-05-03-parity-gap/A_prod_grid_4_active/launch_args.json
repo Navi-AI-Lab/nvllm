@@ -1,0 +1,24 @@
+{
+  "config_label": "A_prod_grid_4_active",
+  "intent": "Production launch shape: total grid 64 CTAs, 4 active W_O CTAs",
+  "harness_args": {
+    "--wo-split": 1,
+    "--slice-ctas": 16,
+    "--launches": 50,
+    "--out": "<audit-root>/A_prod_grid_4_active"
+  },
+  "derived": {
+    "total_grid_ctas_per_seq": 64,
+    "active_wo_ctas": 4,
+    "gather_ctas": 64,
+    "num_kv_heads": 4,
+    "wo_split": 1,
+    "slice_ctas": 16,
+    "cooperative": true
+  },
+  "audit_axis_isolation": "vs B: total grid 64 vs 32 (slice_ctas 16 vs 8), active=4 held constant. vs C: total grid 64 vs 32 AND active 4 vs 32 (both axes shifted).",
+  "harness_files": {
+    "run_harness": "docs/research/2026-05-03-w-o-k-parallel-harness/run_harness.py",
+    "microkernel": "docs/research/2026-05-03-w-o-k-parallel-harness/microkernel.py"
+  }
+}

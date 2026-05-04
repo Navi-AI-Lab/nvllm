@@ -1,0 +1,24 @@
+{
+  "config_label": "B_harness_grid_4_active",
+  "intent": "Harness grid (32 CTAs total) with the same 4-active W_O CTA count as production.",
+  "harness_args": {
+    "--wo-split": 1,
+    "--slice-ctas": 8,
+    "--launches": 50,
+    "--out": "<audit-root>/B_harness_grid_4_active"
+  },
+  "derived": {
+    "total_grid_ctas_per_seq": 32,
+    "active_wo_ctas": 4,
+    "gather_ctas": 32,
+    "num_kv_heads": 4,
+    "wo_split": 1,
+    "slice_ctas": 8,
+    "cooperative": true
+  },
+  "audit_axis_isolation": "vs A: total grid 32 vs 64 (slice_ctas 8 vs 16), active=4 held constant. vs C: active 4 vs 32, total grid=32 held constant.",
+  "harness_files": {
+    "run_harness": "docs/research/2026-05-03-w-o-k-parallel-harness/run_harness.py",
+    "microkernel": "docs/research/2026-05-03-w-o-k-parallel-harness/microkernel.py"
+  }
+}

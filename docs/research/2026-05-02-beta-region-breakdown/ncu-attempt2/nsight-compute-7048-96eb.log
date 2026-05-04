@@ -1,0 +1,2 @@
+13:10:03.872|err:50|           ptxas:  622|  622|              drvacc>> Failed to load libnvoptix.so.1 or alternatives
+13:10:03.872|err:50|           ptxas:  622|  622|             nvetbls>> Failed to find optix table lookup function

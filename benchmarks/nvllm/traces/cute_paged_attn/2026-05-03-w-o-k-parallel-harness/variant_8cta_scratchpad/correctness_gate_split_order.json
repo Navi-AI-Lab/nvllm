@@ -1,0 +1,10 @@
+{
+  "passes": true,
+  "max_abs": 0.0,
+  "max_rel": 0.0,
+  "rtol": 0.001,
+  "atol": 0.0001,
+  "ref_function": "reference_split_order(wo_split=2)",
+  "wo_split": 2,
+  "kind": "AUTHORITATIVE"
+}

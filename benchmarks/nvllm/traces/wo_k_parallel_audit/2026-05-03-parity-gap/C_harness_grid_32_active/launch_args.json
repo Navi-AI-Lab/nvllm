@@ -1,0 +1,24 @@
+{
+  "config_label": "C_harness_grid_32_active",
+  "intent": "Reproduces the published 8.39x reference: harness grid (32 CTAs total) with all 32 active as W_O.",
+  "harness_args": {
+    "--wo-split": 8,
+    "--slice-ctas": 8,
+    "--launches": 50,
+    "--out": "<audit-root>/C_harness_grid_32_active"
+  },
+  "derived": {
+    "total_grid_ctas_per_seq": 32,
+    "active_wo_ctas": 32,
+    "gather_ctas": 32,
+    "num_kv_heads": 4,
+    "wo_split": 8,
+    "slice_ctas": 8,
+    "cooperative": true
+  },
+  "audit_axis_isolation": "vs B: active 32 vs 4 at fixed grid=32. vs A: active 32 vs 4 AND grid 32 vs 64. Same kernel cache_key as the prior variant_32cta_scratchpad reference at commit a4c276560.",
+  "harness_files": {
+    "run_harness": "docs/research/2026-05-03-w-o-k-parallel-harness/run_harness.py",
+    "microkernel": "docs/research/2026-05-03-w-o-k-parallel-harness/microkernel.py"
+  }
+}

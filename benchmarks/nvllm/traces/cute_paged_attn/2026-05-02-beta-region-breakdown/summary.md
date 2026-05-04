@@ -197,6 +197,45 @@ Raw artifact: [`sanity_gsm8k.json`](sanity_gsm8k.json)
 A timing-OFF rerun for production-path equivalence is recorded as
 follow-up; not blocking for this experiment.
 
+## NCU pivot — classification deferred to standalone harness
+
+Two follow-up NCU attempts (2026-05-03, `ncu-attempt1/`,
+`ncu-attempt2/`) confirmed the regex was never the blocker. Both
+replay modes broke structurally:
+
+- `--replay-mode kernel` (regex `phase_0_to_4`) matched the kernel
+  by mangled name (`kernel_cutlass__kernel_phase_...`) but failed
+  with `==ERROR== Failed to profile`: NCU's kernel-replay re-runs
+  the same kernel multiple times to collect different metric
+  sections, which deadlocks the cooperative-launch grid barrier
+  (CLAUDE.md §8).
+- `--replay-mode application` (regex `kernel_cutlass__kernel_phase`)
+  connected to EngineCore but produced no metric data: application-
+  replay requires the app to exit between metric passes, and
+  `vllm serve` is a long-running server.
+
+Roofline classification is therefore deferred to a standalone W_O
+K-parallel harness, which is now the only viable vehicle for both
+(a) the CTA-scaling evidence the matrix gate asks for and (b) a
+future NCU application-replay classification against a short-lived
+process. Bandwidth telemetry from the harness's own per-launch
+numbers is **not** a substitute for an NCU roofline classification —
+it answers "does W_O scale?", not "is W_O memory-bound?". The two
+answers come from the same vehicle but are distinct claims.
+
+Side-finding: `/opt/vllm/kernel_cache/` was empty after JIT compile
+despite the disk-cache hookup at `_backend.py:78-82` —
+`apply_disk_cache_patch` is not reaching the EngineCore subprocess
+(env-stripping pattern; see `feedback_vllm_enginecore_env_strip.md`).
+Recorded as separate follow-up; does not block W_O.
+
+**Decision-record line:** matrix gate was not met; W_O proceeds only
+to validation because R2-R4 coupling creates a plausible recoverable
+path.
+
+Harness design lives at
+`docs/research/2026-05-03-w-o-k-parallel-harness/README.md`.
+
 ## Decision back to the priority memo
 
 `project_strategy_priorities.md` set the gate as:
