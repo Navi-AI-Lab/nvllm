@@ -1,0 +1,14 @@
+region_id,region,n_active_ctas,cta_class,tick_source,mean_ticks,median_ticks,p99_ticks,raw_total_ticks,median_us,frac_of_kernel
+0,phase0_pre_attn,1,phase0,globaltimer,12512.0,12512.0,12512.0,12512,12.512,0.0003128
+1,phase1_attn_pre_wo,4,phase1,globaltimer,245264.0,248320.0,248320.0,981056,248.32,0.006208
+2,phase1_wo_gemv,4,phase1,globaltimer,14152008.0,14121472.0,14858986.24,56608032,14121.472,0.3530368
+3,phase1_wo_post,1,phase1,globaltimer,128.0,128.0,128.0,128,0.128,3.2e-06
+4,grid_barrier_wait,64,barrier_wait,globaltimer,14310038.0,15211456.0,15211520.0,915842432,15211.456,
+5,phase3_load_x,64,phase3,globaltimer,1948.5,1952.0,1984.0,124704,1.952,4.88e-05
+6,phase3_partial_reset,64,phase3,globaltimer,102.5,96.0,160.0,6560,0.096,2.4e-06
+7,phase3_3a_fc1_silu,64,phase3,globaltimer,564574.5,564448.0,610369.6,36132768,564.448,0.0141112
+8,phase3_3b_quant,64,phase3,globaltimer,546.5,544.0,576.0,34976,0.544,1.36e-05
+9,phase3_3c_fc2_atomic,64,phase3,globaltimer,114624.5,113328.0,174219.84,7335968,113.328,0.0028332
+10,phase3_3d_arrival,64,phase3,globaltimer,314.5,96.0,2603.84,20128,0.096,2.4e-06
+11,phase1_pre_wo_wait,0,barrier_wait,globaltimer,0.0,0.0,0.0,0,0.0,
+12,phase1_gather_reduce,1,dynamic_single,globaltimer,73312.0,73312.0,73312.0,73312,73.312,
