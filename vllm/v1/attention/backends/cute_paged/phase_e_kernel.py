@@ -252,10 +252,17 @@ class PhaseE_Beta_Kernel:
         self.slices_per_cta = (self.num_slices + slice_ctas - 1) // slice_ctas
         # wo_split: K-parallel split factor for W_O GEMV.
         # Default 1 = current behavior (4 active W_O CTAs).
-        # Bounded by slice_ctas; wo_split>slice_ctas requires grid changes.
+        # Restricted to the evidenced set {1, 2, 4, 8}: the kernel's
+        # bounds are robust for arbitrary 1..slice_ctas, but only the
+        # powers-of-2 subset has the bench/correctness story this PR
+        # ships (reference_split_order at /tmp/wo_split_repro_workdir/
+        # torch_reference.py only validates these). wo_split must also
+        # be <= slice_ctas (wo_split>slice_ctas requires grid changes).
         self.wo_split = int(os.environ.get("CUTE_WO_SPLIT", "1"))
-        assert 1 <= self.wo_split <= self.slice_ctas, (
-            f"wo_split={self.wo_split} must be in [1, slice_ctas={self.slice_ctas}]"
+        assert self.wo_split in (1, 2, 4, 8) \
+                and self.wo_split <= self.slice_ctas, (
+            f"wo_split={self.wo_split} must be in {{1, 2, 4, 8}} "
+            f"and <= slice_ctas={self.slice_ctas}"
         )
         # FC2 thread mapping — same two-path choice as Phase_D (see
         # mlp_kernel.py:374).
