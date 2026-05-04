@@ -1,0 +1,3 @@
+INFO 05-03 21:04:06 [disk_cache.py:851] CuTe DSL disk cache enabled: /tmp/cute_harness_cache_v3
+INFO 05-03 21:04:06 [disk_cache.py:803] CuTe disk cache HIT (native) key=9c61b0e4c7a0507b
+[harness] wo_split=1 total_wo_ctas=4 slice_ctas=16 gather_ctas=64 launches=50 gate_passes=True max_abs_so=0.000e+00 max_rel_so=0.000e+00 cache_key=9c61b0e4c7a0507b
