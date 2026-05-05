@@ -207,14 +207,36 @@ def run_sharegpt(args: argparse.Namespace) -> int:
 
     turns_out: list[dict[str, Any]] = []
     csv_rows: list[dict[str, Any]] = []
+    skipped_long: list[dict[str, Any]] = []
     outputs_path = out_dir / "sharegpt_outputs.jsonl"
+    hit_request_limit = False
     with outputs_path.open("w") as outputs:
         for conv_idx, conv in enumerate(convs):
+            if hit_request_limit:
+                break
             turns = conv.get("conversations") or []
             for turn_idx, turn in enumerate(turns):
                 if turn.get("from") != "human":
                     continue
                 prompt = transcript_prompt(turns, turn_idx)
+                # Length filter applied BEFORE the request-count cap so a
+                # pathological prompt cannot consume one of the budgeted slots.
+                if args.max_prompt_chars > 0 and len(prompt) > args.max_prompt_chars:
+                    skipped_long.append({
+                        "conv_idx": conv_idx,
+                        "turn_idx": turn_idx,
+                        "prompt_chars": len(prompt),
+                    })
+                    print(
+                        f"[sharegpt] skip conv={conv_idx} turn={turn_idx} "
+                        f"prompt_chars={len(prompt)} > "
+                        f"max_prompt_chars={args.max_prompt_chars}",
+                        file=sys.stderr,
+                    )
+                    continue
+                if args.limit_requests > 0 and len(turns_out) >= args.limit_requests:
+                    hit_request_limit = True
+                    break
                 result = stream_completion(
                     api=args.api,
                     model=args.model,
@@ -261,6 +283,10 @@ def run_sharegpt(args: argparse.Namespace) -> int:
         "seed": args.seed,
         "max_tokens": args.max_tokens,
         "n_conversations": len(convs),
+        "limit_requests": args.limit_requests,
+        "max_prompt_chars": args.max_prompt_chars,
+        "skipped_long": skipped_long,
+        "hit_request_limit": hit_request_limit,
         "turns": turns_out,
     }, indent=2))
     write_turn_csv(out_dir / "sharegpt_wall_tpot.csv", csv_rows)
@@ -393,9 +419,19 @@ def main() -> int:
                     default=Path(__file__).with_name("longdecode_prompt.txt"))
     ap.add_argument("--max-tokens", type=int, default=None)
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--timeout", type=int, default=900)
+    # `--timeout` retained as backward-compatible alias for `--http-timeout`
+    # (runner.sh and earlier invocations use the original name).
+    ap.add_argument("--http-timeout", "--timeout", dest="timeout",
+                    type=int, default=900,
+                    help="per-request HTTP read timeout (seconds)")
     ap.add_argument("--limit-convs", type=int, default=0,
                     help="debug-only limit for ShareGPT conversations")
+    ap.add_argument("--limit-requests", type=int, default=0,
+                    help="ShareGPT only: hard cap on issued requests after "
+                         "max-prompt-chars filtering. 0 = unlimited.")
+    ap.add_argument("--max-prompt-chars", type=int, default=0,
+                    help="ShareGPT only: skip turns whose composed prompt "
+                         "exceeds this many characters. 0 = unlimited.")
     args = ap.parse_args()
 
     if args.max_tokens is None:

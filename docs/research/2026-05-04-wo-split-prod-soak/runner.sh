@@ -28,6 +28,13 @@ SHAREGPT_MAX_TOKENS="${SHAREGPT_MAX_TOKENS:-128}"
 LONGDECODE_MAX_TOKENS="${LONGDECODE_MAX_TOKENS:-2048}"
 CONCURRENT_MAX_TOKENS="${CONCURRENT_MAX_TOKENS:-128}"
 REPLAY_TIMEOUT="${REPLAY_TIMEOUT:-900}"
+# Supplementary pass runs with profiler + region timing on, which slows
+# inference enough that a long prompt can blow past the primary timeout
+# and starve the EngineCore. Cap by both count and length, and give each
+# request a much longer ceiling.
+SUPP_REPLAY_TIMEOUT="${SUPP_REPLAY_TIMEOUT:-1800}"
+SUPP_LIMIT_REQUESTS="${SUPP_LIMIT_REQUESTS:-4}"
+SUPP_MAX_PROMPT_CHARS="${SUPP_MAX_PROMPT_CHARS:-5500}"
 PROFILER_FLUSH_SECONDS="${PROFILER_FLUSH_SECONDS:-120}"
 TICK_SOURCE="${TICK_SOURCE:-globaltimer}"
 PHASES="${PHASES:-primary,supplementary}"
@@ -292,6 +299,13 @@ run_supplementary_phase() {
   docker exec "$CONTAINER" mkdir -p /root/.cache/vllm/profiler
   prepare_region_dump
   profiler_start
+
+  # The replay command is the only step that can hang for a long time.
+  # Run it with `set +e` so a read-timeout/connection failure does NOT
+  # abort the runner before profiler_stop + region dump + container
+  # cleanup. The original rc is preserved for the caller.
+  local replay_rc=0
+  set +e
   if [ "$phase" = "sharegpt" ]; then
     "$REPO_ROOT/.venv/bin/python" "$DOC_DIR/_replay.py" \
       --phase sharegpt \
@@ -301,8 +315,11 @@ run_supplementary_phase() {
       --sharegpt-slice "$DOC_DIR/sharegpt_slice.jsonl" \
       --max-tokens "$SHAREGPT_MAX_TOKENS" \
       --seed "$SEED" \
-      --timeout "$REPLAY_TIMEOUT" \
+      --http-timeout "$SUPP_REPLAY_TIMEOUT" \
+      --limit-requests "$SUPP_LIMIT_REQUESTS" \
+      --max-prompt-chars "$SUPP_MAX_PROMPT_CHARS" \
       2>&1 | tee "$out_dir/sharegpt_replay.log"
+    replay_rc="${PIPESTATUS[0]}"
   elif [ "$phase" = "longdecode" ]; then
     "$REPO_ROOT/.venv/bin/python" "$DOC_DIR/_replay.py" \
       --phase longdecode \
@@ -312,13 +329,22 @@ run_supplementary_phase() {
       --longdecode-prompt "$DOC_DIR/longdecode_prompt.txt" \
       --max-tokens "$LONGDECODE_MAX_TOKENS" \
       --seed "$SEED" \
-      --timeout "$REPLAY_TIMEOUT" \
+      --http-timeout "$SUPP_REPLAY_TIMEOUT" \
       2>&1 | tee "$out_dir/longdecode_replay.log"
+    replay_rc="${PIPESTATUS[0]}"
   else
+    set -e
     echo "unknown supplementary phase: $phase" >&2
     return 1
   fi
-  profiler_stop
+  set -e
+
+  if [ "$replay_rc" -ne 0 ]; then
+    log "WARNING: supplementary $phase wo$wo_split replay failed (rc=$replay_rc); attempting best-effort flush + extract"
+  fi
+
+  # Best-effort cleanup. None of these failing should mask replay_rc.
+  profiler_stop || true
 
   local region_npy="$out_dir/${phase}_region_timings.npy"
   local region_csv="$out_dir/${phase}_region_timing.csv"
@@ -328,10 +354,16 @@ run_supplementary_phase() {
   fi
   local trace_dir="$out_dir/${trace_name}_trace"
   local kernels_csv="$out_dir/${phase}_profile_kernels.csv"
-  copy_region_dump "$region_npy"
+  copy_region_dump "$region_npy" || \
+    log "WARNING: region dump copy failed for wo$wo_split $phase"
   extract_profiler_and_regions \
-    "$wo_split" "$phase" "$trace_dir" "$region_npy" "$kernels_csv" "$region_csv"
-  touch "$done_file"
+    "$wo_split" "$phase" "$trace_dir" "$region_npy" "$kernels_csv" "$region_csv" \
+    || log "WARNING: profiler/region extraction failed for wo$wo_split $phase"
+
+  if [ "$replay_rc" -eq 0 ]; then
+    touch "$done_file"
+  fi
+  return "$replay_rc"
 }
 
 write_metadata() {
@@ -366,27 +398,50 @@ main() {
   export REPLAYS SHAREGPT_MAX_TOKENS LONGDECODE_MAX_TOKENS
   write_metadata
 
-  for wo in "${ARMS[@]}"; do
-    local arm_dir="$OUT_DIR/wo${wo}"
-    mkdir -p "$arm_dir/primary" "$arm_dir/supplementary"
-
-    if phase_enabled primary; then
+  # Phase 1: ALL primary passes first. These are the decision-critical
+  # data (wall, TPOT, GSM8K). Supplementary diagnostics are deferred so
+  # that a profiler-induced failure on one arm cannot block the verdict
+  # for the others.
+  if phase_enabled primary; then
+    for wo in "${ARMS[@]}"; do
+      local arm_dir="$OUT_DIR/wo${wo}"
+      mkdir -p "$arm_dir/primary" "$arm_dir/supplementary"
+      if [ "$FORCE" != "1" ] && [ -f "$arm_dir/primary_DONE" ]; then
+        log "skip primary wo$wo (primary_DONE)"
+        continue
+      fi
       start_server "$wo" 0 0 "$arm_dir/primary/serve.log"
       run_gsm8k "$arm_dir" "$wo"
       run_primary_replays "$arm_dir" "$wo"
       run_concurrent_probe "$arm_dir" "$wo"
       stop_server "$arm_dir/primary/docker.log"
       touch "$arm_dir/primary_DONE"
-    fi
+    done
+  fi
 
-    if phase_enabled supplementary; then
+  # Phase 2: ALL supplementary passes. Each phase is fault-tolerant
+  # (replay failure is captured, profiler/region extraction runs
+  # best-effort) so one arm timing out does not block later arms.
+  if phase_enabled supplementary; then
+    for wo in "${ARMS[@]}"; do
+      local arm_dir="$OUT_DIR/wo${wo}"
+      mkdir -p "$arm_dir/supplementary"
+      if [ "$FORCE" != "1" ] && [ -f "$arm_dir/supplementary_DONE" ]; then
+        log "skip supplementary wo$wo (supplementary_DONE)"
+        continue
+      fi
       start_server "$wo" 1 1 "$arm_dir/supplementary/serve.log"
-      run_supplementary_phase "$arm_dir" "$wo" sharegpt
-      run_supplementary_phase "$arm_dir" "$wo" longdecode
+      local supp_rc=0
+      run_supplementary_phase "$arm_dir" "$wo" sharegpt   || supp_rc=$?
+      run_supplementary_phase "$arm_dir" "$wo" longdecode || supp_rc=$?
       stop_server "$arm_dir/supplementary/docker.log"
-      touch "$arm_dir/supplementary_DONE"
-    fi
-  done
+      if [ "$supp_rc" -eq 0 ]; then
+        touch "$arm_dir/supplementary_DONE"
+      else
+        log "WARNING: supplementary wo$wo finished with rc=$supp_rc; not marking DONE"
+      fi
+    done
+  fi
 
   (
     cd "$REPO_ROOT"
