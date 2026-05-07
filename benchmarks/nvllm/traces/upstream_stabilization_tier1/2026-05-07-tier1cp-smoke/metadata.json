@@ -1,0 +1,10 @@
+{
+  "commit": "a131443ff5d5d4ccf7928b4a930a191c718fe59f",
+  "branch": "main",
+  "image_id": "sha256:c051b0a8a84fd70e73807d50c4ab9342521dcd4b1202af37883b0bba198bbd83",
+  "model": "ig1/Qwen3.5-27B-NVFP4",
+  "wo_splits": "1",
+  "replays": 1,
+  "sharegpt_max_tokens": 128,
+  "longdecode_max_tokens": 2048
+}
