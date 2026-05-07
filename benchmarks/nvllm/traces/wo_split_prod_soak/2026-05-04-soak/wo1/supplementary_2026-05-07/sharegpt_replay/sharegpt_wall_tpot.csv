@@ -1,0 +1,5 @@
+phase,conv_idx,turn_idx,request_id,prompt_chars,output_chars,wall_s,ttft_ms,n_stream_chunks,tpot_p50_ms,tpot_p95_ms,tpot_p99_ms,finish_reason
+sharegpt,0,0,,208,635,111.922801,58083.413,128,425.049,428.727,429.165,length
+sharegpt,0,2,,1715,509,64.802218,9132.450,128,438.556,443.482,444.080,length
+sharegpt,0,4,,3482,598,94.829181,37448.327,128,451.459,456.554,457.511,length
+sharegpt,0,6,,5109,569,138.689752,79755.022,128,464.128,467.685,468.124,length

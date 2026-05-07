@@ -50,6 +50,11 @@ if [ "$DEBUG" -eq 1 ]; then
 else
   EXTRA_ARGS+=(--compilation-config '{"cudagraph_mode":"PIECEWISE"}')
 fi
+if [ "${NVLLM_TORCH_PROFILER:-0}" = "1" ]; then
+  PROFILER_DIR="${VLLM_TORCH_PROFILER_DIR:-/root/.cache/vllm/profiler}"
+  PROFILER_CONFIG="{\"profiler\":\"torch\",\"torch_profiler_dir\":\"${PROFILER_DIR}\",\"ignore_frontend\":true,\"delay_iterations\":0,\"active_iterations\":200,\"torch_profiler_with_stack\":false,\"torch_profiler_use_gzip\":true,\"torch_profiler_record_shapes\":false}"
+  EXTRA_ARGS+=(--profiler-config "$PROFILER_CONFIG")
+fi
 
 echo "=== Launching Qwen3.5-27B-NVFP4 ($HF_MODEL) — CuTe Paged Attention ==="
 echo "  Model:       $HF_MODEL"
@@ -74,6 +79,11 @@ mkdir -p /tmp/c2_diag
   echo "CUTE_C2_DIAG_DUMP_DIR=${CUTE_C2_DIAG_DUMP_DIR:-}"
   echo "CUTE_C2_DIAG_TOL_ATOL=${CUTE_C2_DIAG_TOL_ATOL:-}"
   echo "CUTE_C2_DIAG_TOL_RTOL=${CUTE_C2_DIAG_TOL_RTOL:-}"
+  # vLLM's EngineCore subprocess strips most -e env vars (per
+  # feedback_vllm_enginecore_env_strip). Sentinel-file workaround:
+  # qwen3_5.py reads /tmp/c2_diag/ENV at module import and calls
+  # os.environ.setdefault(). Same pattern as CUTE_C2_* above.
+  echo "CUTE_WO_SPLIT=${CUTE_WO_SPLIT:-1}"
 } > /tmp/c2_diag/ENV
 
 # Optional bind-mount of the cute_paged subdir for Python-only iteration
@@ -116,6 +126,7 @@ docker run -d \
   -e CUTE_PHASE_E_LAYERS="${CUTE_PHASE_E_LAYERS:-}" \
   -e CUTE_PHASE_E_FALLBACK_RAISE="${CUTE_PHASE_E_FALLBACK_RAISE:-0}" \
   -e CUTE_BETA_REGION_TIMING="${CUTE_BETA_REGION_TIMING:-0}" \
+  -e CUTE_WO_SPLIT="${CUTE_WO_SPLIT:-1}" \
   -e VLLM_TORCH_PROFILER_DIR="${VLLM_TORCH_PROFILER_DIR:-}" \
   "$NVLLM_IMAGE" \
   serve \

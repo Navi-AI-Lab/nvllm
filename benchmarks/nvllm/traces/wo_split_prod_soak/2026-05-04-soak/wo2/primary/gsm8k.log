@@ -1,0 +1,61 @@
+[1/50] WRONG (gold=2280 pred=2180) 111.8s
+[2/50] OK (gold=1 pred=1) 48.6s
+[3/50] OK (gold=5 pred=5) 58.5s
+[4/50] OK (gold=12 pred=12) 74.6s
+[5/50] OK (gold=273 pred=273) 67.6s
+[6/50] OK (gold=45 pred=45) 53.2s
+[7/50] OK (gold=21 pred=21) 44.5s
+[8/50] WRONG (gold=145 pred=70) 65.6s
+[9/50] OK (gold=60 pred=60) 64.9s
+[10/50] OK (gold=122 pred=122) 66.5s
+[11/50] OK (gold=29 pred=29) 180.7s
+[12/50] OK (gold=80 pred=80) 74.7s
+[13/50] OK (gold=36 pred=36) 50.4s
+[14/50] OK (gold=1430 pred=1430) 82.9s
+[15/50] OK (gold=5 pred=5) 57.4s
+[16/50] OK (gold=5 pred=5) 42.2s
+[17/50] OK (gold=5 pred=5) 52.1s
+[18/50] OK (gold=66 pred=66) 40.0s
+[19/50] OK (gold=15 pred=15) 40.1s
+[20/50] OK (gold=40 pred=40) 37.5s
+[21/50] OK (gold=93 pred=93) 40.4s
+[22/50] OK (gold=2000 pred=2000) 89.6s
+[23/50] OK (gold=1520 pred=1520) 43.1s
+[24/50] OK (gold=11050 pred=11050) 53.5s
+[25/50] OK (gold=90 pred=90) 94.1s
+[26/50] OK (gold=40000 pred=40000) 87.2s
+[27/50] OK (gold=21 pred=21) 48.9s
+[28/50] OK (gold=18 pred=18) 131.0s
+[29/50] OK (gold=14 pred=14) 63.1s
+[30/50] OK (gold=23 pred=23) 39.8s
+[31/50] OK (gold=145 pred=145) 78.6s
+[32/50] OK (gold=123 pred=123) 88.2s
+[33/50] OK (gold=98 pred=98) 66.0s
+[34/50] OK (gold=7 pred=7) 89.0s
+[35/50] OK (gold=34 pred=34) 83.8s
+[36/50] OK (gold=38 pred=38) 57.4s
+[37/50] OK (gold=320 pred=320) 84.8s
+[38/50] OK (gold=50 pred=50) 82.1s
+[39/50] OK (gold=50 pred=50) 70.1s
+[40/50] OK (gold=84 pred=84) 47.7s
+[41/50] OK (gold=50 pred=50) 96.7s
+[42/50] OK (gold=8000 pred=8000) 64.8s
+[43/50] OK (gold=280 pred=280) 50.5s
+[44/50] OK (gold=30 pred=30) 34.7s
+[45/50] WRONG (gold=192 pred=20) 215.5s
+[46/50] OK (gold=276 pred=276) 57.2s
+[47/50] OK (gold=32 pred=32) 75.1s
+[48/50] OK (gold=25 pred=25) 96.1s
+[49/50] OK (gold=10 pred=10) 51.4s
+[50/50] OK (gold=84 pred=84) 54.2s
+{
+  "label": "wo2_primary_gsm8k",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 0,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3548.2
+}

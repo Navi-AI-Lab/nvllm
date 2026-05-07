@@ -1,0 +1,6 @@
+[sharegpt] conv=0 turn=0 chunks=128 wall=96.99s
+[sharegpt] conv=0 turn=2 chunks=128 wall=61.53s
+[sharegpt] conv=0 turn=4 chunks=128 wall=91.36s
+[sharegpt] conv=0 turn=6 chunks=128 wall=134.94s
+[sharegpt] skip conv=0 turn=8 prompt_chars=6787 > max_prompt_chars=5500
+[sharegpt] skip conv=0 turn=10 prompt_chars=8508 > max_prompt_chars=5500

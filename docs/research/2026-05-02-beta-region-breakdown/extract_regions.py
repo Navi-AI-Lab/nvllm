@@ -2,7 +2,7 @@
 per-region CSV.
 
 Inputs:
-  - region_timings.npy: (num_ctas, 11, 2) int64 raw buffer.
+  - region_timings.npy: (num_ctas, 13, 2) int64 raw buffer.
   - profile_kernels.csv: per-kernel μs from
     docs/research/gemm_sweep/extract_e2e_kernels.py. Column name is
     `kernel_symbol` (NOT `Kernel Name`); rows include CuTe kernel name
@@ -44,6 +44,14 @@ def main() -> None:
     p.add_argument("--kernel-symbol-regex", default="PhaseE_Beta_Kernel",
                    help="Substring used to find the β-coop row in "
                         "profile_kernels.csv.kernel_symbol")
+    p.add_argument("--wo-split", type=int, default=1,
+                   help="K-parallel split factor for W_O (regions "
+                        "{2,3,11,12}). Default 1 keeps legacy mask "
+                        "(_phase1_cta_ids); >1 dispatches "
+                        "_phase1_wo_split_cta_ids.")
+    p.add_argument("--num-kv-heads", type=int, default=4,
+                   help="KV-head count for the W_O mask when "
+                        "--wo-split>1. Qwen3.5-27B = 4.")
     args = p.parse_args()
 
     buf = np.load(args.buf)
@@ -86,6 +94,8 @@ def main() -> None:
         num_seqs=args.num_seqs,
         tick_source=args.tick_source,
         nsys_total_us=nsys_total_us,
+        wo_split=args.wo_split,
+        num_kv_heads=args.num_kv_heads,
     )
     df.to_csv(args.out, index=False)
 

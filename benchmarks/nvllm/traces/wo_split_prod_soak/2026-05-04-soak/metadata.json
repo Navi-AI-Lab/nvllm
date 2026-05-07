@@ -1,0 +1,10 @@
+{
+  "commit": "5b8fc399f2c981da86c6ae4455bb4f9adc347da8",
+  "branch": "evidence/wo-split-prod-soak",
+  "image_id": "sha256:9c0f1d31c92c29488f66a2c136183950cea787035d735ff95dd6af193740f530",
+  "model": "ig1/Qwen3.5-27B-NVFP4",
+  "wo_splits": "8",
+  "replays": 5,
+  "sharegpt_max_tokens": 128,
+  "longdecode_max_tokens": 2048
+}

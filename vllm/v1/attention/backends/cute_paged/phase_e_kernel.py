@@ -33,6 +33,12 @@ logger = logging.getLogger(__name__)
 FP4_BLOCK_SIZE = 16
 LOG2_E = 1.4426950408889634
 
+# Per-CTA stride for the region-timing buffer:
+# regions × 2 slots (entry/exit) × 8 bytes (u64).
+# Must match _REGION_TIMING_NUM_REGIONS in _backend.py and
+# REGION_NAMES len in region_timing.py.
+_REGION_TIMING_PER_CTA_STRIDE = 13 * 2 * 8  # 208 bytes
+
 
 # --- CuTe DSL import guard (mirrors kernel.py / mlp_kernel.py) --------------
 _CUTE_AVAILABLE = False
@@ -244,6 +250,21 @@ class PhaseE_Beta_Kernel:
         )
         # Each CTA owns a contiguous chunk of slices (mirrors Phase_D).
         self.slices_per_cta = (self.num_slices + slice_ctas - 1) // slice_ctas
+        # wo_split: K-parallel split factor for W_O GEMV.
+        # Default 1 = current behavior (4 active W_O CTAs).
+        # Restricted to the evidenced set {1, 2, 4, 8}: the kernel's
+        # bounds are robust for arbitrary 1..slice_ctas, but only the
+        # powers-of-2 subset has the bench/correctness story this PR
+        # ships (reference_split_order at docs/research/2026-05-03-w-o-
+        # k-parallel-harness/torch_reference.py only validates these).
+        # wo_split must also
+        # be <= slice_ctas (wo_split>slice_ctas requires grid changes).
+        self.wo_split = int(os.environ.get("CUTE_WO_SPLIT", "1"))
+        assert self.wo_split in (1, 2, 4, 8) \
+                and self.wo_split <= self.slice_ctas, (
+            f"wo_split={self.wo_split} must be in {{1, 2, 4, 8}} "
+            f"and <= slice_ctas={self.slice_ctas}"
+        )
         # FC2 thread mapping — same two-path choice as Phase_D (see
         # mlp_kernel.py:374).
         if tile_k >= self.num_threads:
@@ -334,7 +355,7 @@ class PhaseE_Beta_Kernel:
         )
         # Number of measured regions; matches the host reducer in
         # vllm/v1/attention/backends/cute_paged/region_timing.py.
-        self._region_timing_num_regions = 11
+        self._region_timing_num_regions = 13
 
     # -----------------------------------------------------------------
     # Python-level debug entry point (phase-0-only).
@@ -2796,6 +2817,12 @@ class PhaseE_Beta_Kernel:
         mlp_arrival_count: torch.Tensor,    # [nat, num_k_tiles]          u32
         grid_barrier_i32: torch.Tensor,     # [nat]                       i32
         phase1_arrival_count: torch.Tensor, # [nat]                       i32
+        # Task 6: pre-W_O arrival counter (i32 [nat]). Producers (bx==0
+        # attn CTAs, by<num_kv_heads) atomic_add 1 after attn_output is
+        # written; consumers (bx>0 W_O CTAs at wo_split>1) spin until
+        # counter == num_kv_heads. Dormant at wo_split=1 (consumer mask
+        # `bx>0 && bx<wo_split` is empty).
+        pre_wo_arrival_count: torch.Tensor, # [nat]                       i32
         # When True, prime the disk cache for this config and return
         # immediately after _compile_coop_full. The actual launch
         # (self._compiled_phase_coop_full) is skipped. Used by
@@ -2858,10 +2885,15 @@ class PhaseE_Beta_Kernel:
         # Spec 2026-04-30 §4.3: hoisted to CutePagedAttentionImpl in
         # attach_mlp_fusion. Per-call alloc here was unsafe under FULL
         # graph capture (vLLM #35175 analog).
-        total_ctas_per_seq_attn = 4  # bx==0 && by<4
-        assert wo_output.shape == (nat, total_ctas_per_seq_attn, hidden), (
+        # Phase 1 W_O slot count — drives wo_output shape, gather, election, reset.
+        # The R1 attn-pre-W_O mask uses the literal `by < Int32(4)` in the kernel
+        # body (= num_kv_heads producers); kept as a literal because it doesn't
+        # change with wo_split (wo_split scales the W_O CTA count, not the
+        # attn-producer count).
+        total_wo_slots = self.num_kv_heads * self.wo_split  # = 4 at wo_split=1
+        assert wo_output.shape == (nat, total_wo_slots, hidden), (
             f"wo_output shape {wo_output.shape} != "
-            f"({nat}, {total_ctas_per_seq_attn}, {hidden})"
+            f"({nat}, {total_wo_slots}, {hidden})"
         )
         assert wo_output.dtype == torch.float32
         assert wo_output.is_contiguous()
@@ -2940,6 +2972,11 @@ class PhaseE_Beta_Kernel:
         wo_output_ptr = Int64(wo_output.data_ptr())
         wo_gs_ptr = Int64(wo_global_scale.data_ptr())
         phase1_arrival_ptr = Int64(phase1_arrival_count.data_ptr())
+        # Task 6: pre-W_O arrival counter pointer. Producers (bx==0 attn
+        # CTAs, by<num_kv_heads) atomic_add 1 after attn writes; consumers
+        # (bx>0 W_O CTAs at wo_split>1) spin until counter == num_kv_heads.
+        # Dormant at wo_split=1 (consumer mask `bx>0 && bx<wo_split` empty).
+        pre_wo_arrival_ptr = Int64(pre_wo_arrival_count.data_ptr())
 
         gate_fp4_ptr = Int64(gate_w_fp4.data_ptr())
         gate_sc_ptr = Int64(gate_w_scale.data_ptr())
@@ -3006,12 +3043,13 @@ class PhaseE_Beta_Kernel:
             wo_output_ptr,
             wo_gs_ptr,
             phase1_arrival_ptr,
+            pre_wo_arrival_ptr,  # Task 6: pre-W_O arrival counter
             Int32(self.num_attn_heads),
             Int32(self.num_kv_heads),
             kv_page_stride,
             wo_nkt,
             wo_row_stride,
-            Int32(total_ctas_per_seq_attn),
+            Int32(total_wo_slots),
             Int32(hidden),
             Float32(float(scale)),
             Float32(float(k_scale)),
@@ -3056,6 +3094,8 @@ class PhaseE_Beta_Kernel:
         all_args = all_args + (
             timing_ptr_i64,
             self._region_timing_enabled,
+            # Task 8: K-parallel W_O split factor (Constexpr at trace).
+            int(self.wo_split),
         )
 
         self._compile_coop_full(*all_args)
@@ -3089,6 +3129,7 @@ class PhaseE_Beta_Kernel:
         # this function).
         # Reverted to counters-only — partial fix, capture-safe.
         phase1_arrival_count.zero_()
+        pre_wo_arrival_count.zero_()  # Task 6: pre-W_O arrival counter reset
         grid_barrier_i32.zero_()
         mlp_arrival_count.zero_()
         # mlp_partial_fp32.zero_()  # large FP32 — hangs capture
@@ -3119,6 +3160,7 @@ class PhaseE_Beta_Kernel:
             self.slice_ctas,
             self.num_slices,
             self.num_k_tiles,
+            self.wo_split,  # K-parallel W_O split factor
             self.slices_per_cta,
             self._rows_per_thread,
             self._threads_per_row,
@@ -3195,12 +3237,18 @@ class PhaseE_Beta_Kernel:
             wo_output_ptr: Int64,
             wo_gs_ptr: Int64,
             phase1_arrival_ptr: Int64,
+            # Task 6: pre-W_O arrival counter (i32 [nat]). Producers (bx==0
+            # attn CTAs, by<num_kv_heads) atomic_add 1 after attn_output
+            # is published; consumers (bx>0 W_O CTAs at wo_split>1) spin
+            # until counter == num_kv_heads. Dormant at wo_split=1
+            # (consumer mask `bx>0 && bx<wo_split` empty).
+            pre_wo_arrival_ptr: Int64,
             num_q_heads: Int32,
             num_kv_heads: Int32,
             kv_page_stride: Int32,
             wo_num_k_tiles: Int32,
             wo_weight_row_stride: Int32,
-            total_ctas_per_seq_attn: Int32,
+            total_wo_slots: Int32,
             hidden_dim: Int32,
             scale: Float32,
             k_scale: Float32,
@@ -3240,6 +3288,12 @@ class PhaseE_Beta_Kernel:
             # passing 0 is safe.
             region_timing_ptr: Int64,
             region_timing_enabled: cutlass.Constexpr[bool],
+            # Task 8: K-parallel W_O split factor (Constexpr so
+            # range_constexpr can iterate over slices). At wo_split=1
+            # the new W_O gate `bx < wo_split && by < num_kv_heads` is
+            # equivalent to the legacy `bx == 0 && by < 4`; behavior is
+            # bit-exact preserved.
+            wo_split_const: cutlass.Constexpr[int],
         ):
             """JIT host wrapper for the unified β-coop launch.
 
@@ -3267,12 +3321,13 @@ class PhaseE_Beta_Kernel:
                 wo_output_ptr,
                 wo_gs_ptr,
                 phase1_arrival_ptr,
+                pre_wo_arrival_ptr,  # Task 6: pre-W_O arrival counter
                 num_q_heads,
                 num_kv_heads,
                 kv_page_stride,
                 wo_num_k_tiles,
                 wo_weight_row_stride,
-                total_ctas_per_seq_attn,
+                total_wo_slots,
                 hidden_dim,
                 scale,
                 k_scale,
@@ -3298,6 +3353,8 @@ class PhaseE_Beta_Kernel:
                 # Task 3: forward region-timing scratch + constexpr gate.
                 region_timing_ptr,
                 region_timing_enabled,
+                # Task 8: forward Constexpr wo_split.
+                wo_split_const,
             ).launch(
                 grid=[self.slice_ctas, self.num_k_tiles, nat],
                 block=[self.num_threads, 1, 1],
@@ -3327,12 +3384,18 @@ class PhaseE_Beta_Kernel:
             wo_output_ptr: Int64,
             wo_gs_ptr: Int64,
             phase1_arrival_ptr: Int64,
+            # Task 6: pre-W_O arrival counter (i32 [nat]). Producers
+            # (bx==0 attn CTAs, by<num_kv_heads) atomic_add 1 after
+            # attn_output is published; consumers (bx>0 W_O CTAs at
+            # wo_split>1) spin until counter == num_kv_heads. Dormant
+            # at wo_split=1 (consumer mask `bx>0 && bx<wo_split` empty).
+            pre_wo_arrival_ptr: Int64,
             num_q_heads: Int32,
             num_kv_heads: Int32,
             kv_page_stride: Int32,
             wo_num_k_tiles: Int32,
             wo_weight_row_stride: Int32,
-            total_ctas_per_seq_attn: Int32,
+            total_wo_slots: Int32,
             hidden_dim: Int32,
             scale: Float32,
             k_scale: Float32,
@@ -3370,6 +3433,13 @@ class PhaseE_Beta_Kernel:
             # production path pays only the two scalar arg slots.
             region_timing_ptr: Int64,
             region_timing_enabled: cutlass.Constexpr[bool],
+            # Task 8: K-parallel W_O split factor (Constexpr so
+            # range_constexpr can iterate over slices). The new W_O
+            # gate is `bx < wo_split_const && by < num_kv_heads`. At
+            # wo_split_const=1 it is equivalent to `bx == 0 && by < 4`,
+            # so the legacy single-CTA-per-KV-head behavior is bit-exact
+            # preserved.
+            wo_split_const: cutlass.Constexpr[int],
         ):
             """β-coop unified kernel — Phase 0 → 1 → grid barrier → 3."""
             bx, by, bz = cute.arch.block_idx()
@@ -3417,7 +3487,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(0 * 2 * 8)              # region 0
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -3507,7 +3577,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(0 * 2 * 8)              # region 0
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -3528,7 +3598,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(1 * 2 * 8)              # region 1
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -3995,176 +4065,364 @@ class PhaseE_Beta_Kernel:
                             t_exit = _read_globaltimer_u64()
                             _st_global_u64(
                                 region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                                 + Int64(1 * 2 * 8)              # region 1
                                 + Int64(1 * 8),                  # slot 1 = exit
                                 t_exit,
                             )
 
-                    # === Phase B: Fused W_O GEMV ===
-                    # Region 2 entry: Phase 1 W_O GEMV body. We are inside
-                    # the bx==0 && by<4 block, so just gate on tid==0.
-                    # K-reduction candidate site #1.
-                    if region_timing_enabled:
-                        if tid == Int32(0):
-                            cta_id = (
-                                bz * Int32(self.slice_ctas * self.num_k_tiles)
-                                + by * Int32(self.slice_ctas)
-                                + bx
-                            )
-                            t_entry = _read_globaltimer_u64()
-                            _st_global_u64(
-                                region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
-                                + Int64(2 * 2 * 8)              # region 2
-                                + Int64(0 * 8),                  # slot 0 = entry
-                                t_entry,
-                            )
-
+                    # ========================================================
+                    # Task 6: pre-W_O producer fence + arrival signal.
+                    # Runs INSIDE the bx==0 && by<num_kv_heads parent (this
+                    # block). Each of the 4 attn CTAs (bx==0, by∈[0,4)) does
+                    # one atomic_add 1 after attn_output writes are flushed
+                    # to global. At wo_split=1 no consumer reads the counter
+                    # so the signal is harmless overhead. At wo_split>1 the
+                    # bx>0 W_O CTAs spin-acquire on the counter at kernel-
+                    # level R11 (placed between this parent and the new
+                    # W_O block).
+                    # ========================================================
                     _threadfence()
                     cute.arch.sync_threads()
+                    if tid == Int32(0):
+                        _atomic_add_u32(
+                            pre_wo_arrival_ptr
+                            + Int64(seq_idx * Int32(4)),
+                            Int32(1))
+                    # End of attn-producer parent block. Task 8 lifted W_O
+                    # body out to kernel-level (after R11 wait).
 
-                    attn_base = seq_idx * num_q_heads * hd \
-                        + q_head_start * hd
-                    hd_wo = Int32(self.hidden_size)
-                    n_per_thr_wo = Int32(
-                        self.hidden_size // self.num_threads)
-                    my_row_base = tid * n_per_thr_wo
+            # ===================================================================
+            # Task 6: R11 = pre_wo_wait. Consumer-side spin-wait + bracketing
+            # timing. Runs at kernel-level (OUTSIDE the bx==0 parent above).
+            #
+            # At wo_split=1 the consumer mask `bx>0 && bx<wo_split=1 && by<4`
+            # is empty — no CTA executes the body, R11 buffer rows stay zero
+            # and the host nonzero filter drops them. Producer atomic_add at
+            # the end of the parent block (4 attn CTAs) brings the counter to
+            # num_kv_heads each launch; reset to 0 by host .zero_() before
+            # the next launch, so no in-kernel decrement is required (mirrors
+            # mlp_arrival_count.zero_() pattern).
+            #
+            # At wo_split>1 (Task 8), the K-parallel W_O CTAs (bx∈[1, wo_split),
+            # by<num_kv_heads) sit here waiting for the 4 producers, then
+            # acquire-fence and proceed to their per-CTA W_O GEMV slice. The
+            # mask is `bx > 0` (NOT `bx >= 0`) — bx==0 is the producer path
+            # and must not enter the consumer wait or it deadlocks.
+            # ===================================================================
 
-                    wo_gs = _ld_global_f32(wo_gs_ptr)
+            # bx==0 producer CTAs skip the R11 wait (consumer mask FALSE) and
+            # re-enter the W_O gate below: their attn_output reads are intra-CTA,
+            # no acquire-fence needed (only bx>0 consumers acquire below).
+            pre_wo_consumer_active = (
+                (bx > Int32(0))
+                and (bx < Int32(wo_split_const))
+                and (by < Int32(self.num_kv_heads))
+            )
 
-                    for _out_group in cutlass.range_constexpr(
-                        self.hidden_size // self.num_threads // 8
-                    ):
-                        out_base_wo = my_row_base \
-                            + Int32(_out_group * 8)
+            # Region 11 entry: pre_wo_wait (consumer-only mask).
+            if region_timing_enabled:
+                if pre_wo_consumer_active and tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(11 * 2 * 8)              # region 11
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
 
-                        a0 = Float32(0.0)
-                        a1 = Float32(0.0)
-                        a2 = Float32(0.0)
-                        a3 = Float32(0.0)
-                        a4 = Float32(0.0)
-                        a5 = Float32(0.0)
-                        a6 = Float32(0.0)
-                        a7 = Float32(0.0)
+            # Spin-wait for producers (consumer-only mask). At wo_split=1 the
+            # mask is empty so no CTA enters the loop. At wo_split>1 each
+            # consumer CTA (bx>0) loops on a volatile load until the counter
+            # reaches num_kv_heads (= number of producers).
+            if pre_wo_consumer_active:
+                pre_wo_arrived = Int32(0)
+                while pre_wo_arrived < num_kv_heads:
+                    pre_wo_arrived = _ld_volatile_u32(
+                        pre_wo_arrival_ptr
+                        + Int64(seq_idx * Int32(4))
+                    )
+                _acquire_fence()
+                cute.arch.sync_threads()
 
-                        k_dim = group_size_p1 * hd
-                        k_idx = Int32(0)
-                        while k_idx < k_dim:
-                            attn_val = _ld_global_b16_to_f32(
-                                attn_output_ptr
-                                + Int64((attn_base + k_idx) * Int32(2)))
-                            abs_k = (kv_head_idx * group_size_p1 * hd
-                                     + k_idx)
-                            k_byte = abs_k >> Int32(1)
-                            k_is_hi = abs_k & Int32(1)
-                            k_grp = abs_k >> Int32(4)
+            # Region 11 exit: pre_wo_wait (consumer-only mask).
+            if region_timing_enabled:
+                if pre_wo_consumer_active and tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(11 * 2 * 8)              # region 11
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit,
+                    )
 
-                            for _oi in cutlass.range_constexpr(8):
-                                out_row = out_base_wo + Int32(_oi)
-                                if out_row < hd_wo:
-                                    w_addr = wo_weight_ptr + Int64(
-                                        out_row * wo_weight_row_stride
-                                        + k_byte)
-                                    aligned = w_addr & Int64(
-                                        0xFFFFFFFFFFFFFFFC)
-                                    raw = _ld_global_b32(aligned)
-                                    bpos = Int32(w_addr & Int64(3))
-                                    the_byte = _extract_byte_from_b32(
-                                        raw, bpos)
-                                    nib_shift = k_is_hi << Int32(2)
-                                    nib = (the_byte >> nib_shift) \
-                                        & Int32(0x0F)
-                                    w_f32 = _fp4_nibble_to_f32(nib)
-                                    sf = _ld_swizzled_scale(
-                                        wo_scale_ptr, out_row, k_grp,
-                                        wo_num_k_tiles)
-                                    w_dequant = w_f32 * sf * wo_gs
+            # ===================================================================
+            # Task 8: K-parallel W_O GEMV body (lifted out of attn-producer
+            # parent). Mask: `bx < wo_split && by < num_kv_heads`.
+            #
+            # At wo_split_const=1, mask `bx<1 && by<4` ≡ `bx==0 && by<4` —
+            # the legacy single-CTA-per-KV-head behavior is bit-exact preserved.
+            #
+            # At wo_split_const>1, mask spans `bx ∈ [0, wo_split)` × `by ∈ [0,
+            # num_kv_heads)`, giving total_wo_slots = num_kv_heads * wo_split
+            # K-parallel partial-GEMV CTAs. Each CTA owns a 1/wo_split slice
+            # of one KV-head's K range, accumulates a chained-FMA partial,
+            # and writes to wo_output[seq, slot, :] where slot = by*wo_split+bx
+            # (matches torch_reference.py:438-439, microkernel.py:225-227).
+            #
+            # K-range slicing follows torch_reference.py:443-446 EXACTLY:
+            #     K_per_head      = K // num_kv_heads
+            #     k_start_in_head = (K_per_head * bx) // wo_split
+            #     k_end_in_head   = (K_per_head * (bx + 1)) // wo_split
+            #     k_start = by * K_per_head + k_start_in_head
+            #     k_end   = by * K_per_head + k_end_in_head
+            # ===================================================================
+            if (bx < Int32(wo_split_const)) and (by < Int32(self.num_kv_heads)):
+                # Region 2 entry: Phase 1 W_O GEMV body (now at kernel-level).
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_entry = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(2 * 2 * 8)              # region 2
+                            + Int64(0 * 8),                  # slot 0 = entry
+                            t_entry,
+                        )
 
-                                    if _oi == 0:
-                                        a0 = a0 + w_dequant * attn_val
-                                    if _oi == 1:
-                                        a1 = a1 + w_dequant * attn_val
-                                    if _oi == 2:
-                                        a2 = a2 + w_dequant * attn_val
-                                    if _oi == 3:
-                                        a3 = a3 + w_dequant * attn_val
-                                    if _oi == 4:
-                                        a4 = a4 + w_dequant * attn_val
-                                    if _oi == 5:
-                                        a5 = a5 + w_dequant * attn_val
-                                    if _oi == 6:
-                                        a6 = a6 + w_dequant * attn_val
-                                    if _oi == 7:
-                                        a7 = a7 + w_dequant * attn_val
+                _threadfence()
+                cute.arch.sync_threads()
 
-                            k_idx = k_idx + Int32(1)
+                # --- W_O body locals (recomputed; no longer inherited from
+                # attn-producer parent).
+                kv_head_idx_wo = by
+                group_size_p1_wo = num_q_heads // num_kv_heads
+                q_head_start_wo = kv_head_idx_wo * group_size_p1_wo
+                hd_wo_dim = Int32(self.head_dim)
+                attn_base_wo = (seq_idx * num_q_heads * hd_wo_dim
+                                + q_head_start_wo * hd_wo_dim)
 
-                        cta_idx = bx * num_kv_heads + by
-                        wo_slot_base = wo_output_ptr + Int64(
-                            (seq_idx * total_ctas_per_seq_attn + cta_idx)
-                            * hd_wo * Int32(4))
+                # K_per_head as constexpr (= num_q_heads*head_dim/num_kv_heads).
+                # The runtime form `group_size_p1_wo * hd_wo_dim` agrees on
+                # non-negative operands. Use runtime form to honor the
+                # kernel's existing dynamic shape contract.
+                k_per_head = group_size_p1_wo * hd_wo_dim
+                # K-range slicing (Python integer-divide; PTX i32 sdiv agrees
+                # for non-negative operands).
+                k_start_in_head = (k_per_head * bx) // Int32(wo_split_const)
+                k_end_in_head = (k_per_head * (bx + Int32(1))) // Int32(wo_split_const)
+
+                hd_wo = Int32(self.hidden_size)
+                n_per_thr_wo = Int32(
+                    self.hidden_size // self.num_threads)
+                my_row_base = tid * n_per_thr_wo
+
+                wo_gs = _ld_global_f32(wo_gs_ptr)
+
+                for _out_group in cutlass.range_constexpr(
+                    self.hidden_size // self.num_threads // 8
+                ):
+                    out_base_wo = my_row_base \
+                        + Int32(_out_group * 8)
+
+                    a0 = Float32(0.0)
+                    a1 = Float32(0.0)
+                    a2 = Float32(0.0)
+                    a3 = Float32(0.0)
+                    a4 = Float32(0.0)
+                    a5 = Float32(0.0)
+                    a6 = Float32(0.0)
+                    a7 = Float32(0.0)
+
+                    # K-loop iterates over [k_start_in_head, k_end_in_head)
+                    # local-in-head. abs_k = kv_head_idx*K_per_head + k_idx
+                    # (matches the attn_output layout: K dim is
+                    # num_kv_heads-major → K_per_head-minor).
+                    k_idx = k_start_in_head
+                    while k_idx < k_end_in_head:
+                        attn_val = _ld_global_b16_to_f32(
+                            attn_output_ptr
+                            + Int64((attn_base_wo + k_idx) * Int32(2)))
+                        abs_k = (kv_head_idx_wo * k_per_head
+                                 + k_idx)
+                        k_byte = abs_k >> Int32(1)
+                        k_is_hi = abs_k & Int32(1)
+                        k_grp = abs_k >> Int32(4)
+
                         for _oi in cutlass.range_constexpr(8):
                             out_row = out_base_wo + Int32(_oi)
                             if out_row < hd_wo:
+                                w_addr = wo_weight_ptr + Int64(
+                                    out_row * wo_weight_row_stride
+                                    + k_byte)
+                                aligned = w_addr & Int64(
+                                    0xFFFFFFFFFFFFFFFC)
+                                raw = _ld_global_b32(aligned)
+                                bpos = Int32(w_addr & Int64(3))
+                                the_byte = _extract_byte_from_b32(
+                                    raw, bpos)
+                                nib_shift = k_is_hi << Int32(2)
+                                nib = (the_byte >> nib_shift) \
+                                    & Int32(0x0F)
+                                w_f32 = _fp4_nibble_to_f32(nib)
+                                sf = _ld_swizzled_scale(
+                                    wo_scale_ptr, out_row, k_grp,
+                                    wo_num_k_tiles)
+                                w_dequant = w_f32 * sf * wo_gs
+
                                 if _oi == 0:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a0)
+                                    a0 = a0 + w_dequant * attn_val
                                 if _oi == 1:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a1)
+                                    a1 = a1 + w_dequant * attn_val
                                 if _oi == 2:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a2)
+                                    a2 = a2 + w_dequant * attn_val
                                 if _oi == 3:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a3)
+                                    a3 = a3 + w_dequant * attn_val
                                 if _oi == 4:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a4)
+                                    a4 = a4 + w_dequant * attn_val
                                 if _oi == 5:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a5)
+                                    a5 = a5 + w_dequant * attn_val
                                 if _oi == 6:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a6)
+                                    a6 = a6 + w_dequant * attn_val
                                 if _oi == 7:
-                                    _st_global_f32(
-                                        wo_slot_base + Int64(
-                                            out_row * Int32(4)), a7)
+                                    a7 = a7 + w_dequant * attn_val
 
-                    # === Phase B.5 + C: last-CTA gather + RMSNorm ===
-                    _threadfence()
+                        k_idx = k_idx + Int32(1)
 
-                    # Region 2 exit: Phase 1 W_O GEMV body. Recorded just
-                    # after the W_O writes are published by _threadfence.
-                    # We are inside the bx==0 && by<4 block, gate on tid==0.
-                    if region_timing_enabled:
-                        if tid == Int32(0):
-                            cta_id = (
-                                bz * Int32(self.slice_ctas * self.num_k_tiles)
-                                + by * Int32(self.slice_ctas)
-                                + bx
-                            )
-                            t_exit = _read_globaltimer_u64()
-                            _st_global_u64(
-                                region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
-                                + Int64(2 * 2 * 8)              # region 2
-                                + Int64(1 * 8),                  # slot 1 = exit
-                                t_exit,
-                            )
+                    # Slot index: slot = by * wo_split + bx (matches
+                    # torch_reference.py:438-439 — slot_id // wo_split == by,
+                    # slot_id %  wo_split == bx).
+                    slot_idx = by * Int32(wo_split_const) + bx
+                    wo_slot_base = wo_output_ptr + Int64(
+                        (seq_idx * total_wo_slots + slot_idx)
+                        * hd_wo * Int32(4))
+                    for _oi in cutlass.range_constexpr(8):
+                        out_row = out_base_wo + Int32(_oi)
+                        if out_row < hd_wo:
+                            if _oi == 0:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a0)
+                            if _oi == 1:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a1)
+                            if _oi == 2:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a2)
+                            if _oi == 3:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a3)
+                            if _oi == 4:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a4)
+                            if _oi == 5:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a5)
+                            if _oi == 6:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a6)
+                            if _oi == 7:
+                                _st_global_f32(
+                                    wo_slot_base + Int64(
+                                        out_row * Int32(4)), a7)
 
-                    # Region 3 entry: W_O end → barrier-arrive (cleanup).
-                    # Same site as region 2 exit (W_O sync), but recorded
-                    # as a separate block to keep the buffer boundary clean.
+                # === Phase B.5 + C: last-CTA gather + RMSNorm ===
+                _threadfence()
+
+                # Region 2 exit: Phase 1 W_O GEMV body. Recorded just after
+                # the W_O writes are published by _threadfence.
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_exit = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(2 * 2 * 8)              # region 2
+                            + Int64(1 * 8),                  # slot 1 = exit
+                            t_exit,
+                        )
+
+                # Region 3 entry: W_O end → barrier-arrive (cleanup).
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_entry = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(3 * 2 * 8)              # region 3
+                            + Int64(0 * 8),                  # slot 0 = entry
+                            t_entry,
+                        )
+
+                # Region 3 exit: just before _atomic_add_u32 to
+                # phase1_arrival_count (the per-CTA barrier-arrive signal).
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_exit = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(3 * 2 * 8)              # region 3
+                            + Int64(1 * 8),                  # slot 1 = exit
+                            t_exit,
+                        )
+
+                # Election: each W_O CTA's tid==0 atomic-adds 1; the writer
+                # of (total_wo_slots-1) wins and broadcasts is_last_cta=1
+                # via SMEM. Other CTAs broadcast 0.
+                if tid == Int32(0):
+                    old_count = _atomic_add_u32(
+                        phase1_arrival_ptr
+                        + Int64(seq_idx * Int32(4)),
+                        Int32(1))
+                    if old_count == total_wo_slots - Int32(1):
+                        _st_shared_f32(sync_md, Float32(1.0))
+                    else:
+                        _st_shared_f32(sync_md, Float32(0.0))
+                cute.arch.sync_threads()
+
+                is_last_cta = _ld_shared_f32(sync_md)
+
+                if is_last_cta > Float32(0.5):
+                    # Region 12 entry: gather_reduce (elected single-CTA only).
                     if region_timing_enabled:
                         if tid == Int32(0):
                             cta_id = (
@@ -4175,15 +4433,130 @@ class PhaseE_Beta_Kernel:
                             t_entry = _read_globaltimer_u64()
                             _st_global_u64(
                                 region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
-                                + Int64(3 * 2 * 8)              # region 3
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                                + Int64(12 * 2 * 8)              # region 12
                                 + Int64(0 * 8),                  # slot 0 = entry
                                 t_entry,
                             )
 
-                    # Region 3 exit: just before the _atomic_add_u32 to
-                    # phase1_arrival_count (the per-CTA barrier-arrive
-                    # signal). We are inside bx==0 && by<4, gate on tid==0.
+                    hd_c = hidden_dim
+                    n_per_thr_c = hd_c // Int32(128)
+
+                    res_base_c = residual_in_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))
+                    wo_base_c = wo_output_ptr + Int64(
+                        seq_idx * total_wo_slots
+                        * hd_c * Int32(4))
+                    gamma_base_c = post_attn_gamma_ptr
+                    out_base_c = attn_output_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))
+                    resout_base_c = residual_output_ptr + Int64(
+                        seq_idx * hd_c * Int32(2))
+
+                    my_start_c = tid * n_per_thr_c
+
+                    # Phase B.5: gather per-CTA slots into slot 0.
+                    for _grp in cutlass.range_constexpr(
+                        self.hidden_size // self.num_threads // 8
+                    ):
+                        for _ei in cutlass.range_constexpr(8):
+                            idx_c = my_start_c + Int32(_grp * 8 + _ei)
+                            gather_acc = Float32(0.0)
+                            cta_i = Int32(0)
+                            while cta_i < total_wo_slots:
+                                slot_addr = wo_output_ptr + Int64(
+                                    (seq_idx * total_wo_slots
+                                     + cta_i)
+                                    * hd_c * Int32(4)
+                                    + idx_c * Int32(4))
+                                gather_acc = gather_acc \
+                                    + _ld_global_f32(slot_addr)
+                                cta_i = cta_i + Int32(1)
+                            _st_global_f32(
+                                wo_base_c
+                                + Int64(idx_c * Int32(4)),
+                                gather_acc,
+                            )
+                    _threadfence()
+                    cute.arch.sync_threads()
+
+                    # Pass 1: residual add + sum-of-squares
+                    ss = Float32(0.0)
+                    for _grp in cutlass.range_constexpr(
+                        self.hidden_size // self.num_threads // 8
+                    ):
+                        base_idx = my_start_c + Int32(_grp * 8)
+                        for _ei in cutlass.range_constexpr(8):
+                            idx_c = base_idx + Int32(_ei)
+                            res_f32 = _ld_global_b16_to_f32(
+                                res_base_c
+                                + Int64(idx_c * Int32(2)))
+                            wo_f32 = _ld_global_f32(
+                                wo_base_c
+                                + Int64(idx_c * Int32(4)))
+                            nr = res_f32 + wo_f32
+                            ss = ss + nr * nr
+
+                    ss = ss + shfl_xor_sync(ss, Int32(1))
+                    ss = ss + shfl_xor_sync(ss, Int32(2))
+                    ss = ss + shfl_xor_sync(ss, Int32(4))
+                    ss = ss + shfl_xor_sync(ss, Int32(8))
+                    ss = ss + shfl_xor_sync(ss, Int32(16))
+
+                    if lane == Int32(0):
+                        _st_shared_f32(
+                            sync_md + Int64(warp * Int32(4)), ss)
+                    cute.arch.sync_threads()
+
+                    if warp == Int32(0):
+                        if lane == Int32(0):
+                            total_ss = _ld_shared_f32(sync_md)
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(4))
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(8))
+                            total_ss = total_ss + _ld_shared_f32(
+                                sync_md + Int64(12))
+                            variance = total_ss / Float32(hd_c)
+                            inv_rms = _rsqrt_approx_f32(
+                                variance + rms_eps)
+                            _st_shared_f32(sync_md, inv_rms)
+                    cute.arch.sync_threads()
+
+                    inv_rms_val = _ld_shared_f32(sync_md)
+
+                    # Pass 3: re-read, scale, write BF16 output
+                    for _grp in cutlass.range_constexpr(
+                        self.hidden_size // self.num_threads // 8
+                    ):
+                        base_idx = my_start_c + Int32(_grp * 8)
+                        for _oi in cutlass.range_constexpr(8):
+                            idx_c = base_idx + Int32(_oi)
+                            res_f32 = _ld_global_b16_to_f32(
+                                res_base_c
+                                + Int64(idx_c * Int32(2)))
+                            wo_f32 = _ld_global_f32(
+                                wo_base_c
+                                + Int64(idx_c * Int32(4)))
+                            new_res = res_f32 + wo_f32
+
+                            gamma_f32 = _ld_global_b16_to_f32(
+                                gamma_base_c
+                                + Int64(idx_c * Int32(2)))
+                            # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
+                            hidden_val = new_res * inv_rms_val \
+                                * (Float32(1.0) + gamma_f32)
+
+                            _st_global_bf16_from_f32(
+                                out_base_c
+                                + Int64(idx_c * Int32(2)),
+                                hidden_val)
+                            _st_global_bf16_from_f32(
+                                resout_base_c
+                                + Int64(idx_c * Int32(2)),
+                                new_res)
+
+                    # Region 12 exit: gather_reduce.
                     if region_timing_enabled:
                         if tid == Int32(0):
                             cta_id = (
@@ -4194,149 +4567,18 @@ class PhaseE_Beta_Kernel:
                             t_exit = _read_globaltimer_u64()
                             _st_global_u64(
                                 region_timing_ptr
-                                + Int64(cta_id) * Int64(11 * 2 * 8)
-                                + Int64(3 * 2 * 8)              # region 3
+                                + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                                + Int64(12 * 2 * 8)
                                 + Int64(1 * 8),                  # slot 1 = exit
                                 t_exit,
                             )
 
+                    # Reset arrival counter for next call.
                     if tid == Int32(0):
-                        old_count = _atomic_add_u32(
+                        _atomic_add_u32(
                             phase1_arrival_ptr
                             + Int64(seq_idx * Int32(4)),
-                            Int32(1))
-                        if old_count == total_ctas_per_seq_attn - Int32(1):
-                            _st_shared_f32(sync_md, Float32(1.0))
-                        else:
-                            _st_shared_f32(sync_md, Float32(0.0))
-                    cute.arch.sync_threads()
-
-                    is_last_cta = _ld_shared_f32(sync_md)
-
-                    if is_last_cta > Float32(0.5):
-                        hd_c = hidden_dim
-                        n_per_thr_c = hd_c // Int32(128)
-
-                        res_base_c = residual_in_ptr + Int64(
-                            seq_idx * hd_c * Int32(2))
-                        wo_base_c = wo_output_ptr + Int64(
-                            seq_idx * total_ctas_per_seq_attn
-                            * hd_c * Int32(4))
-                        gamma_base_c = post_attn_gamma_ptr
-                        out_base_c = attn_output_ptr + Int64(
-                            seq_idx * hd_c * Int32(2))
-                        resout_base_c = residual_output_ptr + Int64(
-                            seq_idx * hd_c * Int32(2))
-
-                        my_start_c = tid * n_per_thr_c
-
-                        # Phase B.5: gather per-CTA slots into slot 0.
-                        for _grp in cutlass.range_constexpr(
-                            self.hidden_size // self.num_threads // 8
-                        ):
-                            for _ei in cutlass.range_constexpr(8):
-                                idx_c = my_start_c + Int32(_grp * 8 + _ei)
-                                gather_acc = Float32(0.0)
-                                cta_i = Int32(0)
-                                while cta_i < total_ctas_per_seq_attn:
-                                    slot_addr = wo_output_ptr + Int64(
-                                        (seq_idx * total_ctas_per_seq_attn
-                                         + cta_i)
-                                        * hd_c * Int32(4)
-                                        + idx_c * Int32(4))
-                                    gather_acc = gather_acc \
-                                        + _ld_global_f32(slot_addr)
-                                    cta_i = cta_i + Int32(1)
-                                _st_global_f32(
-                                    wo_base_c
-                                    + Int64(idx_c * Int32(4)),
-                                    gather_acc,
-                                )
-                        _threadfence()
-                        cute.arch.sync_threads()
-
-                        # Pass 1: residual add + sum-of-squares
-                        ss = Float32(0.0)
-                        for _grp in cutlass.range_constexpr(
-                            self.hidden_size // self.num_threads // 8
-                        ):
-                            base_idx = my_start_c + Int32(_grp * 8)
-                            for _ei in cutlass.range_constexpr(8):
-                                idx_c = base_idx + Int32(_ei)
-                                res_f32 = _ld_global_b16_to_f32(
-                                    res_base_c
-                                    + Int64(idx_c * Int32(2)))
-                                wo_f32 = _ld_global_f32(
-                                    wo_base_c
-                                    + Int64(idx_c * Int32(4)))
-                                nr = res_f32 + wo_f32
-                                ss = ss + nr * nr
-
-                        ss = ss + shfl_xor_sync(ss, Int32(1))
-                        ss = ss + shfl_xor_sync(ss, Int32(2))
-                        ss = ss + shfl_xor_sync(ss, Int32(4))
-                        ss = ss + shfl_xor_sync(ss, Int32(8))
-                        ss = ss + shfl_xor_sync(ss, Int32(16))
-
-                        if lane == Int32(0):
-                            _st_shared_f32(
-                                sync_md + Int64(warp * Int32(4)), ss)
-                        cute.arch.sync_threads()
-
-                        if warp == Int32(0):
-                            if lane == Int32(0):
-                                total_ss = _ld_shared_f32(sync_md)
-                                total_ss = total_ss + _ld_shared_f32(
-                                    sync_md + Int64(4))
-                                total_ss = total_ss + _ld_shared_f32(
-                                    sync_md + Int64(8))
-                                total_ss = total_ss + _ld_shared_f32(
-                                    sync_md + Int64(12))
-                                variance = total_ss / Float32(hd_c)
-                                inv_rms = _rsqrt_approx_f32(
-                                    variance + rms_eps)
-                                _st_shared_f32(sync_md, inv_rms)
-                        cute.arch.sync_threads()
-
-                        inv_rms_val = _ld_shared_f32(sync_md)
-
-                        # Pass 3: re-read, scale, write BF16 output
-                        for _grp in cutlass.range_constexpr(
-                            self.hidden_size // self.num_threads // 8
-                        ):
-                            base_idx = my_start_c + Int32(_grp * 8)
-                            for _oi in cutlass.range_constexpr(8):
-                                idx_c = base_idx + Int32(_oi)
-                                res_f32 = _ld_global_b16_to_f32(
-                                    res_base_c
-                                    + Int64(idx_c * Int32(2)))
-                                wo_f32 = _ld_global_f32(
-                                    wo_base_c
-                                    + Int64(idx_c * Int32(4)))
-                                new_res = res_f32 + wo_f32
-
-                                gamma_f32 = _ld_global_b16_to_f32(
-                                    gamma_base_c
-                                    + Int64(idx_c * Int32(2)))
-                                # Qwen3_5RMSNorm uses x * (1 + γ) — see vllm/nvllm/layers/layernorm.py:78
-                                hidden_val = new_res * inv_rms_val \
-                                    * (Float32(1.0) + gamma_f32)
-
-                                _st_global_bf16_from_f32(
-                                    out_base_c
-                                    + Int64(idx_c * Int32(2)),
-                                    hidden_val)
-                                _st_global_bf16_from_f32(
-                                    resout_base_c
-                                    + Int64(idx_c * Int32(2)),
-                                    new_res)
-
-                        # Reset arrival counter for next call.
-                        if tid == Int32(0):
-                            _atomic_add_u32(
-                                phase1_arrival_ptr
-                                + Int64(seq_idx * Int32(4)),
-                                Int32(0) - total_ctas_per_seq_attn)
+                            Int32(0) - total_wo_slots)
 
             # Region 4 entry: grid barrier wait (all 64 CTAs participate).
             # Entry tick recorded at the moment a CTA arrives at the
@@ -4353,7 +4595,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(4 * 2 * 8)              # region 4
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -4395,7 +4637,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(4 * 2 * 8)              # region 4
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -4417,7 +4659,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(5 * 2 * 8)              # region 5
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -4492,7 +4734,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(5 * 2 * 8)              # region 5
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -4511,7 +4753,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(6 * 2 * 8)              # region 6
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -4580,7 +4822,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(6 * 2 * 8)              # region 6
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -4602,7 +4844,7 @@ class PhaseE_Beta_Kernel:
                         t_entry = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(7 * 2 * 8)              # region 7
                             + Int64(0 * 8),                  # slot 0 = entry
                             t_entry,
@@ -4741,7 +4983,7 @@ class PhaseE_Beta_Kernel:
                         t_exit = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(7 * 2 * 8)              # region 7
                             + Int64(1 * 8),                  # slot 1 = exit
                             t_exit,
@@ -4760,7 +5002,7 @@ class PhaseE_Beta_Kernel:
                         t_entry = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(8 * 2 * 8)              # region 8
                             + Int64(0 * 8),                  # slot 0 = entry
                             t_entry,
@@ -4873,7 +5115,7 @@ class PhaseE_Beta_Kernel:
                         t_exit = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(8 * 2 * 8)              # region 8
                             + Int64(1 * 8),                  # slot 1 = exit
                             t_exit,
@@ -4892,7 +5134,7 @@ class PhaseE_Beta_Kernel:
                         t_entry = _read_globaltimer_u64()
                         _st_global_u64(
                             region_timing_ptr
-                            + Int64(cta_id) * Int64(11 * 2 * 8)
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                             + Int64(9 * 2 * 8)              # region 9
                             + Int64(0 * 8),                  # slot 0 = entry
                             t_entry,
@@ -5092,7 +5334,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(9 * 2 * 8)              # region 9
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
@@ -5109,7 +5351,7 @@ class PhaseE_Beta_Kernel:
                     t_entry = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(10 * 2 * 8)             # region 10
                         + Int64(0 * 8),                  # slot 0 = entry
                         t_entry,
@@ -5208,7 +5450,7 @@ class PhaseE_Beta_Kernel:
                     t_exit = _read_globaltimer_u64()
                     _st_global_u64(
                         region_timing_ptr
-                        + Int64(cta_id) * Int64(11 * 2 * 8)
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
                         + Int64(10 * 2 * 8)             # region 10
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,

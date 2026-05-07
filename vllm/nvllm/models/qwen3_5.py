@@ -49,7 +49,10 @@ _C2_ENV_FILE = "/tmp/c2_diag/ENV"
 if os.path.isfile(_C2_ENV_FILE):
     with open(_C2_ENV_FILE) as _c2_f:
         for _c2_ln in _c2_f:
-            if "=" in _c2_ln and _c2_ln.startswith("CUTE_C2_"):
+            if "=" in _c2_ln and (
+                _c2_ln.startswith("CUTE_C2_")
+                or _c2_ln.startswith("CUTE_WO_SPLIT=")
+            ):
                 _c2_k, _c2_v = _c2_ln.strip().split("=", 1)
                 if _c2_v:  # skip empty values so we don't shadow real env
                     os.environ.setdefault(_c2_k, _c2_v)

@@ -93,7 +93,7 @@ def cute_paged_reset_wo_output(
         f"wo_output dtype must be float32, got {wo_output.dtype}"
     )
     assert wo_output.dim() == 3, (
-        f"wo_output must be 3D [max_num_seqs, 4, hidden], "
+        f"wo_output must be 3D [max_num_seqs, num_kv_heads*wo_split, hidden], "
         f"got {tuple(wo_output.shape)}"
     )
     assert wo_output.is_contiguous(), (

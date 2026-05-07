@@ -1,0 +1,13 @@
+{
+  "label": "wo4/run01",
+  "input": "/home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/wo4/primary/run01/longdecode_output.txt",
+  "n_chars": 7720,
+  "n_tokens": 1050,
+  "fffd_count": 0,
+  "repeated_4gram_fraction": 0.014326647564469915,
+  "unique_trigram_ratio": 0.9637404580152672,
+  "baseline": "/home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/wo1/primary/run01/longdecode_output.txt",
+  "baseline_n_tokens": 925,
+  "first_divergence_token_idx": 7,
+  "warnings": []
+}
