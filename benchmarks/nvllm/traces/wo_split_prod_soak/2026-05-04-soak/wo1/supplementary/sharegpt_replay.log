@@ -1,0 +1,54 @@
+[sharegpt] conv=0 turn=0 chunks=128 wall=100.48s
+[sharegpt] conv=0 turn=2 chunks=128 wall=65.25s
+[sharegpt] conv=0 turn=4 chunks=128 wall=95.25s
+[sharegpt] conv=0 turn=6 chunks=128 wall=138.53s
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 903, in _error_catcher
+    yield
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 1418, in read_chunked
+    self._update_chunk_length()
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 1333, in _update_chunk_length
+    line = self._fp.fp.readline()  # type: ignore[union-attr]
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/socket.py", line 707, in readinto
+    return self._sock.recv_into(b)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+TimeoutError: timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/models.py", line 822, in generate
+    yield from self.raw.stream(chunk_size, decode_content=True)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 1250, in stream
+    yield from self.read_chunked(amt, decode_content=decode_content)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 1397, in read_chunked
+    with self._error_catcher():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 908, in _error_catcher
+    raise ReadTimeoutError(self._pool, None, "Read timed out.") from e  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.ReadTimeoutError: HTTPConnectionPool(host='localhost', port=8000): Read timed out.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 419, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 410, in main
+    return run_sharegpt(args)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 218, in run_sharegpt
+    result = stream_completion(
+             ^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 75, in stream_completion
+    for raw_line in resp.iter_lines(decode_unicode=True):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/models.py", line 871, in iter_lines
+    for chunk in self.iter_content(
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/utils.py", line 559, in stream_decode_response_unicode
+    for chunk in iterator:
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/models.py", line 828, in generate
+    raise ConnectionError(e)
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='localhost', port=8000): Read timed out.

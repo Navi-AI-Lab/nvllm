@@ -1,0 +1,3 @@
+phase,conv_idx,turn_idx,request_id,prompt_chars,output_chars,wall_s,ttft_ms,n_stream_chunks,tpot_p50_ms,tpot_p95_ms,tpot_p99_ms,finish_reason
+concurrent,,,request_a,208,520,57.432314,2870.999,128,431.442,434.566,435.722,length
+concurrent,,,request_b,90,673,54.987831,2870.063,121,431.511,434.296,435.625,stop

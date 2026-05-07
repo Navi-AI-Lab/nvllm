@@ -1,0 +1,10 @@
+{
+  "label": "wo1/run03",
+  "input": "/home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/wo1/primary/run03/longdecode_output.txt",
+  "n_chars": 7074,
+  "n_tokens": 925,
+  "fffd_count": 0,
+  "repeated_4gram_fraction": 0.007592190889370932,
+  "unique_trigram_ratio": 0.9729144095341279,
+  "warnings": []
+}

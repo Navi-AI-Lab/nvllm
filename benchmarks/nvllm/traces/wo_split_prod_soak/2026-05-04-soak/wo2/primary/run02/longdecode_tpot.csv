@@ -1,0 +1,2 @@
+phase,conv_idx,turn_idx,request_id,prompt_chars,output_chars,wall_s,ttft_ms,n_stream_chunks,tpot_p50_ms,tpot_p95_ms,tpot_p99_ms,finish_reason
+longdecode,,,longdecode,1654,8102,952.141649,4980.350,2048,462.500,500.462,503.824,length

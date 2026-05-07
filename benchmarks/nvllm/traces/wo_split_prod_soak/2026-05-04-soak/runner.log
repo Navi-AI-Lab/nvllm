@@ -1,0 +1,2125 @@
+[2026-05-04 08:20:29] output: /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak
+[2026-05-04 08:20:29] starting server wo_split=1 region_timing=0 profiler=0
+[2026-05-04 08:24:03] server ready after ~205s
+[2026-05-04 08:24:03] GSM8K wo1
+[1/50] WRONG (gold=2280 pred=2180) 107.8s
+[2/50] OK (gold=1 pred=1) 50.4s
+[3/50] OK (gold=5 pred=5) 51.8s
+[4/50] OK (gold=12 pred=12) 85.4s
+[5/50] OK (gold=273 pred=273) 76.8s
+[6/50] OK (gold=45 pred=45) 54.0s
+[7/50] OK (gold=21 pred=21) 46.6s
+[8/50] OK (gold=145 pred=145) 77.4s
+[9/50] OK (gold=60 pred=60) 40.7s
+[10/50] OK (gold=122 pred=122) 60.5s
+[11/50] OK (gold=29 pred=29) 187.9s
+[12/50] OK (gold=80 pred=80) 92.4s
+[13/50] OK (gold=36 pred=36) 52.6s
+[14/50] OK (gold=1430 pred=1430) 74.4s
+[15/50] OK (gold=5 pred=5) 63.3s
+[16/50] OK (gold=5 pred=5) 44.0s
+[17/50] OK (gold=5 pred=5) 45.7s
+[18/50] OK (gold=66 pred=66) 41.7s
+[19/50] OK (gold=15 pred=15) 42.6s
+[20/50] OK (gold=40 pred=40) 39.0s
+[21/50] OK (gold=93 pred=93) 51.6s
+[22/50] OK (gold=2000 pred=2000) 101.3s
+[23/50] OK (gold=1520 pred=1520) 38.8s
+[24/50] OK (gold=11050 pred=11050) 62.2s
+[25/50] OK (gold=90 pred=90) 74.1s
+[26/50] OK (gold=40000 pred=40000) 67.8s
+[27/50] OK (gold=21 pred=21) 49.7s
+[28/50] OK (gold=18 pred=18) 133.5s
+[29/50] OK (gold=14 pred=14) 69.2s
+[30/50] OK (gold=23 pred=23) 41.5s
+[31/50] OK (gold=145 pred=145) 78.4s
+[32/50] OK (gold=123 pred=123) 95.5s
+[33/50] OK (gold=98 pred=98) 78.4s
+[34/50] OK (gold=7 pred=7) 97.2s
+[35/50] OK (gold=34 pred=34) 126.3s
+[36/50] OK (gold=38 pred=38) 49.4s
+[37/50] OK (gold=320 pred=320) 74.9s
+[38/50] OK (gold=50 pred=50) 89.9s
+[39/50] OK (gold=50 pred=50) 73.2s
+[40/50] OK (gold=84 pred=84) 49.7s
+[41/50] OK (gold=50 pred=50) 114.8s
+[42/50] OK (gold=8000 pred=8000) 67.6s
+[43/50] OK (gold=280 pred=280) 50.4s
+[44/50] OK (gold=30 pred=30) 36.2s
+[45/50] WRONG (gold=192 pred=1) 224.6s
+[46/50] OK (gold=276 pred=276) 93.5s
+[47/50] OK (gold=32 pred=32) 58.0s
+[48/50] OK (gold=25 pred=25) 117.7s
+[49/50] OK (gold=10 pred=10) 54.4s
+[50/50] OK (gold=84 pred=84) 83.4s
+{
+  "label": "wo1_primary_gsm8k",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 48,
+  "errors": 0,
+  "accuracy": "48/50 (96.0%)",
+  "total_seconds": 3737.8
+}
+[2026-05-04 09:26:21] ShareGPT wo1 run01
+[sharegpt] conv=0 turn=0 chunks=128 wall=55.73s
+[sharegpt] conv=0 turn=2 chunks=128 wall=59.81s
+[sharegpt] conv=0 turn=4 chunks=128 wall=72.57s
+[sharegpt] conv=0 turn=6 chunks=128 wall=90.98s
+[sharegpt] conv=0 turn=8 chunks=128 wall=114.12s
+[sharegpt] conv=0 turn=10 chunks=128 wall=145.43s
+[sharegpt] conv=1 turn=0 chunks=128 wall=54.90s
+[sharegpt] conv=2 turn=0 chunks=128 wall=55.19s
+[sharegpt] conv=3 turn=0 chunks=128 wall=54.79s
+[sharegpt] conv=3 turn=2 chunks=128 wall=57.28s
+[sharegpt] conv=3 turn=4 chunks=128 wall=73.07s
+[sharegpt] conv=3 turn=6 chunks=128 wall=92.06s
+[sharegpt] conv=4 turn=0 chunks=128 wall=54.81s
+[sharegpt] conv=4 turn=2 chunks=128 wall=61.16s
+[sharegpt] conv=4 turn=4 chunks=128 wall=75.53s
+[sharegpt] conv=5 turn=0 chunks=128 wall=55.07s
+[sharegpt] conv=5 turn=2 chunks=128 wall=73.82s
+[sharegpt] conv=6 turn=0 chunks=128 wall=54.78s
+[sharegpt] conv=6 turn=2 chunks=128 wall=57.65s
+[sharegpt] conv=6 turn=4 chunks=128 wall=64.86s
+[sharegpt] conv=6 turn=6 chunks=128 wall=77.75s
+[sharegpt] conv=6 turn=8 chunks=128 wall=90.33s
+[sharegpt] conv=6 turn=10 chunks=128 wall=106.54s
+[sharegpt] conv=6 turn=12 chunks=128 wall=129.35s
+[sharegpt] conv=6 turn=14 chunks=128 wall=168.99s
+[sharegpt] conv=7 turn=1 chunks=128 wall=62.47s
+[sharegpt] conv=7 turn=3 chunks=128 wall=110.82s
+[sharegpt] conv=7 turn=5 chunks=128 wall=164.79s
+[sharegpt] conv=7 turn=7 chunks=128 wall=173.78s
+[sharegpt] conv=8 turn=1 chunks=128 wall=64.65s
+[sharegpt] conv=8 turn=3 chunks=128 wall=94.55s
+[sharegpt] conv=8 turn=5 chunks=128 wall=120.44s
+[sharegpt] conv=8 turn=7 chunks=128 wall=146.64s
+[sharegpt] conv=8 turn=9 chunks=128 wall=173.60s
+[sharegpt] conv=9 turn=0 chunks=128 wall=55.29s
+[sharegpt] conv=10 turn=0 chunks=128 wall=62.24s
+[sharegpt] conv=10 turn=2 chunks=128 wall=77.24s
+[sharegpt] conv=10 turn=4 chunks=128 wall=92.88s
+[sharegpt] conv=10 turn=6 chunks=128 wall=124.06s
+[sharegpt] conv=10 turn=8 chunks=128 wall=155.03s
+[sharegpt] conv=11 turn=0 chunks=128 wall=59.79s
+[sharegpt] conv=11 turn=2 chunks=128 wall=67.60s
+[sharegpt] conv=12 turn=0 chunks=128 wall=62.58s
+[sharegpt] conv=12 turn=2 chunks=128 wall=81.74s
+[sharegpt] conv=13 turn=0 chunks=128 wall=60.15s
+[sharegpt] conv=13 turn=2 chunks=128 wall=71.88s
+[sharegpt] conv=13 turn=4 chunks=128 wall=103.55s
+[sharegpt] conv=13 turn=6 chunks=128 wall=144.09s
+[sharegpt] conv=13 turn=8 chunks=128 wall=183.49s
+[sharegpt] conv=13 turn=10 chunks=128 wall=193.92s
+[sharegpt] conv=14 turn=0 chunks=128 wall=62.94s
+[sharegpt] conv=14 turn=2 chunks=128 wall=68.51s
+[sharegpt] conv=14 turn=4 chunks=128 wall=102.94s
+[sharegpt] conv=14 turn=6 chunks=128 wall=155.79s
+[sharegpt] conv=15 turn=0 chunks=128 wall=63.44s
+[sharegpt] conv=15 turn=2 chunks=128 wall=69.72s
+[sharegpt] conv=16 turn=1 chunks=128 wall=95.06s
+[sharegpt] conv=16 turn=3 chunks=128 wall=142.84s
+[sharegpt] conv=16 turn=5 chunks=128 wall=159.78s
+[sharegpt] conv=17 turn=1 chunks=128 wall=74.98s
+[sharegpt] conv=17 turn=3 chunks=128 wall=97.48s
+[sharegpt] conv=17 turn=5 chunks=128 wall=102.16s
+[sharegpt] conv=17 turn=7 chunks=128 wall=147.64s
+[sharegpt] conv=17 turn=9 chunks=128 wall=155.35s
+[sharegpt] conv=18 turn=0 chunks=128 wall=61.12s
+[sharegpt] conv=18 turn=2 chunks=128 wall=112.89s
+[sharegpt] conv=19 turn=0 chunks=128 wall=64.63s
+[sharegpt] conv=20 turn=0 chunks=128 wall=268.20s
+[sharegpt] conv=21 turn=0 chunks=128 wall=211.04s
+[sharegpt] conv=22 turn=0 chunks=128 wall=212.74s
+[sharegpt] conv=23 turn=0 chunks=128 wall=98.31s
+[sharegpt] conv=24 turn=0 chunks=128 wall=189.30s
+[sharegpt] conv=25 turn=0 chunks=128 wall=89.58s
+[sharegpt] conv=25 turn=2 chunks=128 wall=169.96s
+[sharegpt] conv=26 turn=1 chunks=128 wall=131.85s
+[sharegpt] conv=27 turn=0 chunks=128 wall=92.56s
+[sharegpt] conv=28 turn=0 chunks=128 wall=92.66s
+[sharegpt] conv=29 turn=0 chunks=128 wall=114.93s
+[2026-05-04 11:41:33] Long decode wo1 run01
+[longdecode] chunks=2048 wall=988.39s finish=length
+[2026-05-04 11:58:02] ShareGPT wo1 run02
+[sharegpt] conv=0 turn=0 chunks=128 wall=54.97s
+[sharegpt] conv=0 turn=2 chunks=128 wall=59.80s
+[sharegpt] conv=0 turn=4 chunks=128 wall=72.45s
+[sharegpt] conv=0 turn=6 chunks=128 wall=90.95s
+[sharegpt] conv=0 turn=8 chunks=128 wall=114.07s
+[sharegpt] conv=0 turn=10 chunks=128 wall=146.26s
+[sharegpt] conv=1 turn=0 chunks=128 wall=54.82s
+[sharegpt] conv=2 turn=0 chunks=128 wall=55.19s
+[sharegpt] conv=3 turn=0 chunks=128 wall=54.81s
+[sharegpt] conv=3 turn=2 chunks=128 wall=57.34s
+[sharegpt] conv=3 turn=4 chunks=128 wall=73.03s
+[sharegpt] conv=3 turn=6 chunks=128 wall=91.65s
+[sharegpt] conv=4 turn=0 chunks=128 wall=54.84s
+[sharegpt] conv=4 turn=2 chunks=128 wall=61.09s
+[sharegpt] conv=4 turn=4 chunks=128 wall=75.71s
+[sharegpt] conv=5 turn=0 chunks=128 wall=55.10s
+[sharegpt] conv=5 turn=2 chunks=128 wall=73.86s
+[sharegpt] conv=6 turn=0 chunks=128 wall=54.79s
+[sharegpt] conv=6 turn=2 chunks=128 wall=57.62s
+[sharegpt] conv=6 turn=4 chunks=128 wall=64.94s
+[sharegpt] conv=6 turn=6 chunks=128 wall=77.95s
+[sharegpt] conv=6 turn=8 chunks=128 wall=90.67s
+[sharegpt] conv=6 turn=10 chunks=128 wall=106.51s
+[sharegpt] conv=6 turn=12 chunks=128 wall=129.42s
+[sharegpt] conv=6 turn=14 chunks=128 wall=169.06s
+[sharegpt] conv=7 turn=1 chunks=128 wall=62.47s
+[sharegpt] conv=7 turn=3 chunks=128 wall=110.85s
+[sharegpt] conv=7 turn=5 chunks=128 wall=164.76s
+[sharegpt] conv=7 turn=7 chunks=128 wall=173.92s
+[sharegpt] conv=8 turn=1 chunks=128 wall=64.58s
+[sharegpt] conv=8 turn=3 chunks=128 wall=94.87s
+[sharegpt] conv=8 turn=5 chunks=128 wall=119.93s
+[sharegpt] conv=8 turn=7 chunks=128 wall=147.07s
+[sharegpt] conv=8 turn=9 chunks=128 wall=173.95s
+[sharegpt] conv=9 turn=0 chunks=128 wall=55.17s
+[sharegpt] conv=10 turn=0 chunks=128 wall=62.12s
+[sharegpt] conv=10 turn=2 chunks=128 wall=77.15s
+[sharegpt] conv=10 turn=4 chunks=128 wall=92.70s
+[sharegpt] conv=10 turn=6 chunks=128 wall=124.08s
+[sharegpt] conv=10 turn=8 chunks=128 wall=154.09s
+[sharegpt] conv=11 turn=0 chunks=128 wall=59.59s
+[sharegpt] conv=11 turn=2 chunks=128 wall=67.35s
+[sharegpt] conv=12 turn=0 chunks=128 wall=62.55s
+[sharegpt] conv=12 turn=2 chunks=128 wall=81.57s
+[sharegpt] conv=13 turn=0 chunks=128 wall=60.09s
+[sharegpt] conv=13 turn=2 chunks=128 wall=71.96s
+[sharegpt] conv=13 turn=4 chunks=128 wall=104.14s
+[sharegpt] conv=13 turn=6 chunks=128 wall=144.72s
+[sharegpt] conv=13 turn=8 chunks=128 wall=183.85s
+[sharegpt] conv=13 turn=10 chunks=128 wall=195.55s
+[sharegpt] conv=14 turn=0 chunks=128 wall=62.94s
+[sharegpt] conv=14 turn=2 chunks=128 wall=68.19s
+[sharegpt] conv=14 turn=4 chunks=128 wall=102.89s
+[sharegpt] conv=14 turn=6 chunks=128 wall=154.78s
+[sharegpt] conv=15 turn=0 chunks=128 wall=63.17s
+[sharegpt] conv=15 turn=2 chunks=128 wall=69.52s
+[sharegpt] conv=16 turn=1 chunks=128 wall=95.02s
+[sharegpt] conv=16 turn=3 chunks=128 wall=143.02s
+[sharegpt] conv=16 turn=5 chunks=128 wall=159.05s
+[sharegpt] conv=17 turn=1 chunks=128 wall=74.87s
+[sharegpt] conv=17 turn=3 chunks=128 wall=96.95s
+[sharegpt] conv=17 turn=5 chunks=128 wall=101.99s
+[sharegpt] conv=17 turn=7 chunks=128 wall=147.34s
+[sharegpt] conv=17 turn=9 chunks=128 wall=154.64s
+[sharegpt] conv=18 turn=0 chunks=128 wall=60.82s
+[sharegpt] conv=18 turn=2 chunks=128 wall=113.24s
+[sharegpt] conv=19 turn=0 chunks=128 wall=64.46s
+[sharegpt] conv=20 turn=0 chunks=128 wall=266.56s
+[sharegpt] conv=21 turn=0 chunks=128 wall=212.57s
+[sharegpt] conv=22 turn=0 chunks=128 wall=212.64s
+[sharegpt] conv=23 turn=0 chunks=128 wall=98.27s
+[sharegpt] conv=24 turn=0 chunks=128 wall=188.84s
+[sharegpt] conv=25 turn=0 chunks=128 wall=89.56s
+[sharegpt] conv=25 turn=2 chunks=128 wall=170.07s
+[sharegpt] conv=26 turn=1 chunks=128 wall=131.17s
+[sharegpt] conv=27 turn=0 chunks=128 wall=92.49s
+[sharegpt] conv=28 turn=0 chunks=128 wall=92.83s
+[sharegpt] conv=29 turn=0 chunks=128 wall=115.54s
+[2026-05-04 14:13:11] Long decode wo1 run02
+[longdecode] chunks=2048 wall=988.63s finish=length
+[2026-05-04 14:29:40] ShareGPT wo1 run03
+[sharegpt] conv=0 turn=0 chunks=128 wall=54.99s
+[sharegpt] conv=0 turn=2 chunks=128 wall=59.84s
+[sharegpt] conv=0 turn=4 chunks=128 wall=72.52s
+[sharegpt] conv=0 turn=6 chunks=128 wall=90.70s
+[sharegpt] conv=0 turn=8 chunks=128 wall=114.01s
+[sharegpt] conv=0 turn=10 chunks=128 wall=146.08s
+[sharegpt] conv=1 turn=0 chunks=128 wall=54.83s
+[sharegpt] conv=2 turn=0 chunks=128 wall=55.22s
+[sharegpt] conv=3 turn=0 chunks=128 wall=54.87s
+[sharegpt] conv=3 turn=2 chunks=128 wall=57.36s
+[sharegpt] conv=3 turn=4 chunks=128 wall=72.98s
+[sharegpt] conv=3 turn=6 chunks=128 wall=92.01s
+[sharegpt] conv=4 turn=0 chunks=128 wall=54.84s
+[sharegpt] conv=4 turn=2 chunks=128 wall=61.17s
+[sharegpt] conv=4 turn=4 chunks=128 wall=75.74s
+[sharegpt] conv=5 turn=0 chunks=128 wall=55.13s
+[sharegpt] conv=5 turn=2 chunks=128 wall=73.79s
+[sharegpt] conv=6 turn=0 chunks=128 wall=54.82s
+[sharegpt] conv=6 turn=2 chunks=128 wall=57.68s
+[sharegpt] conv=6 turn=4 chunks=128 wall=64.97s
+[sharegpt] conv=6 turn=6 chunks=128 wall=77.82s
+[sharegpt] conv=6 turn=8 chunks=128 wall=90.48s
+[sharegpt] conv=6 turn=10 chunks=128 wall=106.30s
+[sharegpt] conv=6 turn=12 chunks=128 wall=129.88s
+[sharegpt] conv=6 turn=14 chunks=128 wall=168.89s
+[sharegpt] conv=7 turn=1 chunks=128 wall=62.36s
+[sharegpt] conv=7 turn=3 chunks=128 wall=110.70s
+[sharegpt] conv=7 turn=5 chunks=128 wall=163.91s
+[sharegpt] conv=7 turn=7 chunks=128 wall=173.48s
+[sharegpt] conv=8 turn=1 chunks=128 wall=64.38s
+[sharegpt] conv=8 turn=3 chunks=128 wall=94.63s
+[sharegpt] conv=8 turn=5 chunks=128 wall=119.77s
+[sharegpt] conv=8 turn=7 chunks=128 wall=146.56s
+[sharegpt] conv=8 turn=9 chunks=128 wall=173.76s
+[sharegpt] conv=9 turn=0 chunks=128 wall=55.05s
+[sharegpt] conv=10 turn=0 chunks=128 wall=62.09s
+[sharegpt] conv=10 turn=2 chunks=128 wall=77.25s
+[sharegpt] conv=10 turn=4 chunks=128 wall=92.64s
+[sharegpt] conv=10 turn=6 chunks=128 wall=124.64s
+[sharegpt] conv=10 turn=8 chunks=128 wall=154.87s
+[sharegpt] conv=11 turn=0 chunks=128 wall=59.54s
+[sharegpt] conv=11 turn=2 chunks=128 wall=67.46s
+[sharegpt] conv=12 turn=0 chunks=128 wall=62.54s
+[sharegpt] conv=12 turn=2 chunks=128 wall=81.37s
+[sharegpt] conv=13 turn=0 chunks=128 wall=60.17s
+[sharegpt] conv=13 turn=2 chunks=128 wall=72.00s
+[sharegpt] conv=13 turn=4 chunks=128 wall=103.98s
+[sharegpt] conv=13 turn=6 chunks=128 wall=145.07s
+[sharegpt] conv=13 turn=8 chunks=128 wall=183.62s
+[sharegpt] conv=13 turn=10 chunks=128 wall=195.18s
+[sharegpt] conv=14 turn=0 chunks=128 wall=62.76s
+[sharegpt] conv=14 turn=2 chunks=128 wall=68.26s
+[sharegpt] conv=14 turn=4 chunks=128 wall=102.13s
+[sharegpt] conv=14 turn=6 chunks=128 wall=154.54s
+[sharegpt] conv=15 turn=0 chunks=128 wall=63.14s
+[sharegpt] conv=15 turn=2 chunks=128 wall=69.38s
+[sharegpt] conv=16 turn=1 chunks=128 wall=94.93s
+[sharegpt] conv=16 turn=3 chunks=128 wall=141.76s
+[sharegpt] conv=16 turn=5 chunks=128 wall=158.75s
+[sharegpt] conv=17 turn=1 chunks=128 wall=74.60s
+[sharegpt] conv=17 turn=3 chunks=128 wall=97.18s
+[sharegpt] conv=17 turn=5 chunks=128 wall=101.75s
+[sharegpt] conv=17 turn=7 chunks=128 wall=147.08s
+[sharegpt] conv=17 turn=9 chunks=128 wall=155.31s
+[sharegpt] conv=18 turn=0 chunks=128 wall=60.86s
+[sharegpt] conv=18 turn=2 chunks=128 wall=112.60s
+[sharegpt] conv=19 turn=0 chunks=128 wall=64.45s
+[sharegpt] conv=20 turn=0 chunks=128 wall=264.94s
+[sharegpt] conv=21 turn=0 chunks=128 wall=212.53s
+[sharegpt] conv=22 turn=0 chunks=128 wall=212.61s
+[sharegpt] conv=23 turn=0 chunks=128 wall=97.71s
+[sharegpt] conv=24 turn=0 chunks=128 wall=189.08s
+[sharegpt] conv=25 turn=0 chunks=128 wall=89.09s
+[sharegpt] conv=25 turn=2 chunks=128 wall=169.58s
+[sharegpt] conv=26 turn=1 chunks=128 wall=131.62s
+[sharegpt] conv=27 turn=0 chunks=128 wall=92.77s
+[sharegpt] conv=28 turn=0 chunks=128 wall=92.80s
+[sharegpt] conv=29 turn=0 chunks=128 wall=114.76s
+[2026-05-04 16:44:41] Long decode wo1 run03
+[longdecode] chunks=2048 wall=988.98s finish=length
+[2026-05-04 17:01:10] ShareGPT wo1 run04
+[sharegpt] conv=0 turn=0 chunks=128 wall=55.03s
+[sharegpt] conv=0 turn=2 chunks=128 wall=59.85s
+[sharegpt] conv=0 turn=4 chunks=128 wall=72.52s
+[sharegpt] conv=0 turn=6 chunks=128 wall=90.47s
+[sharegpt] conv=0 turn=8 chunks=128 wall=114.47s
+[sharegpt] conv=0 turn=10 chunks=128 wall=145.35s
+[sharegpt] conv=1 turn=0 chunks=128 wall=54.86s
+[sharegpt] conv=2 turn=0 chunks=128 wall=55.26s
+[sharegpt] conv=3 turn=0 chunks=128 wall=54.86s
+[sharegpt] conv=3 turn=2 chunks=128 wall=57.38s
+[sharegpt] conv=3 turn=4 chunks=128 wall=72.88s
+[sharegpt] conv=3 turn=6 chunks=128 wall=91.67s
+[sharegpt] conv=4 turn=0 chunks=128 wall=54.90s
+[sharegpt] conv=4 turn=2 chunks=128 wall=61.25s
+[sharegpt] conv=4 turn=4 chunks=128 wall=75.79s
+[sharegpt] conv=5 turn=0 chunks=128 wall=55.17s
+[sharegpt] conv=5 turn=2 chunks=128 wall=73.84s
+[sharegpt] conv=6 turn=0 chunks=128 wall=54.89s
+[sharegpt] conv=6 turn=2 chunks=128 wall=57.73s
+[sharegpt] conv=6 turn=4 chunks=128 wall=64.95s
+[sharegpt] conv=6 turn=6 chunks=128 wall=78.06s
+[sharegpt] conv=6 turn=8 chunks=128 wall=90.51s
+[sharegpt] conv=6 turn=10 chunks=128 wall=105.56s
+[sharegpt] conv=6 turn=12 chunks=128 wall=129.85s
+[sharegpt] conv=6 turn=14 chunks=128 wall=167.81s
+[sharegpt] conv=7 turn=1 chunks=128 wall=62.34s
+[sharegpt] conv=7 turn=3 chunks=128 wall=111.00s
+[sharegpt] conv=7 turn=5 chunks=128 wall=164.69s
+[sharegpt] conv=7 turn=7 chunks=128 wall=173.42s
+[sharegpt] conv=8 turn=1 chunks=128 wall=64.44s
+[sharegpt] conv=8 turn=3 chunks=128 wall=94.39s
+[sharegpt] conv=8 turn=5 chunks=128 wall=119.37s
+[sharegpt] conv=8 turn=7 chunks=128 wall=147.25s
+[sharegpt] conv=8 turn=9 chunks=128 wall=172.96s
+[sharegpt] conv=9 turn=0 chunks=128 wall=55.08s
+[sharegpt] conv=10 turn=0 chunks=128 wall=62.11s
+[sharegpt] conv=10 turn=2 chunks=128 wall=77.27s
+[sharegpt] conv=10 turn=4 chunks=128 wall=92.68s
+[sharegpt] conv=10 turn=6 chunks=128 wall=123.90s
+[sharegpt] conv=10 turn=8 chunks=128 wall=154.65s
+[sharegpt] conv=11 turn=0 chunks=128 wall=59.56s
+[sharegpt] conv=11 turn=2 chunks=128 wall=67.38s
+[sharegpt] conv=12 turn=0 chunks=128 wall=62.53s
+[sharegpt] conv=12 turn=2 chunks=128 wall=81.39s
+[sharegpt] conv=13 turn=0 chunks=128 wall=60.16s
+[sharegpt] conv=13 turn=2 chunks=128 wall=71.87s
+[sharegpt] conv=13 turn=4 chunks=128 wall=104.10s
+[sharegpt] conv=13 turn=6 chunks=128 wall=144.50s
+[sharegpt] conv=13 turn=8 chunks=128 wall=183.30s
+[sharegpt] conv=13 turn=10 chunks=128 wall=193.85s
+[sharegpt] conv=14 turn=0 chunks=128 wall=62.83s
+[sharegpt] conv=14 turn=2 chunks=128 wall=68.28s
+[sharegpt] conv=14 turn=4 chunks=128 wall=102.69s
+[sharegpt] conv=14 turn=6 chunks=128 wall=154.54s
+[sharegpt] conv=15 turn=0 chunks=128 wall=63.26s
+[sharegpt] conv=15 turn=2 chunks=128 wall=69.50s
+[sharegpt] conv=16 turn=1 chunks=128 wall=94.55s
+[sharegpt] conv=16 turn=3 chunks=128 wall=141.93s
+[sharegpt] conv=16 turn=5 chunks=128 wall=158.79s
+[sharegpt] conv=17 turn=1 chunks=128 wall=74.62s
+[sharegpt] conv=17 turn=3 chunks=128 wall=96.57s
+[sharegpt] conv=17 turn=5 chunks=128 wall=101.20s
+[sharegpt] conv=17 turn=7 chunks=128 wall=147.01s
+[sharegpt] conv=17 turn=9 chunks=128 wall=154.47s
+[sharegpt] conv=18 turn=0 chunks=128 wall=60.91s
+[sharegpt] conv=18 turn=2 chunks=128 wall=112.98s
+[sharegpt] conv=19 turn=0 chunks=128 wall=64.40s
+[sharegpt] conv=20 turn=0 chunks=128 wall=268.20s
+[sharegpt] conv=21 turn=0 chunks=128 wall=211.21s
+[sharegpt] conv=22 turn=0 chunks=128 wall=210.55s
+[sharegpt] conv=23 turn=0 chunks=128 wall=98.01s
+[sharegpt] conv=24 turn=0 chunks=128 wall=189.90s
+[sharegpt] conv=25 turn=0 chunks=128 wall=89.34s
+[sharegpt] conv=25 turn=2 chunks=128 wall=168.69s
+[sharegpt] conv=26 turn=1 chunks=128 wall=131.59s
+[sharegpt] conv=27 turn=0 chunks=128 wall=92.67s
+[sharegpt] conv=28 turn=0 chunks=128 wall=92.74s
+[sharegpt] conv=29 turn=0 chunks=128 wall=114.81s
+[2026-05-04 19:16:06] Long decode wo1 run04
+[longdecode] chunks=2048 wall=989.84s finish=length
+[2026-05-04 19:32:36] ShareGPT wo1 run05
+[sharegpt] conv=0 turn=0 chunks=128 wall=55.16s
+[sharegpt] conv=0 turn=2 chunks=128 wall=60.03s
+[sharegpt] conv=0 turn=4 chunks=128 wall=72.62s
+[sharegpt] conv=0 turn=6 chunks=128 wall=91.06s
+[sharegpt] conv=0 turn=8 chunks=128 wall=114.73s
+[sharegpt] conv=0 turn=10 chunks=128 wall=146.06s
+[sharegpt] conv=1 turn=0 chunks=128 wall=54.94s
+[sharegpt] conv=2 turn=0 chunks=128 wall=55.35s
+[sharegpt] conv=3 turn=0 chunks=128 wall=54.98s
+[sharegpt] conv=3 turn=2 chunks=128 wall=57.54s
+[sharegpt] conv=3 turn=4 chunks=128 wall=73.10s
+[sharegpt] conv=3 turn=6 chunks=128 wall=91.97s
+[sharegpt] conv=4 turn=0 chunks=128 wall=55.00s
+[sharegpt] conv=4 turn=2 chunks=128 wall=61.39s
+[sharegpt] conv=4 turn=4 chunks=128 wall=75.74s
+[sharegpt] conv=5 turn=0 chunks=128 wall=55.37s
+[sharegpt] conv=5 turn=2 chunks=128 wall=74.07s
+[sharegpt] conv=6 turn=0 chunks=128 wall=55.11s
+[sharegpt] conv=6 turn=2 chunks=128 wall=57.98s
+[sharegpt] conv=6 turn=4 chunks=128 wall=65.25s
+[sharegpt] conv=6 turn=6 chunks=128 wall=78.18s
+[sharegpt] conv=6 turn=8 chunks=128 wall=90.63s
+[sharegpt] conv=6 turn=10 chunks=128 wall=105.99s
+[sharegpt] conv=6 turn=12 chunks=128 wall=129.74s
+[sharegpt] conv=6 turn=14 chunks=128 wall=168.79s
+[sharegpt] conv=7 turn=1 chunks=128 wall=62.41s
+[sharegpt] conv=7 turn=3 chunks=128 wall=110.78s
+[sharegpt] conv=7 turn=5 chunks=128 wall=163.85s
+[sharegpt] conv=7 turn=7 chunks=128 wall=173.38s
+[sharegpt] conv=8 turn=1 chunks=128 wall=64.42s
+[sharegpt] conv=8 turn=3 chunks=128 wall=94.70s
+[sharegpt] conv=8 turn=5 chunks=128 wall=120.24s
+[sharegpt] conv=8 turn=7 chunks=128 wall=146.38s
+[sharegpt] conv=8 turn=9 chunks=128 wall=174.34s
+[sharegpt] conv=9 turn=0 chunks=128 wall=55.14s
+[sharegpt] conv=10 turn=0 chunks=128 wall=62.16s
+[sharegpt] conv=10 turn=2 chunks=128 wall=77.30s
+[sharegpt] conv=10 turn=4 chunks=128 wall=92.39s
+[sharegpt] conv=10 turn=6 chunks=128 wall=124.42s
+[sharegpt] conv=10 turn=8 chunks=128 wall=154.73s
+[sharegpt] conv=11 turn=0 chunks=128 wall=59.63s
+[sharegpt] conv=11 turn=2 chunks=128 wall=67.52s
+[sharegpt] conv=12 turn=0 chunks=128 wall=62.56s
+[sharegpt] conv=12 turn=2 chunks=128 wall=81.65s
+[sharegpt] conv=13 turn=0 chunks=128 wall=60.25s
+[sharegpt] conv=13 turn=2 chunks=128 wall=71.93s
+[sharegpt] conv=13 turn=4 chunks=128 wall=103.73s
+[sharegpt] conv=13 turn=6 chunks=128 wall=145.16s
+[sharegpt] conv=13 turn=8 chunks=128 wall=183.33s
+[sharegpt] conv=13 turn=10 chunks=128 wall=192.89s
+[sharegpt] conv=14 turn=0 chunks=128 wall=62.89s
+[sharegpt] conv=14 turn=2 chunks=128 wall=68.33s
+[sharegpt] conv=14 turn=4 chunks=128 wall=102.60s
+[sharegpt] conv=14 turn=6 chunks=128 wall=154.44s
+[sharegpt] conv=15 turn=0 chunks=128 wall=63.23s
+[sharegpt] conv=15 turn=2 chunks=128 wall=69.42s
+[sharegpt] conv=16 turn=1 chunks=128 wall=94.98s
+[sharegpt] conv=16 turn=3 chunks=128 wall=142.57s
+[sharegpt] conv=16 turn=5 chunks=128 wall=159.60s
+[sharegpt] conv=17 turn=1 chunks=128 wall=74.62s
+[sharegpt] conv=17 turn=3 chunks=128 wall=96.78s
+[sharegpt] conv=17 turn=5 chunks=128 wall=101.78s
+[sharegpt] conv=17 turn=7 chunks=128 wall=147.03s
+[sharegpt] conv=17 turn=9 chunks=128 wall=155.07s
+[sharegpt] conv=18 turn=0 chunks=128 wall=60.87s
+[sharegpt] conv=18 turn=2 chunks=128 wall=112.61s
+[sharegpt] conv=19 turn=0 chunks=128 wall=64.49s
+[sharegpt] conv=20 turn=0 chunks=128 wall=268.31s
+[sharegpt] conv=21 turn=0 chunks=128 wall=210.99s
+[sharegpt] conv=22 turn=0 chunks=128 wall=212.64s
+[sharegpt] conv=23 turn=0 chunks=128 wall=97.62s
+[sharegpt] conv=24 turn=0 chunks=128 wall=189.90s
+[sharegpt] conv=25 turn=0 chunks=128 wall=89.06s
+[sharegpt] conv=25 turn=2 chunks=128 wall=169.43s
+[sharegpt] conv=26 turn=1 chunks=128 wall=130.41s
+[sharegpt] conv=27 turn=0 chunks=128 wall=92.65s
+[sharegpt] conv=28 turn=0 chunks=128 wall=92.72s
+[sharegpt] conv=29 turn=0 chunks=128 wall=114.71s
+[2026-05-04 21:47:41] Long decode wo1 run05
+[longdecode] chunks=2048 wall=990.48s finish=length
+[2026-05-04 22:04:12] 2-concurrent probe wo1
+[concurrent] wall=58.32s
+[2026-05-04 22:05:11] starting server wo_split=1 region_timing=1 profiler=1
+[2026-05-04 22:09:11] server ready after ~230s
+[sharegpt] conv=0 turn=0 chunks=128 wall=100.48s
+[sharegpt] conv=0 turn=2 chunks=128 wall=65.25s
+[sharegpt] conv=0 turn=4 chunks=128 wall=95.25s
+[sharegpt] conv=0 turn=6 chunks=128 wall=138.53s
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 903, in _error_catcher
+    yield
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 1418, in read_chunked
+    self._update_chunk_length()
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 1333, in _update_chunk_length
+    line = self._fp.fp.readline()  # type: ignore[union-attr]
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/socket.py", line 707, in readinto
+    return self._sock.recv_into(b)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+TimeoutError: timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/models.py", line 822, in generate
+    yield from self.raw.stream(chunk_size, decode_content=True)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 1250, in stream
+    yield from self.read_chunked(amt, decode_content=decode_content)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 1397, in read_chunked
+    with self._error_catcher():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/response.py", line 908, in _error_catcher
+    raise ReadTimeoutError(self._pool, None, "Read timed out.") from e  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.ReadTimeoutError: HTTPConnectionPool(host='localhost', port=8000): Read timed out.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 419, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 410, in main
+    return run_sharegpt(args)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 218, in run_sharegpt
+    result = stream_completion(
+             ^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 75, in stream_completion
+    for raw_line in resp.iter_lines(decode_unicode=True):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/models.py", line 871, in iter_lines
+    for chunk in self.iter_content(
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/utils.py", line 559, in stream_decode_response_unicode
+    for chunk in iterator:
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/models.py", line 828, in generate
+    raise ConnectionError(e)
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='localhost', port=8000): Read timed out.
+[2026-05-05 06:14:44] output: /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak
+[2026-05-05 06:14:44] skip primary wo1 (primary_DONE)
+[2026-05-05 06:14:44] starting server wo_split=2 region_timing=0 profiler=0
+[2026-05-05 06:18:48] server ready after ~235s
+[2026-05-05 06:18:48] GSM8K wo2
+[1/50] WRONG (gold=2280 pred=2180) 111.8s
+[2/50] OK (gold=1 pred=1) 48.6s
+[3/50] OK (gold=5 pred=5) 58.5s
+[4/50] OK (gold=12 pred=12) 74.6s
+[5/50] OK (gold=273 pred=273) 67.6s
+[6/50] OK (gold=45 pred=45) 53.2s
+[7/50] OK (gold=21 pred=21) 44.5s
+[8/50] WRONG (gold=145 pred=70) 65.6s
+[9/50] OK (gold=60 pred=60) 64.9s
+[10/50] OK (gold=122 pred=122) 66.5s
+[11/50] OK (gold=29 pred=29) 180.7s
+[12/50] OK (gold=80 pred=80) 74.7s
+[13/50] OK (gold=36 pred=36) 50.4s
+[14/50] OK (gold=1430 pred=1430) 82.9s
+[15/50] OK (gold=5 pred=5) 57.4s
+[16/50] OK (gold=5 pred=5) 42.2s
+[17/50] OK (gold=5 pred=5) 52.1s
+[18/50] OK (gold=66 pred=66) 40.0s
+[19/50] OK (gold=15 pred=15) 40.1s
+[20/50] OK (gold=40 pred=40) 37.5s
+[21/50] OK (gold=93 pred=93) 40.4s
+[22/50] OK (gold=2000 pred=2000) 89.6s
+[23/50] OK (gold=1520 pred=1520) 43.1s
+[24/50] OK (gold=11050 pred=11050) 53.5s
+[25/50] OK (gold=90 pred=90) 94.1s
+[26/50] OK (gold=40000 pred=40000) 87.2s
+[27/50] OK (gold=21 pred=21) 48.9s
+[28/50] OK (gold=18 pred=18) 131.0s
+[29/50] OK (gold=14 pred=14) 63.1s
+[30/50] OK (gold=23 pred=23) 39.8s
+[31/50] OK (gold=145 pred=145) 78.6s
+[32/50] OK (gold=123 pred=123) 88.2s
+[33/50] OK (gold=98 pred=98) 66.0s
+[34/50] OK (gold=7 pred=7) 89.0s
+[35/50] OK (gold=34 pred=34) 83.8s
+[36/50] OK (gold=38 pred=38) 57.4s
+[37/50] OK (gold=320 pred=320) 84.8s
+[38/50] OK (gold=50 pred=50) 82.1s
+[39/50] OK (gold=50 pred=50) 70.1s
+[40/50] OK (gold=84 pred=84) 47.7s
+[41/50] OK (gold=50 pred=50) 96.7s
+[42/50] OK (gold=8000 pred=8000) 64.8s
+[43/50] OK (gold=280 pred=280) 50.5s
+[44/50] OK (gold=30 pred=30) 34.7s
+[45/50] WRONG (gold=192 pred=20) 215.5s
+[46/50] OK (gold=276 pred=276) 57.2s
+[47/50] OK (gold=32 pred=32) 75.1s
+[48/50] OK (gold=25 pred=25) 96.1s
+[49/50] OK (gold=10 pred=10) 51.4s
+[50/50] OK (gold=84 pred=84) 54.2s
+{
+  "label": "wo2_primary_gsm8k",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 0,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3548.2
+}
+[2026-05-05 07:17:57] ShareGPT wo2 run01
+[sharegpt] conv=0 turn=0 chunks=128 wall=53.39s
+[sharegpt] conv=0 turn=2 chunks=128 wall=57.56s
+[sharegpt] conv=0 turn=4 chunks=128 wall=70.31s
+[sharegpt] conv=0 turn=6 chunks=128 wall=88.70s
+[sharegpt] conv=0 turn=8 chunks=128 wall=111.71s
+[sharegpt] conv=0 turn=10 chunks=128 wall=143.61s
+[sharegpt] conv=1 turn=0 chunks=118 wall=49.07s
+[sharegpt] conv=2 turn=0 chunks=128 wall=53.41s
+[sharegpt] conv=3 turn=0 chunks=128 wall=52.60s
+[sharegpt] conv=3 turn=2 chunks=128 wall=55.05s
+[sharegpt] conv=3 turn=4 chunks=128 wall=70.84s
+[sharegpt] conv=3 turn=6 chunks=128 wall=89.70s
+[sharegpt] conv=4 turn=0 chunks=128 wall=52.62s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.91s
+[sharegpt] conv=4 turn=4 chunks=128 wall=73.54s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.82s
+[sharegpt] conv=5 turn=2 chunks=128 wall=71.67s
+[sharegpt] conv=6 turn=0 chunks=128 wall=52.51s
+[sharegpt] conv=6 turn=2 chunks=128 wall=55.37s
+[sharegpt] conv=6 turn=4 chunks=128 wall=62.66s
+[sharegpt] conv=6 turn=6 chunks=128 wall=75.54s
+[sharegpt] conv=6 turn=8 chunks=128 wall=88.14s
+[sharegpt] conv=6 turn=10 chunks=128 wall=103.34s
+[sharegpt] conv=6 turn=12 chunks=128 wall=127.55s
+[sharegpt] conv=6 turn=14 chunks=128 wall=165.21s
+[sharegpt] conv=7 turn=1 chunks=128 wall=60.32s
+[sharegpt] conv=7 turn=3 chunks=128 wall=108.85s
+[sharegpt] conv=7 turn=5 chunks=128 wall=161.50s
+[sharegpt] conv=7 turn=7 chunks=128 wall=169.15s
+[sharegpt] conv=8 turn=1 chunks=128 wall=62.41s
+[sharegpt] conv=8 turn=3 chunks=128 wall=92.16s
+[sharegpt] conv=8 turn=5 chunks=128 wall=118.02s
+[sharegpt] conv=8 turn=7 chunks=128 wall=144.51s
+[sharegpt] conv=8 turn=9 chunks=128 wall=171.77s
+[sharegpt] conv=9 turn=0 chunks=128 wall=53.03s
+[sharegpt] conv=10 turn=0 chunks=128 wall=60.03s
+[sharegpt] conv=10 turn=2 chunks=128 wall=74.97s
+[sharegpt] conv=10 turn=4 chunks=128 wall=90.48s
+[sharegpt] conv=10 turn=6 chunks=128 wall=122.09s
+[sharegpt] conv=10 turn=8 chunks=128 wall=150.81s
+[sharegpt] conv=11 turn=0 chunks=128 wall=57.53s
+[sharegpt] conv=11 turn=2 chunks=128 wall=65.35s
+[sharegpt] conv=12 turn=0 chunks=128 wall=60.34s
+[sharegpt] conv=12 turn=2 chunks=128 wall=79.17s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.98s
+[sharegpt] conv=13 turn=2 chunks=128 wall=69.80s
+[sharegpt] conv=13 turn=4 chunks=128 wall=101.85s
+[sharegpt] conv=13 turn=6 chunks=128 wall=142.72s
+[sharegpt] conv=13 turn=8 chunks=128 wall=181.02s
+[sharegpt] conv=13 turn=10 chunks=128 wall=191.06s
+[sharegpt] conv=14 turn=0 chunks=128 wall=60.74s
+[sharegpt] conv=14 turn=2 chunks=128 wall=66.10s
+[sharegpt] conv=14 turn=4 chunks=128 wall=100.45s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.97s
+[sharegpt] conv=15 turn=0 chunks=128 wall=61.08s
+[sharegpt] conv=15 turn=2 chunks=128 wall=67.39s
+[sharegpt] conv=16 turn=1 chunks=128 wall=92.73s
+[sharegpt] conv=16 turn=3 chunks=128 wall=138.95s
+[sharegpt] conv=16 turn=5 chunks=128 wall=156.18s
+[sharegpt] conv=17 turn=1 chunks=128 wall=72.46s
+[sharegpt] conv=17 turn=3 chunks=128 wall=94.92s
+[sharegpt] conv=17 turn=5 chunks=128 wall=99.61s
+[sharegpt] conv=17 turn=7 chunks=128 wall=144.46s
+[sharegpt] conv=17 turn=9 chunks=128 wall=152.63s
+[sharegpt] conv=18 turn=0 chunks=128 wall=58.86s
+[sharegpt] conv=18 turn=2 chunks=128 wall=110.78s
+[sharegpt] conv=19 turn=0 chunks=128 wall=62.38s
+[sharegpt] conv=20 turn=0 chunks=128 wall=264.59s
+[sharegpt] conv=21 turn=0 chunks=128 wall=207.85s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.05s
+[sharegpt] conv=23 turn=0 chunks=128 wall=95.60s
+[sharegpt] conv=24 turn=0 chunks=128 wall=186.83s
+[sharegpt] conv=25 turn=0 chunks=128 wall=87.07s
+[sharegpt] conv=25 turn=2 chunks=128 wall=165.99s
+[sharegpt] conv=26 turn=1 chunks=128 wall=128.42s
+[sharegpt] conv=27 turn=0 chunks=128 wall=90.48s
+[sharegpt] conv=28 turn=0 chunks=128 wall=90.56s
+[sharegpt] conv=29 turn=0 chunks=128 wall=112.23s
+[2026-05-05 09:29:49] Long decode wo2 run01
+[longdecode] chunks=2048 wall=952.88s finish=length
+[2026-05-05 09:45:42] ShareGPT wo2 run02
+[sharegpt] conv=0 turn=0 chunks=128 wall=52.70s
+[sharegpt] conv=0 turn=2 chunks=128 wall=57.54s
+[sharegpt] conv=0 turn=4 chunks=128 wall=70.11s
+[sharegpt] conv=0 turn=6 chunks=128 wall=88.63s
+[sharegpt] conv=0 turn=8 chunks=128 wall=112.34s
+[sharegpt] conv=0 turn=10 chunks=128 wall=143.01s
+[sharegpt] conv=1 turn=0 chunks=118 wall=48.95s
+[sharegpt] conv=2 turn=0 chunks=128 wall=53.33s
+[sharegpt] conv=3 turn=0 chunks=128 wall=52.55s
+[sharegpt] conv=3 turn=2 chunks=128 wall=55.04s
+[sharegpt] conv=3 turn=4 chunks=128 wall=70.77s
+[sharegpt] conv=3 turn=6 chunks=128 wall=89.28s
+[sharegpt] conv=4 turn=0 chunks=128 wall=52.56s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.91s
+[sharegpt] conv=4 turn=4 chunks=128 wall=73.41s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.82s
+[sharegpt] conv=5 turn=2 chunks=128 wall=71.58s
+[sharegpt] conv=6 turn=0 chunks=128 wall=52.53s
+[sharegpt] conv=6 turn=2 chunks=128 wall=55.36s
+[sharegpt] conv=6 turn=4 chunks=128 wall=62.59s
+[sharegpt] conv=6 turn=6 chunks=128 wall=75.43s
+[sharegpt] conv=6 turn=8 chunks=128 wall=88.40s
+[sharegpt] conv=6 turn=10 chunks=128 wall=103.98s
+[sharegpt] conv=6 turn=12 chunks=128 wall=126.88s
+[sharegpt] conv=6 turn=14 chunks=128 wall=166.24s
+[sharegpt] conv=7 turn=1 chunks=128 wall=60.18s
+[sharegpt] conv=7 turn=3 chunks=128 wall=108.38s
+[sharegpt] conv=7 turn=5 chunks=128 wall=161.12s
+[sharegpt] conv=7 turn=7 chunks=128 wall=169.80s
+[sharegpt] conv=8 turn=1 chunks=128 wall=62.22s
+[sharegpt] conv=8 turn=3 chunks=128 wall=92.42s
+[sharegpt] conv=8 turn=5 chunks=128 wall=117.96s
+[sharegpt] conv=8 turn=7 chunks=128 wall=145.04s
+[sharegpt] conv=8 turn=9 chunks=128 wall=172.19s
+[sharegpt] conv=9 turn=0 chunks=128 wall=52.98s
+[sharegpt] conv=10 turn=0 chunks=128 wall=59.90s
+[sharegpt] conv=10 turn=2 chunks=128 wall=74.87s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.90s
+[sharegpt] conv=10 turn=6 chunks=128 wall=121.51s
+[sharegpt] conv=10 turn=8 chunks=128 wall=152.35s
+[sharegpt] conv=11 turn=0 chunks=128 wall=57.38s
+[sharegpt] conv=11 turn=2 chunks=128 wall=65.22s
+[sharegpt] conv=12 turn=0 chunks=128 wall=60.19s
+[sharegpt] conv=12 turn=2 chunks=128 wall=79.30s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.86s
+[sharegpt] conv=13 turn=2 chunks=128 wall=69.55s
+[sharegpt] conv=13 turn=4 chunks=128 wall=101.36s
+[sharegpt] conv=13 turn=6 chunks=128 wall=142.85s
+[sharegpt] conv=13 turn=8 chunks=128 wall=180.76s
+[sharegpt] conv=13 turn=10 chunks=128 wall=191.22s
+[sharegpt] conv=14 turn=0 chunks=128 wall=60.69s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.97s
+[sharegpt] conv=14 turn=4 chunks=128 wall=100.42s
+[sharegpt] conv=14 turn=6 chunks=128 wall=152.88s
+[sharegpt] conv=15 turn=0 chunks=128 wall=61.06s
+[sharegpt] conv=15 turn=2 chunks=128 wall=67.25s
+[sharegpt] conv=16 turn=1 chunks=128 wall=92.56s
+[sharegpt] conv=16 turn=3 chunks=128 wall=139.56s
+[sharegpt] conv=16 turn=5 chunks=128 wall=157.09s
+[sharegpt] conv=17 turn=1 chunks=128 wall=72.57s
+[sharegpt] conv=17 turn=3 chunks=128 wall=94.86s
+[sharegpt] conv=17 turn=5 chunks=128 wall=99.51s
+[sharegpt] conv=17 turn=7 chunks=128 wall=144.02s
+[sharegpt] conv=17 turn=9 chunks=128 wall=152.75s
+[sharegpt] conv=18 turn=0 chunks=128 wall=58.70s
+[sharegpt] conv=18 turn=2 chunks=128 wall=110.25s
+[sharegpt] conv=19 turn=0 chunks=128 wall=62.21s
+[sharegpt] conv=20 turn=0 chunks=128 wall=263.12s
+[sharegpt] conv=21 turn=0 chunks=128 wall=208.54s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.22s
+[sharegpt] conv=23 turn=0 chunks=128 wall=95.82s
+[sharegpt] conv=24 turn=0 chunks=128 wall=186.98s
+[sharegpt] conv=25 turn=0 chunks=128 wall=86.91s
+[sharegpt] conv=25 turn=2 chunks=128 wall=166.72s
+[sharegpt] conv=26 turn=1 chunks=128 wall=129.35s
+[sharegpt] conv=27 turn=0 chunks=128 wall=90.36s
+[sharegpt] conv=28 turn=0 chunks=128 wall=90.21s
+[sharegpt] conv=29 turn=0 chunks=128 wall=113.01s
+[2026-05-05 11:57:35] Long decode wo2 run02
+[longdecode] chunks=2048 wall=952.14s finish=length
+[2026-05-05 12:13:27] ShareGPT wo2 run03
+[sharegpt] conv=0 turn=0 chunks=128 wall=52.70s
+[sharegpt] conv=0 turn=2 chunks=128 wall=57.53s
+[sharegpt] conv=0 turn=4 chunks=128 wall=70.17s
+[sharegpt] conv=0 turn=6 chunks=128 wall=88.58s
+[sharegpt] conv=0 turn=8 chunks=128 wall=111.58s
+[sharegpt] conv=0 turn=10 chunks=128 wall=142.85s
+[sharegpt] conv=1 turn=0 chunks=118 wall=48.86s
+[sharegpt] conv=2 turn=0 chunks=128 wall=53.33s
+[sharegpt] conv=3 turn=0 chunks=128 wall=52.58s
+[sharegpt] conv=3 turn=2 chunks=128 wall=55.07s
+[sharegpt] conv=3 turn=4 chunks=128 wall=70.71s
+[sharegpt] conv=3 turn=6 chunks=128 wall=89.22s
+[sharegpt] conv=4 turn=0 chunks=128 wall=52.59s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.89s
+[sharegpt] conv=4 turn=4 chunks=128 wall=73.41s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.84s
+[sharegpt] conv=5 turn=2 chunks=128 wall=71.41s
+[sharegpt] conv=6 turn=0 chunks=128 wall=52.53s
+[sharegpt] conv=6 turn=2 chunks=128 wall=55.40s
+[sharegpt] conv=6 turn=4 chunks=128 wall=62.64s
+[sharegpt] conv=6 turn=6 chunks=128 wall=75.47s
+[sharegpt] conv=6 turn=8 chunks=128 wall=88.31s
+[sharegpt] conv=6 turn=10 chunks=128 wall=103.66s
+[sharegpt] conv=6 turn=12 chunks=128 wall=127.34s
+[sharegpt] conv=6 turn=14 chunks=128 wall=166.09s
+[sharegpt] conv=7 turn=1 chunks=128 wall=60.11s
+[sharegpt] conv=7 turn=3 chunks=128 wall=108.70s
+[sharegpt] conv=7 turn=5 chunks=128 wall=162.35s
+[sharegpt] conv=7 turn=7 chunks=128 wall=169.94s
+[sharegpt] conv=8 turn=1 chunks=128 wall=62.20s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.97s
+[sharegpt] conv=8 turn=5 chunks=128 wall=117.84s
+[sharegpt] conv=8 turn=7 chunks=128 wall=144.02s
+[sharegpt] conv=8 turn=9 chunks=128 wall=171.99s
+[sharegpt] conv=9 turn=0 chunks=128 wall=52.84s
+[sharegpt] conv=10 turn=0 chunks=128 wall=59.78s
+[sharegpt] conv=10 turn=2 chunks=128 wall=74.73s
+[sharegpt] conv=10 turn=4 chunks=128 wall=90.35s
+[sharegpt] conv=10 turn=6 chunks=128 wall=121.94s
+[sharegpt] conv=10 turn=8 chunks=128 wall=152.18s
+[sharegpt] conv=11 turn=0 chunks=128 wall=57.30s
+[sharegpt] conv=11 turn=2 chunks=128 wall=65.07s
+[sharegpt] conv=12 turn=0 chunks=128 wall=60.19s
+[sharegpt] conv=12 turn=2 chunks=128 wall=79.02s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.85s
+[sharegpt] conv=13 turn=2 chunks=128 wall=69.69s
+[sharegpt] conv=13 turn=4 chunks=128 wall=101.20s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.96s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.68s
+[sharegpt] conv=13 turn=10 chunks=128 wall=192.36s
+[sharegpt] conv=14 turn=0 chunks=128 wall=60.54s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.89s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.89s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.85s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.92s
+[sharegpt] conv=15 turn=2 chunks=128 wall=67.12s
+[sharegpt] conv=16 turn=1 chunks=128 wall=92.36s
+[sharegpt] conv=16 turn=3 chunks=128 wall=140.10s
+[sharegpt] conv=16 turn=5 chunks=128 wall=156.23s
+[sharegpt] conv=17 turn=1 chunks=128 wall=72.45s
+[sharegpt] conv=17 turn=3 chunks=128 wall=94.87s
+[sharegpt] conv=17 turn=5 chunks=128 wall=99.09s
+[sharegpt] conv=17 turn=7 chunks=128 wall=145.33s
+[sharegpt] conv=17 turn=9 chunks=128 wall=152.77s
+[sharegpt] conv=18 turn=0 chunks=128 wall=58.56s
+[sharegpt] conv=18 turn=2 chunks=128 wall=110.79s
+[sharegpt] conv=19 turn=0 chunks=128 wall=62.17s
+[sharegpt] conv=20 turn=0 chunks=128 wall=263.08s
+[sharegpt] conv=21 turn=0 chunks=128 wall=208.38s
+[sharegpt] conv=22 turn=0 chunks=128 wall=209.78s
+[sharegpt] conv=23 turn=0 chunks=128 wall=95.73s
+[sharegpt] conv=24 turn=0 chunks=128 wall=187.37s
+[sharegpt] conv=25 turn=0 chunks=128 wall=87.21s
+[sharegpt] conv=25 turn=2 chunks=128 wall=165.45s
+[sharegpt] conv=26 turn=1 chunks=128 wall=129.30s
+[sharegpt] conv=27 turn=0 chunks=128 wall=90.09s
+[sharegpt] conv=28 turn=0 chunks=128 wall=90.08s
+[sharegpt] conv=29 turn=0 chunks=128 wall=112.89s
+[2026-05-05 14:25:17] Long decode wo2 run03
+[longdecode] chunks=2048 wall=952.21s finish=length
+[2026-05-05 14:41:09] ShareGPT wo2 run04
+[sharegpt] conv=0 turn=0 chunks=128 wall=52.74s
+[sharegpt] conv=0 turn=2 chunks=128 wall=57.56s
+[sharegpt] conv=0 turn=4 chunks=128 wall=70.16s
+[sharegpt] conv=0 turn=6 chunks=128 wall=88.62s
+[sharegpt] conv=0 turn=8 chunks=128 wall=111.96s
+[sharegpt] conv=0 turn=10 chunks=128 wall=142.71s
+[sharegpt] conv=1 turn=0 chunks=118 wall=48.88s
+[sharegpt] conv=2 turn=0 chunks=128 wall=53.34s
+[sharegpt] conv=3 turn=0 chunks=128 wall=52.60s
+[sharegpt] conv=3 turn=2 chunks=128 wall=55.12s
+[sharegpt] conv=3 turn=4 chunks=128 wall=70.78s
+[sharegpt] conv=3 turn=6 chunks=128 wall=89.39s
+[sharegpt] conv=4 turn=0 chunks=128 wall=52.60s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.96s
+[sharegpt] conv=4 turn=4 chunks=128 wall=73.38s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.86s
+[sharegpt] conv=5 turn=2 chunks=128 wall=71.45s
+[sharegpt] conv=6 turn=0 chunks=128 wall=52.56s
+[sharegpt] conv=6 turn=2 chunks=128 wall=55.37s
+[sharegpt] conv=6 turn=4 chunks=128 wall=62.66s
+[sharegpt] conv=6 turn=6 chunks=128 wall=75.49s
+[sharegpt] conv=6 turn=8 chunks=128 wall=88.21s
+[sharegpt] conv=6 turn=10 chunks=128 wall=103.40s
+[sharegpt] conv=6 turn=12 chunks=128 wall=126.71s
+[sharegpt] conv=6 turn=14 chunks=128 wall=165.07s
+[sharegpt] conv=7 turn=1 chunks=128 wall=60.01s
+[sharegpt] conv=7 turn=3 chunks=128 wall=108.16s
+[sharegpt] conv=7 turn=5 chunks=128 wall=161.94s
+[sharegpt] conv=7 turn=7 chunks=128 wall=170.80s
+[sharegpt] conv=8 turn=1 chunks=128 wall=62.16s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.85s
+[sharegpt] conv=8 turn=5 chunks=128 wall=117.70s
+[sharegpt] conv=8 turn=7 chunks=128 wall=144.89s
+[sharegpt] conv=8 turn=9 chunks=128 wall=171.58s
+[sharegpt] conv=9 turn=0 chunks=128 wall=52.81s
+[sharegpt] conv=10 turn=0 chunks=128 wall=59.78s
+[sharegpt] conv=10 turn=2 chunks=128 wall=74.90s
+[sharegpt] conv=10 turn=4 chunks=128 wall=90.23s
+[sharegpt] conv=10 turn=6 chunks=128 wall=121.33s
+[sharegpt] conv=10 turn=8 chunks=128 wall=150.61s
+[sharegpt] conv=11 turn=0 chunks=128 wall=57.26s
+[sharegpt] conv=11 turn=2 chunks=128 wall=65.19s
+[sharegpt] conv=12 turn=0 chunks=128 wall=60.25s
+[sharegpt] conv=12 turn=2 chunks=128 wall=79.01s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.90s
+[sharegpt] conv=13 turn=2 chunks=128 wall=69.66s
+[sharegpt] conv=13 turn=4 chunks=128 wall=101.23s
+[sharegpt] conv=13 turn=6 chunks=128 wall=142.60s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.56s
+[sharegpt] conv=13 turn=10 chunks=128 wall=192.23s
+[sharegpt] conv=14 turn=0 chunks=128 wall=60.51s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.85s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.55s
+[sharegpt] conv=14 turn=6 chunks=128 wall=152.71s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.87s
+[sharegpt] conv=15 turn=2 chunks=128 wall=67.06s
+[sharegpt] conv=16 turn=1 chunks=128 wall=92.33s
+[sharegpt] conv=16 turn=3 chunks=128 wall=140.18s
+[sharegpt] conv=16 turn=5 chunks=128 wall=156.08s
+[sharegpt] conv=17 turn=1 chunks=128 wall=72.24s
+[sharegpt] conv=17 turn=3 chunks=128 wall=94.69s
+[sharegpt] conv=17 turn=5 chunks=128 wall=99.04s
+[sharegpt] conv=17 turn=7 chunks=128 wall=145.06s
+[sharegpt] conv=17 turn=9 chunks=128 wall=151.83s
+[sharegpt] conv=18 turn=0 chunks=128 wall=58.59s
+[sharegpt] conv=18 turn=2 chunks=128 wall=110.54s
+[sharegpt] conv=19 turn=0 chunks=128 wall=62.13s
+[sharegpt] conv=20 turn=0 chunks=128 wall=264.71s
+[sharegpt] conv=21 turn=0 chunks=128 wall=207.98s
+[sharegpt] conv=22 turn=0 chunks=128 wall=209.59s
+[sharegpt] conv=23 turn=0 chunks=128 wall=95.24s
+[sharegpt] conv=24 turn=0 chunks=128 wall=187.10s
+[sharegpt] conv=25 turn=0 chunks=128 wall=87.08s
+[sharegpt] conv=25 turn=2 chunks=128 wall=167.04s
+[sharegpt] conv=26 turn=1 chunks=128 wall=127.97s
+[sharegpt] conv=27 turn=0 chunks=128 wall=90.23s
+[sharegpt] conv=28 turn=0 chunks=128 wall=90.33s
+[sharegpt] conv=29 turn=0 chunks=128 wall=112.28s
+[2026-05-05 16:52:54] Long decode wo2 run04
+[longdecode] chunks=2048 wall=953.55s finish=length
+[2026-05-05 17:08:48] ShareGPT wo2 run05
+[sharegpt] conv=0 turn=0 chunks=128 wall=52.84s
+[sharegpt] conv=0 turn=2 chunks=128 wall=57.65s
+[sharegpt] conv=0 turn=4 chunks=128 wall=70.24s
+[sharegpt] conv=0 turn=6 chunks=128 wall=88.60s
+[sharegpt] conv=0 turn=8 chunks=128 wall=111.52s
+[sharegpt] conv=0 turn=10 chunks=128 wall=143.47s
+[sharegpt] conv=1 turn=0 chunks=128 wall=52.61s
+[sharegpt] conv=2 turn=0 chunks=128 wall=53.00s
+[sharegpt] conv=3 turn=0 chunks=128 wall=52.69s
+[sharegpt] conv=3 turn=2 chunks=128 wall=55.17s
+[sharegpt] conv=3 turn=4 chunks=128 wall=70.81s
+[sharegpt] conv=3 turn=6 chunks=128 wall=89.61s
+[sharegpt] conv=4 turn=0 chunks=128 wall=52.67s
+[sharegpt] conv=4 turn=2 chunks=128 wall=59.03s
+[sharegpt] conv=4 turn=4 chunks=128 wall=73.33s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.97s
+[sharegpt] conv=5 turn=2 chunks=128 wall=71.65s
+[sharegpt] conv=6 turn=0 chunks=128 wall=52.63s
+[sharegpt] conv=6 turn=2 chunks=128 wall=55.50s
+[sharegpt] conv=6 turn=4 chunks=128 wall=62.69s
+[sharegpt] conv=6 turn=6 chunks=128 wall=75.55s
+[sharegpt] conv=6 turn=8 chunks=128 wall=88.34s
+[sharegpt] conv=6 turn=10 chunks=128 wall=103.83s
+[sharegpt] conv=6 turn=12 chunks=128 wall=126.70s
+[sharegpt] conv=6 turn=14 chunks=128 wall=166.02s
+[sharegpt] conv=7 turn=1 chunks=128 wall=60.11s
+[sharegpt] conv=7 turn=3 chunks=128 wall=108.18s
+[sharegpt] conv=7 turn=5 chunks=128 wall=161.94s
+[sharegpt] conv=7 turn=7 chunks=128 wall=170.70s
+[sharegpt] conv=8 turn=1 chunks=128 wall=62.03s
+[sharegpt] conv=8 turn=3 chunks=128 wall=92.28s
+[sharegpt] conv=8 turn=5 chunks=128 wall=117.06s
+[sharegpt] conv=8 turn=7 chunks=128 wall=144.53s
+[sharegpt] conv=8 turn=9 chunks=128 wall=170.25s
+[sharegpt] conv=9 turn=0 chunks=128 wall=52.85s
+[sharegpt] conv=10 turn=0 chunks=128 wall=59.87s
+[sharegpt] conv=10 turn=2 chunks=128 wall=74.93s
+[sharegpt] conv=10 turn=4 chunks=128 wall=90.27s
+[sharegpt] conv=10 turn=6 chunks=128 wall=121.22s
+[sharegpt] conv=10 turn=8 chunks=128 wall=152.01s
+[sharegpt] conv=11 turn=0 chunks=128 wall=57.35s
+[sharegpt] conv=11 turn=2 chunks=128 wall=65.10s
+[sharegpt] conv=12 turn=0 chunks=128 wall=60.34s
+[sharegpt] conv=12 turn=2 chunks=128 wall=79.31s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.97s
+[sharegpt] conv=13 turn=2 chunks=128 wall=69.65s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.97s
+[sharegpt] conv=13 turn=6 chunks=128 wall=142.58s
+[sharegpt] conv=13 turn=8 chunks=128 wall=180.63s
+[sharegpt] conv=13 turn=10 chunks=128 wall=191.10s
+[sharegpt] conv=14 turn=0 chunks=128 wall=60.63s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.97s
+[sharegpt] conv=14 turn=4 chunks=128 wall=100.30s
+[sharegpt] conv=14 turn=6 chunks=128 wall=152.68s
+[sharegpt] conv=15 turn=0 chunks=128 wall=61.04s
+[sharegpt] conv=15 turn=2 chunks=128 wall=67.30s
+[sharegpt] conv=16 turn=1 chunks=128 wall=92.56s
+[sharegpt] conv=16 turn=3 chunks=128 wall=139.36s
+[sharegpt] conv=16 turn=5 chunks=128 wall=156.08s
+[sharegpt] conv=17 turn=1 chunks=128 wall=72.42s
+[sharegpt] conv=17 turn=3 chunks=128 wall=94.77s
+[sharegpt] conv=17 turn=5 chunks=128 wall=99.06s
+[sharegpt] conv=17 turn=7 chunks=128 wall=144.50s
+[sharegpt] conv=17 turn=9 chunks=128 wall=151.95s
+[sharegpt] conv=18 turn=0 chunks=128 wall=58.64s
+[sharegpt] conv=18 turn=2 chunks=128 wall=110.72s
+[sharegpt] conv=19 turn=0 chunks=128 wall=62.16s
+[sharegpt] conv=20 turn=0 chunks=128 wall=263.13s
+[sharegpt] conv=21 turn=0 chunks=128 wall=208.28s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.57s
+[sharegpt] conv=23 turn=0 chunks=128 wall=95.86s
+[sharegpt] conv=24 turn=0 chunks=128 wall=185.94s
+[sharegpt] conv=25 turn=0 chunks=128 wall=87.00s
+[sharegpt] conv=25 turn=2 chunks=128 wall=166.89s
+[sharegpt] conv=26 turn=1 chunks=128 wall=129.51s
+[sharegpt] conv=27 turn=0 chunks=128 wall=90.92s
+[sharegpt] conv=28 turn=0 chunks=128 wall=91.03s
+[sharegpt] conv=29 turn=0 chunks=128 wall=113.34s
+[2026-05-05 19:20:41] Long decode wo2 run05
+[longdecode] chunks=2048 wall=955.35s finish=length
+[2026-05-05 19:36:36] 2-concurrent probe wo2
+[concurrent] wall=57.58s
+[2026-05-05 19:37:35] starting server wo_split=4 region_timing=0 profiler=0
+[2026-05-05 21:26:20] output: /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak
+[2026-05-05 21:26:20] starting server wo_split=4 region_timing=0 profiler=0
+[2026-05-05 21:30:09] server ready after ~220s
+[2026-05-05 21:30:09] GSM8K wo4
+[1/50] WRONG (gold=2280 pred=2180) 110.3s
+[2/50] OK (gold=1 pred=1) 89.0s
+[3/50] OK (gold=5 pred=5) 48.5s
+[4/50] OK (gold=12 pred=12) 71.4s
+[5/50] OK (gold=273 pred=273) 57.3s
+[6/50] OK (gold=45 pred=45) 53.0s
+[7/50] OK (gold=21 pred=21) 42.7s
+[8/50] OK (gold=145 pred=145) 80.1s
+[9/50] OK (gold=60 pred=60) 74.4s
+[10/50] OK (gold=122 pred=122) 57.2s
+[11/50] OK (gold=29 pred=29) 177.8s
+[12/50] OK (gold=80 pred=80) 73.3s
+[13/50] OK (gold=36 pred=36) 103.0s
+[14/50] OK (gold=1430 pred=1430) 70.2s
+[15/50] OK (gold=5 pred=5) 49.1s
+[16/50] OK (gold=5 pred=5) 57.0s
+[17/50] OK (gold=5 pred=5) 53.7s
+[18/50] OK (gold=66 pred=66) 39.4s
+[19/50] OK (gold=15 pred=15) 40.3s
+[20/50] OK (gold=40 pred=40) 36.9s
+[21/50] OK (gold=93 pred=93) 35.7s
+[22/50] OK (gold=2000 pred=2000) 151.7s
+[23/50] OK (gold=1520 pred=1520) 36.8s
+[24/50] OK (gold=11050 pred=11050) 61.3s
+[25/50] OK (gold=90 pred=90) 93.8s
+[26/50] OK (gold=40000 pred=40000) 64.4s
+[27/50] OK (gold=21 pred=21) 45.9s
+[28/50] OK (gold=18 pred=18) 102.2s
+[29/50] OK (gold=14 pred=14) 62.4s
+[30/50] OK (gold=23 pred=23) 97.4s
+[31/50] OK (gold=145 pred=145) 74.4s
+[32/50] OK (gold=123 pred=123) 87.3s
+[33/50] OK (gold=98 pred=98) 68.2s
+[34/50] OK (gold=7 pred=7) 92.2s
+[35/50] OK (gold=34 pred=34) 115.7s
+[36/50] OK (gold=38 pred=38) 46.9s
+[37/50] OK (gold=320 pred=320) 83.4s
+[38/50] OK (gold=50 pred=50) 81.2s
+[39/50] OK (gold=50 pred=50) 67.8s
+[40/50] OK (gold=84 pred=84) 52.1s
+[41/50] OK (gold=50 pred=50) 92.4s
+[42/50] OK (gold=8000 pred=8000) 64.1s
+[43/50] OK (gold=280 pred=280) 52.4s
+[44/50] OK (gold=30 pred=30) 34.3s
+[45/50] WRONG (gold=192 pred=10) 213.2s
+[46/50] OK (gold=276 pred=276) 64.0s
+[47/50] OK (gold=32 pred=32) 79.7s
+[48/50] OK (gold=25 pred=25) 105.1s
+[49/50] OK (gold=10 pred=10) 52.5s
+[50/50] OK (gold=84 pred=84) 59.0s
+{
+  "label": "wo4_primary_gsm8k",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 48,
+  "errors": 0,
+  "accuracy": "48/50 (96.0%)",
+  "total_seconds": 3722.0
+}
+[2026-05-05 22:32:11] ShareGPT wo4 run01
+[sharegpt] conv=0 turn=0 chunks=128 wall=52.83s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.97s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.36s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.70s
+[sharegpt] conv=0 turn=8 chunks=128 wall=110.91s
+[sharegpt] conv=0 turn=10 chunks=128 wall=141.67s
+[sharegpt] conv=1 turn=0 chunks=119 wall=48.60s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.62s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.91s
+[sharegpt] conv=3 turn=2 chunks=128 wall=54.44s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.82s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.60s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.86s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.19s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.42s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.21s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.62s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.91s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.78s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.99s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.66s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.39s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.35s
+[sharegpt] conv=6 turn=12 chunks=128 wall=126.17s
+[sharegpt] conv=6 turn=14 chunks=128 wall=164.92s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.22s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.58s
+[sharegpt] conv=7 turn=5 chunks=128 wall=159.77s
+[sharegpt] conv=7 turn=7 chunks=128 wall=169.68s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.27s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.35s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.65s
+[sharegpt] conv=8 turn=7 chunks=128 wall=142.55s
+[sharegpt] conv=8 turn=9 chunks=128 wall=170.79s
+[sharegpt] conv=9 turn=0 chunks=128 wall=52.01s
+[sharegpt] conv=10 turn=0 chunks=128 wall=59.04s
+[sharegpt] conv=10 turn=2 chunks=128 wall=74.03s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.30s
+[sharegpt] conv=10 turn=6 chunks=128 wall=120.70s
+[sharegpt] conv=10 turn=8 chunks=128 wall=150.54s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.48s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.23s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.45s
+[sharegpt] conv=12 turn=2 chunks=128 wall=78.32s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.11s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.70s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.57s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.61s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.51s
+[sharegpt] conv=13 turn=10 chunks=128 wall=188.42s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.61s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.13s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.24s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.69s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.02s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.30s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.43s
+[sharegpt] conv=16 turn=3 chunks=128 wall=138.77s
+[sharegpt] conv=16 turn=5 chunks=128 wall=154.71s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.35s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.78s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.01s
+[sharegpt] conv=17 turn=7 chunks=128 wall=143.84s
+[sharegpt] conv=17 turn=9 chunks=128 wall=151.23s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.78s
+[sharegpt] conv=18 turn=2 chunks=128 wall=108.97s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.32s
+[sharegpt] conv=20 turn=0 chunks=128 wall=263.40s
+[sharegpt] conv=21 turn=0 chunks=128 wall=207.98s
+[sharegpt] conv=22 turn=0 chunks=128 wall=207.80s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.19s
+[sharegpt] conv=24 turn=0 chunks=128 wall=185.00s
+[sharegpt] conv=25 turn=0 chunks=128 wall=85.70s
+[sharegpt] conv=25 turn=2 chunks=128 wall=165.49s
+[sharegpt] conv=26 turn=1 chunks=128 wall=127.19s
+[sharegpt] conv=27 turn=0 chunks=128 wall=88.96s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.40s
+[sharegpt] conv=29 turn=0 chunks=128 wall=111.55s
+[2026-05-06 00:42:45] Long decode wo4 run01
+[longdecode] chunks=2048 wall=939.72s finish=length
+[2026-05-06 00:58:24] ShareGPT wo4 run02
+[sharegpt] conv=0 turn=0 chunks=128 wall=51.98s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.81s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.21s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.58s
+[sharegpt] conv=0 turn=8 chunks=128 wall=111.11s
+[sharegpt] conv=0 turn=10 chunks=128 wall=141.42s
+[sharegpt] conv=1 turn=0 chunks=119 wall=48.53s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.55s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.82s
+[sharegpt] conv=3 turn=2 chunks=128 wall=54.32s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.73s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.50s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.81s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.10s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.52s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.09s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.56s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.81s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.64s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.80s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.56s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.29s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.90s
+[sharegpt] conv=6 turn=12 chunks=128 wall=125.44s
+[sharegpt] conv=6 turn=14 chunks=128 wall=163.45s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.29s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.10s
+[sharegpt] conv=7 turn=5 chunks=128 wall=160.57s
+[sharegpt] conv=7 turn=7 chunks=128 wall=168.31s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.33s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.27s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.06s
+[sharegpt] conv=8 turn=7 chunks=128 wall=143.31s
+[sharegpt] conv=8 turn=9 chunks=128 wall=169.27s
+[sharegpt] conv=9 turn=0 chunks=128 wall=52.03s
+[sharegpt] conv=10 turn=0 chunks=128 wall=59.00s
+[sharegpt] conv=10 turn=2 chunks=128 wall=73.86s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.29s
+[sharegpt] conv=10 turn=6 chunks=128 wall=120.20s
+[sharegpt] conv=10 turn=8 chunks=128 wall=149.75s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.49s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.34s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.40s
+[sharegpt] conv=12 turn=2 chunks=128 wall=78.13s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.04s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.75s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.60s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.36s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.18s
+[sharegpt] conv=13 turn=10 chunks=128 wall=190.74s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.69s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.00s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.26s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.65s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.03s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.31s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.11s
+[sharegpt] conv=16 turn=3 chunks=128 wall=138.77s
+[sharegpt] conv=16 turn=5 chunks=128 wall=155.64s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.53s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.72s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.41s
+[sharegpt] conv=17 turn=7 chunks=128 wall=142.46s
+[sharegpt] conv=17 turn=9 chunks=128 wall=151.31s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.74s
+[sharegpt] conv=18 turn=2 chunks=128 wall=109.46s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.32s
+[sharegpt] conv=20 turn=0 chunks=128 wall=260.87s
+[sharegpt] conv=21 turn=0 chunks=128 wall=206.41s
+[sharegpt] conv=22 turn=0 chunks=128 wall=206.67s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.54s
+[sharegpt] conv=24 turn=0 chunks=128 wall=185.69s
+[sharegpt] conv=25 turn=0 chunks=128 wall=85.93s
+[sharegpt] conv=25 turn=2 chunks=128 wall=165.34s
+[sharegpt] conv=26 turn=1 chunks=128 wall=127.88s
+[sharegpt] conv=27 turn=0 chunks=128 wall=88.94s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.33s
+[sharegpt] conv=29 turn=0 chunks=128 wall=111.70s
+[2026-05-06 03:08:48] Long decode wo4 run02
+[longdecode] chunks=2048 wall=938.69s finish=length
+[2026-05-06 03:24:27] ShareGPT wo4 run03
+[sharegpt] conv=0 turn=0 chunks=128 wall=51.92s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.76s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.39s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.30s
+[sharegpt] conv=0 turn=8 chunks=128 wall=110.30s
+[sharegpt] conv=0 turn=10 chunks=128 wall=142.15s
+[sharegpt] conv=1 turn=0 chunks=119 wall=48.56s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.55s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.75s
+[sharegpt] conv=3 turn=2 chunks=128 wall=54.21s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.87s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.24s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.75s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.08s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.34s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.01s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.69s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.73s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.57s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.69s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.74s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.27s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.30s
+[sharegpt] conv=6 turn=12 chunks=128 wall=125.49s
+[sharegpt] conv=6 turn=14 chunks=128 wall=164.61s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.27s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.11s
+[sharegpt] conv=7 turn=5 chunks=128 wall=160.94s
+[sharegpt] conv=7 turn=7 chunks=128 wall=169.75s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.28s
+[sharegpt] conv=8 turn=3 chunks=128 wall=90.87s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.62s
+[sharegpt] conv=8 turn=7 chunks=128 wall=143.38s
+[sharegpt] conv=8 turn=9 chunks=128 wall=170.73s
+[sharegpt] conv=9 turn=0 chunks=128 wall=51.99s
+[sharegpt] conv=10 turn=0 chunks=128 wall=58.95s
+[sharegpt] conv=10 turn=2 chunks=128 wall=73.81s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.27s
+[sharegpt] conv=10 turn=6 chunks=128 wall=120.77s
+[sharegpt] conv=10 turn=8 chunks=128 wall=150.55s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.45s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.32s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.39s
+[sharegpt] conv=12 turn=2 chunks=128 wall=78.10s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.06s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.79s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.69s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.38s
+[sharegpt] conv=13 turn=8 chunks=128 wall=178.05s
+[sharegpt] conv=13 turn=10 chunks=128 wall=189.83s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.69s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.09s
+[sharegpt] conv=14 turn=4 chunks=128 wall=98.80s
+[sharegpt] conv=14 turn=6 chunks=128 wall=150.57s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.08s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.33s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.12s
+[sharegpt] conv=16 turn=3 chunks=128 wall=138.86s
+[sharegpt] conv=16 turn=5 chunks=128 wall=154.60s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.35s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.73s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.38s
+[sharegpt] conv=17 turn=7 chunks=128 wall=143.79s
+[sharegpt] conv=17 turn=9 chunks=128 wall=151.13s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.77s
+[sharegpt] conv=18 turn=2 chunks=128 wall=109.47s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.32s
+[sharegpt] conv=20 turn=0 chunks=128 wall=261.11s
+[sharegpt] conv=21 turn=0 chunks=128 wall=207.69s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.18s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.71s
+[sharegpt] conv=24 turn=0 chunks=128 wall=185.49s
+[sharegpt] conv=25 turn=0 chunks=128 wall=85.73s
+[sharegpt] conv=25 turn=2 chunks=128 wall=164.48s
+[sharegpt] conv=26 turn=1 chunks=128 wall=127.91s
+[sharegpt] conv=27 turn=0 chunks=128 wall=89.25s
+[sharegpt] conv=28 turn=0 chunks=128 wall=88.99s
+[sharegpt] conv=29 turn=0 chunks=128 wall=111.50s
+[2026-05-06 05:34:54] Long decode wo4 run03
+[longdecode] chunks=2048 wall=939.68s finish=length
+[2026-05-06 05:50:34] ShareGPT wo4 run04
+[sharegpt] conv=0 turn=0 chunks=128 wall=51.87s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.71s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.44s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.61s
+[sharegpt] conv=0 turn=8 chunks=128 wall=110.85s
+[sharegpt] conv=0 turn=10 chunks=128 wall=142.24s
+[sharegpt] conv=1 turn=0 chunks=119 wall=48.53s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.50s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.77s
+[sharegpt] conv=3 turn=2 chunks=128 wall=54.25s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.87s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.43s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.77s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.04s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.52s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.02s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.69s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.73s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.54s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.72s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.74s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.31s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.84s
+[sharegpt] conv=6 turn=12 chunks=128 wall=125.47s
+[sharegpt] conv=6 turn=14 chunks=128 wall=164.95s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.23s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.09s
+[sharegpt] conv=7 turn=5 chunks=128 wall=159.76s
+[sharegpt] conv=7 turn=7 chunks=128 wall=169.61s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.26s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.31s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.80s
+[sharegpt] conv=8 turn=7 chunks=128 wall=143.64s
+[sharegpt] conv=8 turn=9 chunks=128 wall=170.44s
+[sharegpt] conv=9 turn=0 chunks=128 wall=51.97s
+[sharegpt] conv=10 turn=0 chunks=128 wall=58.92s
+[sharegpt] conv=10 turn=2 chunks=128 wall=74.00s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.36s
+[sharegpt] conv=10 turn=6 chunks=128 wall=120.67s
+[sharegpt] conv=10 turn=8 chunks=128 wall=150.87s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.41s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.28s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.34s
+[sharegpt] conv=12 turn=2 chunks=128 wall=78.05s
+[sharegpt] conv=13 turn=0 chunks=128 wall=56.98s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.79s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.20s
+[sharegpt] conv=13 turn=6 chunks=128 wall=140.68s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.45s
+[sharegpt] conv=13 turn=10 chunks=128 wall=189.64s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.75s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.08s
+[sharegpt] conv=14 turn=4 chunks=128 wall=98.89s
+[sharegpt] conv=14 turn=6 chunks=128 wall=150.70s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.09s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.26s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.32s
+[sharegpt] conv=16 turn=3 chunks=128 wall=138.16s
+[sharegpt] conv=16 turn=5 chunks=128 wall=154.83s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.51s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.68s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.36s
+[sharegpt] conv=17 turn=7 chunks=128 wall=143.26s
+[sharegpt] conv=17 turn=9 chunks=128 wall=151.68s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.72s
+[sharegpt] conv=18 turn=2 chunks=128 wall=109.58s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.22s
+[sharegpt] conv=20 turn=0 chunks=128 wall=263.21s
+[sharegpt] conv=21 turn=0 chunks=128 wall=206.67s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.28s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.90s
+[sharegpt] conv=24 turn=0 chunks=128 wall=184.69s
+[sharegpt] conv=25 turn=0 chunks=128 wall=86.17s
+[sharegpt] conv=25 turn=2 chunks=128 wall=164.76s
+[sharegpt] conv=26 turn=1 chunks=128 wall=127.47s
+[sharegpt] conv=27 turn=0 chunks=128 wall=88.89s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.13s
+[sharegpt] conv=29 turn=0 chunks=128 wall=111.78s
+[2026-05-06 08:01:03] Long decode wo4 run04
+[longdecode] chunks=2048 wall=939.66s finish=length
+[2026-05-06 08:16:43] ShareGPT wo4 run05
+[sharegpt] conv=0 turn=0 chunks=128 wall=51.92s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.77s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.43s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.58s
+[sharegpt] conv=0 turn=8 chunks=128 wall=110.89s
+[sharegpt] conv=0 turn=10 chunks=128 wall=141.46s
+[sharegpt] conv=1 turn=0 chunks=128 wall=51.77s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.15s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.76s
+[sharegpt] conv=3 turn=2 chunks=128 wall=54.22s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.72s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.51s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.77s
+[sharegpt] conv=4 turn=2 chunks=128 wall=58.04s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.33s
+[sharegpt] conv=5 turn=0 chunks=128 wall=52.04s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.62s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.73s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.54s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.80s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.81s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.35s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.35s
+[sharegpt] conv=6 turn=12 chunks=128 wall=126.31s
+[sharegpt] conv=6 turn=14 chunks=128 wall=164.89s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.25s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.16s
+[sharegpt] conv=7 turn=5 chunks=128 wall=160.86s
+[sharegpt] conv=7 turn=7 chunks=128 wall=168.59s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.32s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.41s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.74s
+[sharegpt] conv=8 turn=7 chunks=128 wall=143.53s
+[sharegpt] conv=8 turn=9 chunks=128 wall=170.87s
+[sharegpt] conv=9 turn=0 chunks=128 wall=51.98s
+[sharegpt] conv=10 turn=0 chunks=128 wall=58.95s
+[sharegpt] conv=10 turn=2 chunks=128 wall=73.95s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.18s
+[sharegpt] conv=10 turn=6 chunks=128 wall=120.80s
+[sharegpt] conv=10 turn=8 chunks=128 wall=150.79s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.46s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.29s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.41s
+[sharegpt] conv=12 turn=2 chunks=128 wall=78.31s
+[sharegpt] conv=13 turn=0 chunks=128 wall=57.01s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.63s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.51s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.60s
+[sharegpt] conv=13 turn=8 chunks=128 wall=178.21s
+[sharegpt] conv=13 turn=10 chunks=128 wall=190.61s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.63s
+[sharegpt] conv=14 turn=2 chunks=128 wall=64.95s
+[sharegpt] conv=14 turn=4 chunks=128 wall=98.82s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.54s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.04s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.27s
+[sharegpt] conv=16 turn=1 chunks=128 wall=90.84s
+[sharegpt] conv=16 turn=3 chunks=128 wall=137.56s
+[sharegpt] conv=16 turn=5 chunks=128 wall=155.79s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.50s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.10s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.38s
+[sharegpt] conv=17 turn=7 chunks=128 wall=144.04s
+[sharegpt] conv=17 turn=9 chunks=128 wall=150.58s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.74s
+[sharegpt] conv=18 turn=2 chunks=128 wall=109.48s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.33s
+[sharegpt] conv=20 turn=0 chunks=128 wall=261.16s
+[sharegpt] conv=21 turn=0 chunks=128 wall=208.46s
+[sharegpt] conv=22 turn=0 chunks=128 wall=206.92s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.35s
+[sharegpt] conv=24 turn=0 chunks=128 wall=185.48s
+[sharegpt] conv=25 turn=0 chunks=128 wall=85.81s
+[sharegpt] conv=25 turn=2 chunks=128 wall=165.94s
+[sharegpt] conv=26 turn=1 chunks=128 wall=128.16s
+[sharegpt] conv=27 turn=0 chunks=128 wall=89.27s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.35s
+[sharegpt] conv=29 turn=0 chunks=128 wall=111.71s
+[2026-05-06 10:27:16] Long decode wo4 run05
+[longdecode] chunks=2048 wall=939.51s finish=length
+[2026-05-06 10:42:56] 2-concurrent probe wo4
+[concurrent] wall=57.67s
+[2026-05-06 10:43:55] starting server wo_split=4 region_timing=1 profiler=1
+[2026-05-06 10:47:48] server ready after ~225s
+[sharegpt] conv=0 turn=0 chunks=128 wall=97.32s
+[sharegpt] conv=0 turn=2 chunks=128 wall=62.02s
+[sharegpt] conv=0 turn=4 chunks=128 wall=91.60s
+[sharegpt] conv=0 turn=6 chunks=128 wall=135.34s
+[sharegpt] skip conv=0 turn=8 prompt_chars=6787 > max_prompt_chars=5500
+[sharegpt] skip conv=0 turn=10 prompt_chars=8508 > max_prompt_chars=5500
+[2026-05-06 11:07:26] output: /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak
+[2026-05-06 11:07:26] starting server wo_split=8 region_timing=0 profiler=0
+[2026-05-06 11:11:35] server ready after ~240s
+[2026-05-06 11:11:35] GSM8K wo8
+[1/50] WRONG (gold=2280 pred=2180) 103.7s
+[2/50] OK (gold=1 pred=1) 44.1s
+[2026-05-06 11:32:21] output: /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak
+[2026-05-06 11:32:21] starting server wo_split=8 region_timing=0 profiler=0
+[2026-05-06 11:35:54] server ready after ~205s
+[2026-05-06 11:35:54] GSM8K wo8
+[1/50] WRONG (gold=2280 pred=2180) 105.8s
+[2/50] OK (gold=1 pred=1) 44.3s
+[3/50] OK (gold=5 pred=5) 55.9s
+[4/50] OK (gold=12 pred=12) 79.8s
+[5/50] OK (gold=273 pred=273) 62.1s
+[6/50] OK (gold=45 pred=45) 55.8s
+[7/50] OK (gold=21 pred=21) 42.8s
+[8/50] OK (gold=145 pred=145) 76.2s
+[9/50] OK (gold=60 pred=60) 64.5s
+[10/50] OK (gold=122 pred=122) 66.1s
+[11/50] OK (gold=29 pred=29) 177.3s
+[12/50] OK (gold=80 pred=80) 78.6s
+[13/50] OK (gold=36 pred=36) 100.1s
+[14/50] OK (gold=1430 pred=1430) 55.7s
+[15/50] OK (gold=5 pred=5) 53.1s
+[16/50] OK (gold=5 pred=5) 56.8s
+[17/50] OK (gold=5 pred=5) 47.1s
+[18/50] OK (gold=66 pred=66) 36.5s
+[19/50] OK (gold=15 pred=15) 40.1s
+[20/50] OK (gold=40 pred=40) 36.8s
+[21/50] OK (gold=93 pred=93) 48.6s
+[22/50] WRONG (gold=2000 pred=5000) 212.7s
+[23/50] OK (gold=1520 pred=1520) 35.8s
+[24/50] OK (gold=11050 pred=11050) 53.3s
+[25/50] OK (gold=90 pred=90) 73.5s
+[26/50] OK (gold=40000 pred=40000) 63.9s
+[27/50] OK (gold=21 pred=21) 36.3s
+[28/50] OK (gold=18 pred=18) 97.3s
+[29/50] OK (gold=14 pred=14) 61.9s
+[30/50] OK (gold=23 pred=23) 39.9s
+[31/50] OK (gold=145 pred=145) 70.2s
+[32/50] OK (gold=123 pred=123) 86.6s
+[33/50] OK (gold=98 pred=98) 66.8s
+[34/50] OK (gold=7 pred=7) 89.8s
+[35/50] OK (gold=34 pred=34) 84.3s
+[36/50] OK (gold=38 pred=38) 46.5s
+[37/50] OK (gold=320 pred=320) 83.2s
+[38/50] OK (gold=50 pred=50) 115.4s
+[39/50] OK (gold=50 pred=50) 67.2s
+[40/50] OK (gold=84 pred=84) 46.7s
+[41/50] OK (gold=50 pred=50) 92.8s
+[42/50] OK (gold=8000 pred=8000) 90.4s
+[43/50] OK (gold=280 pred=280) 48.3s
+[44/50] OK (gold=30 pred=30) 34.1s
+[45/50] WRONG (gold=192 pred=8) 211.2s
+[46/50] OK (gold=276 pred=276) 63.4s
+[47/50] OK (gold=32 pred=32) 73.6s
+[48/50] OK (gold=25 pred=25) 104.5s
+[49/50] OK (gold=10 pred=10) 55.6s
+[50/50] OK (gold=84 pred=84) 58.4s
+{
+  "label": "wo8_primary_gsm8k",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 0,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3647.2
+}
+[2026-05-06 12:36:42] ShareGPT wo8 run01
+[sharegpt] conv=0 turn=0 chunks=128 wall=52.35s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.46s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.12s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.49s
+[sharegpt] conv=0 turn=8 chunks=128 wall=111.08s
+[sharegpt] conv=0 turn=10 chunks=128 wall=143.00s
+[sharegpt] conv=1 turn=0 chunks=118 wall=47.93s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.20s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.41s
+[sharegpt] conv=3 turn=2 chunks=128 wall=53.90s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.62s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.03s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.44s
+[sharegpt] conv=4 turn=2 chunks=128 wall=57.73s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.33s
+[sharegpt] conv=5 turn=0 chunks=128 wall=51.67s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.47s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.38s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.22s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.51s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.55s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.30s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.89s
+[sharegpt] conv=6 turn=12 chunks=128 wall=125.35s
+[sharegpt] conv=6 turn=14 chunks=128 wall=165.26s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.18s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.71s
+[sharegpt] conv=7 turn=5 chunks=128 wall=160.18s
+[sharegpt] conv=7 turn=7 chunks=128 wall=169.66s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.24s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.40s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.32s
+[sharegpt] conv=8 turn=7 chunks=128 wall=143.73s
+[sharegpt] conv=8 turn=9 chunks=128 wall=169.97s
+[sharegpt] conv=9 turn=0 chunks=128 wall=51.92s
+[sharegpt] conv=10 turn=0 chunks=128 wall=58.92s
+[sharegpt] conv=10 turn=2 chunks=128 wall=74.03s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.36s
+[sharegpt] conv=10 turn=6 chunks=128 wall=120.50s
+[sharegpt] conv=10 turn=8 chunks=128 wall=151.38s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.40s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.26s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.17s
+[sharegpt] conv=12 turn=2 chunks=128 wall=78.31s
+[sharegpt] conv=13 turn=0 chunks=128 wall=56.82s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.65s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.49s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.82s
+[sharegpt] conv=13 turn=8 chunks=128 wall=178.73s
+[sharegpt] conv=13 turn=10 chunks=128 wall=191.34s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.68s
+[sharegpt] conv=14 turn=2 chunks=128 wall=65.16s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.02s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.03s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.05s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.27s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.07s
+[sharegpt] conv=16 turn=3 chunks=128 wall=139.34s
+[sharegpt] conv=16 turn=5 chunks=128 wall=155.22s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.36s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.85s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.54s
+[sharegpt] conv=17 turn=7 chunks=128 wall=144.27s
+[sharegpt] conv=17 turn=9 chunks=128 wall=151.66s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.73s
+[sharegpt] conv=18 turn=2 chunks=128 wall=109.23s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.17s
+[sharegpt] conv=20 turn=0 chunks=128 wall=264.05s
+[sharegpt] conv=21 turn=0 chunks=128 wall=207.44s
+[sharegpt] conv=22 turn=0 chunks=128 wall=207.67s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.75s
+[sharegpt] conv=24 turn=0 chunks=128 wall=185.98s
+[sharegpt] conv=25 turn=0 chunks=128 wall=85.90s
+[sharegpt] conv=25 turn=2 chunks=128 wall=165.94s
+[sharegpt] conv=26 turn=1 chunks=128 wall=127.60s
+[sharegpt] conv=27 turn=0 chunks=128 wall=89.41s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.48s
+[sharegpt] conv=29 turn=0 chunks=128 wall=112.02s
+[2026-05-06 14:47:17] Long decode wo8 run01
+[longdecode] chunks=2048 wall=934.24s finish=length
+[2026-05-06 15:02:51] ShareGPT wo8 run02
+[sharegpt] conv=0 turn=0 chunks=128 wall=51.63s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.46s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.11s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.61s
+[sharegpt] conv=0 turn=8 chunks=128 wall=110.67s
+[sharegpt] conv=0 turn=10 chunks=128 wall=142.69s
+[sharegpt] conv=1 turn=0 chunks=118 wall=47.85s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.17s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.44s
+[sharegpt] conv=3 turn=2 chunks=128 wall=53.95s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.64s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.23s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.51s
+[sharegpt] conv=4 turn=2 chunks=128 wall=57.85s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.33s
+[sharegpt] conv=5 turn=0 chunks=128 wall=51.75s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.29s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.42s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.27s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.52s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.32s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.27s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.50s
+[sharegpt] conv=6 turn=12 chunks=128 wall=125.90s
+[sharegpt] conv=6 turn=14 chunks=128 wall=165.14s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.09s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.79s
+[sharegpt] conv=7 turn=5 chunks=128 wall=160.97s
+[sharegpt] conv=7 turn=7 chunks=128 wall=168.93s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.19s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.39s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.94s
+[sharegpt] conv=8 turn=7 chunks=128 wall=142.99s
+[sharegpt] conv=8 turn=9 chunks=128 wall=170.04s
+[sharegpt] conv=9 turn=0 chunks=128 wall=51.89s
+[sharegpt] conv=10 turn=0 chunks=128 wall=58.84s
+[sharegpt] conv=10 turn=2 chunks=128 wall=73.82s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.33s
+[sharegpt] conv=10 turn=6 chunks=128 wall=121.08s
+[sharegpt] conv=10 turn=8 chunks=128 wall=151.33s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.35s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.20s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.13s
+[sharegpt] conv=12 turn=2 chunks=128 wall=77.84s
+[sharegpt] conv=13 turn=0 chunks=128 wall=56.74s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.58s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.75s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.14s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.96s
+[sharegpt] conv=13 turn=10 chunks=128 wall=191.68s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.62s
+[sharegpt] conv=14 turn=2 chunks=128 wall=64.97s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.03s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.89s
+[sharegpt] conv=15 turn=0 chunks=128 wall=60.03s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.15s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.59s
+[sharegpt] conv=16 turn=3 chunks=128 wall=139.35s
+[sharegpt] conv=16 turn=5 chunks=128 wall=155.27s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.38s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.90s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.58s
+[sharegpt] conv=17 turn=7 chunks=128 wall=144.34s
+[sharegpt] conv=17 turn=9 chunks=128 wall=150.87s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.59s
+[sharegpt] conv=18 turn=2 chunks=128 wall=108.91s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.11s
+[sharegpt] conv=20 turn=0 chunks=128 wall=263.33s
+[sharegpt] conv=21 turn=0 chunks=128 wall=207.37s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.75s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.82s
+[sharegpt] conv=24 turn=0 chunks=128 wall=186.06s
+[sharegpt] conv=25 turn=0 chunks=128 wall=85.88s
+[sharegpt] conv=25 turn=2 chunks=128 wall=166.06s
+[sharegpt] conv=26 turn=1 chunks=128 wall=128.44s
+[sharegpt] conv=27 turn=0 chunks=128 wall=89.13s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.45s
+[sharegpt] conv=29 turn=0 chunks=128 wall=112.12s
+[2026-05-06 17:13:27] Long decode wo8 run02
+[longdecode] chunks=2048 wall=933.96s finish=length
+[2026-05-06 17:29:01] ShareGPT wo8 run03
+[sharegpt] conv=0 turn=0 chunks=128 wall=51.65s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.47s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.05s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.45s
+[sharegpt] conv=0 turn=8 chunks=128 wall=110.45s
+[sharegpt] conv=0 turn=10 chunks=128 wall=141.79s
+[sharegpt] conv=1 turn=0 chunks=118 wall=47.83s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.19s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.47s
+[sharegpt] conv=3 turn=2 chunks=128 wall=53.95s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.64s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.46s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.45s
+[sharegpt] conv=4 turn=2 chunks=128 wall=57.81s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.11s
+[sharegpt] conv=5 turn=0 chunks=128 wall=51.73s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.30s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.43s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.27s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.56s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.52s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.21s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.79s
+[sharegpt] conv=6 turn=12 chunks=128 wall=125.79s
+[sharegpt] conv=6 turn=14 chunks=128 wall=165.12s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.10s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.85s
+[sharegpt] conv=7 turn=5 chunks=128 wall=161.21s
+[sharegpt] conv=7 turn=7 chunks=128 wall=169.97s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.17s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.38s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.91s
+[sharegpt] conv=8 turn=7 chunks=128 wall=143.83s
+[sharegpt] conv=8 turn=9 chunks=128 wall=171.02s
+[sharegpt] conv=9 turn=0 chunks=128 wall=51.84s
+[sharegpt] conv=10 turn=0 chunks=128 wall=58.77s
+[sharegpt] conv=10 turn=2 chunks=128 wall=73.93s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.31s
+[sharegpt] conv=10 turn=6 chunks=128 wall=121.26s
+[sharegpt] conv=10 turn=8 chunks=128 wall=150.34s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.32s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.18s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.14s
+[sharegpt] conv=12 turn=2 chunks=128 wall=78.00s
+[sharegpt] conv=13 turn=0 chunks=128 wall=56.67s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.37s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.64s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.05s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.78s
+[sharegpt] conv=13 turn=10 chunks=128 wall=191.33s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.64s
+[sharegpt] conv=14 turn=2 chunks=128 wall=64.92s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.37s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.69s
+[sharegpt] conv=15 turn=0 chunks=128 wall=59.90s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.10s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.48s
+[sharegpt] conv=16 turn=3 chunks=128 wall=138.51s
+[sharegpt] conv=16 turn=5 chunks=128 wall=155.19s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.50s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.47s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.10s
+[sharegpt] conv=17 turn=7 chunks=128 wall=144.31s
+[sharegpt] conv=17 turn=9 chunks=128 wall=150.90s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.64s
+[sharegpt] conv=18 turn=2 chunks=128 wall=109.26s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.21s
+[sharegpt] conv=20 turn=0 chunks=128 wall=260.79s
+[sharegpt] conv=21 turn=0 chunks=128 wall=208.68s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.97s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.09s
+[sharegpt] conv=24 turn=0 chunks=128 wall=184.79s
+[sharegpt] conv=25 turn=0 chunks=128 wall=86.15s
+[sharegpt] conv=25 turn=2 chunks=128 wall=166.17s
+[sharegpt] conv=26 turn=1 chunks=128 wall=128.27s
+[sharegpt] conv=27 turn=0 chunks=128 wall=89.48s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.21s
+[sharegpt] conv=29 turn=0 chunks=128 wall=111.40s
+[2026-05-06 19:39:32] Long decode wo8 run03
+[longdecode] chunks=2048 wall=933.82s finish=length
+[2026-05-06 19:55:06] ShareGPT wo8 run04
+[sharegpt] conv=0 turn=0 chunks=128 wall=51.60s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.39s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.16s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.54s
+[sharegpt] conv=0 turn=8 chunks=128 wall=110.54s
+[sharegpt] conv=0 turn=10 chunks=128 wall=142.68s
+[sharegpt] conv=1 turn=0 chunks=118 wall=47.92s
+[sharegpt] conv=2 turn=0 chunks=128 wall=52.18s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.42s
+[sharegpt] conv=3 turn=2 chunks=128 wall=53.92s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.65s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.56s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.43s
+[sharegpt] conv=4 turn=2 chunks=128 wall=57.80s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.14s
+[sharegpt] conv=5 turn=0 chunks=128 wall=51.69s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.31s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.39s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.22s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.43s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.32s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.34s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.81s
+[sharegpt] conv=6 turn=12 chunks=128 wall=125.89s
+[sharegpt] conv=6 turn=14 chunks=128 wall=165.06s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.31s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.98s
+[sharegpt] conv=7 turn=5 chunks=128 wall=161.10s
+[sharegpt] conv=7 turn=7 chunks=128 wall=170.22s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.04s
+[sharegpt] conv=8 turn=3 chunks=128 wall=90.66s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.82s
+[sharegpt] conv=8 turn=7 chunks=128 wall=143.82s
+[sharegpt] conv=8 turn=9 chunks=128 wall=170.03s
+[sharegpt] conv=9 turn=0 chunks=128 wall=51.72s
+[sharegpt] conv=10 turn=0 chunks=128 wall=58.73s
+[sharegpt] conv=10 turn=2 chunks=128 wall=73.84s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.19s
+[sharegpt] conv=10 turn=6 chunks=128 wall=120.95s
+[sharegpt] conv=10 turn=8 chunks=128 wall=151.34s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.18s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.06s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.10s
+[sharegpt] conv=12 turn=2 chunks=128 wall=77.90s
+[sharegpt] conv=13 turn=0 chunks=128 wall=56.74s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.42s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.70s
+[sharegpt] conv=13 turn=6 chunks=128 wall=141.75s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.79s
+[sharegpt] conv=13 turn=10 chunks=128 wall=191.12s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.52s
+[sharegpt] conv=14 turn=2 chunks=128 wall=64.96s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.01s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.82s
+[sharegpt] conv=15 turn=0 chunks=128 wall=59.82s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.11s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.45s
+[sharegpt] conv=16 turn=3 chunks=128 wall=139.30s
+[sharegpt] conv=16 turn=5 chunks=128 wall=156.06s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.30s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.77s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.03s
+[sharegpt] conv=17 turn=7 chunks=128 wall=144.52s
+[sharegpt] conv=17 turn=9 chunks=128 wall=152.16s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.56s
+[sharegpt] conv=18 turn=2 chunks=128 wall=109.86s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.06s
+[sharegpt] conv=20 turn=0 chunks=128 wall=262.40s
+[sharegpt] conv=21 turn=0 chunks=128 wall=207.15s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.86s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.72s
+[sharegpt] conv=24 turn=0 chunks=128 wall=186.54s
+[sharegpt] conv=25 turn=0 chunks=128 wall=86.11s
+[sharegpt] conv=25 turn=2 chunks=128 wall=166.01s
+[sharegpt] conv=26 turn=1 chunks=128 wall=127.59s
+[sharegpt] conv=27 turn=0 chunks=128 wall=89.08s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.43s
+[sharegpt] conv=29 turn=0 chunks=128 wall=111.40s
+[2026-05-06 22:05:42] Long decode wo8 run04
+[longdecode] chunks=2048 wall=934.57s finish=length
+[2026-05-06 22:21:16] ShareGPT wo8 run05
+[sharegpt] conv=0 turn=0 chunks=128 wall=51.71s
+[sharegpt] conv=0 turn=2 chunks=128 wall=56.56s
+[sharegpt] conv=0 turn=4 chunks=128 wall=69.21s
+[sharegpt] conv=0 turn=6 chunks=128 wall=87.47s
+[sharegpt] conv=0 turn=8 chunks=128 wall=110.43s
+[sharegpt] conv=0 turn=10 chunks=128 wall=142.57s
+[sharegpt] conv=1 turn=0 chunks=128 wall=51.45s
+[sharegpt] conv=2 turn=0 chunks=128 wall=51.82s
+[sharegpt] conv=3 turn=0 chunks=128 wall=51.52s
+[sharegpt] conv=3 turn=2 chunks=128 wall=54.03s
+[sharegpt] conv=3 turn=4 chunks=128 wall=69.51s
+[sharegpt] conv=3 turn=6 chunks=128 wall=88.36s
+[sharegpt] conv=4 turn=0 chunks=128 wall=51.50s
+[sharegpt] conv=4 turn=2 chunks=128 wall=57.86s
+[sharegpt] conv=4 turn=4 chunks=128 wall=72.32s
+[sharegpt] conv=5 turn=0 chunks=128 wall=51.81s
+[sharegpt] conv=5 turn=2 chunks=128 wall=70.47s
+[sharegpt] conv=6 turn=0 chunks=128 wall=51.50s
+[sharegpt] conv=6 turn=2 chunks=128 wall=54.33s
+[sharegpt] conv=6 turn=4 chunks=128 wall=61.51s
+[sharegpt] conv=6 turn=6 chunks=128 wall=74.37s
+[sharegpt] conv=6 turn=8 chunks=128 wall=87.21s
+[sharegpt] conv=6 turn=10 chunks=128 wall=102.34s
+[sharegpt] conv=6 turn=12 chunks=128 wall=125.29s
+[sharegpt] conv=6 turn=14 chunks=128 wall=164.20s
+[sharegpt] conv=7 turn=1 chunks=128 wall=59.05s
+[sharegpt] conv=7 turn=3 chunks=128 wall=107.70s
+[sharegpt] conv=7 turn=5 chunks=128 wall=160.25s
+[sharegpt] conv=7 turn=7 chunks=128 wall=168.98s
+[sharegpt] conv=8 turn=1 chunks=128 wall=61.19s
+[sharegpt] conv=8 turn=3 chunks=128 wall=91.25s
+[sharegpt] conv=8 turn=5 chunks=128 wall=116.50s
+[sharegpt] conv=8 turn=7 chunks=128 wall=143.84s
+[sharegpt] conv=8 turn=9 chunks=128 wall=171.32s
+[sharegpt] conv=9 turn=0 chunks=128 wall=51.82s
+[sharegpt] conv=10 turn=0 chunks=128 wall=58.68s
+[sharegpt] conv=10 turn=2 chunks=128 wall=73.92s
+[sharegpt] conv=10 turn=4 chunks=128 wall=89.28s
+[sharegpt] conv=10 turn=6 chunks=128 wall=120.50s
+[sharegpt] conv=10 turn=8 chunks=128 wall=151.31s
+[sharegpt] conv=11 turn=0 chunks=128 wall=56.28s
+[sharegpt] conv=11 turn=2 chunks=128 wall=64.08s
+[sharegpt] conv=12 turn=0 chunks=128 wall=59.07s
+[sharegpt] conv=12 turn=2 chunks=128 wall=78.14s
+[sharegpt] conv=13 turn=0 chunks=128 wall=56.68s
+[sharegpt] conv=13 turn=2 chunks=128 wall=68.52s
+[sharegpt] conv=13 turn=4 chunks=128 wall=100.61s
+[sharegpt] conv=13 turn=6 chunks=128 wall=140.98s
+[sharegpt] conv=13 turn=8 chunks=128 wall=179.94s
+[sharegpt] conv=13 turn=10 chunks=128 wall=191.42s
+[sharegpt] conv=14 turn=0 chunks=128 wall=59.54s
+[sharegpt] conv=14 turn=2 chunks=128 wall=64.94s
+[sharegpt] conv=14 turn=4 chunks=128 wall=99.34s
+[sharegpt] conv=14 turn=6 chunks=128 wall=151.80s
+[sharegpt] conv=15 turn=0 chunks=128 wall=59.93s
+[sharegpt] conv=15 turn=2 chunks=128 wall=66.11s
+[sharegpt] conv=16 turn=1 chunks=128 wall=91.15s
+[sharegpt] conv=16 turn=3 chunks=128 wall=138.95s
+[sharegpt] conv=16 turn=5 chunks=128 wall=155.97s
+[sharegpt] conv=17 turn=1 chunks=128 wall=71.48s
+[sharegpt] conv=17 turn=3 chunks=128 wall=93.78s
+[sharegpt] conv=17 turn=5 chunks=128 wall=98.47s
+[sharegpt] conv=17 turn=7 chunks=128 wall=143.56s
+[sharegpt] conv=17 turn=9 chunks=128 wall=150.92s
+[sharegpt] conv=18 turn=0 chunks=128 wall=57.59s
+[sharegpt] conv=18 turn=2 chunks=128 wall=109.16s
+[sharegpt] conv=19 turn=0 chunks=128 wall=61.10s
+[sharegpt] conv=20 turn=0 chunks=128 wall=262.80s
+[sharegpt] conv=21 turn=0 chunks=128 wall=207.27s
+[sharegpt] conv=22 turn=0 chunks=128 wall=208.83s
+[sharegpt] conv=23 turn=0 chunks=128 wall=94.75s
+[sharegpt] conv=24 turn=0 chunks=128 wall=184.92s
+[sharegpt] conv=25 turn=0 chunks=128 wall=86.11s
+[sharegpt] conv=25 turn=2 chunks=128 wall=165.06s
+[sharegpt] conv=26 turn=1 chunks=128 wall=128.24s
+[sharegpt] conv=27 turn=0 chunks=128 wall=89.44s
+[sharegpt] conv=28 turn=0 chunks=128 wall=89.13s
+[sharegpt] conv=29 turn=0 chunks=128 wall=111.77s
+[2026-05-07 00:31:49] Long decode wo8 run05
+[longdecode] chunks=2048 wall=934.09s finish=length
+[2026-05-07 00:47:24] 2-concurrent probe wo8
+[concurrent] wall=57.43s
+[2026-05-07 00:48:22] starting server wo_split=8 region_timing=1 profiler=1
+[2026-05-07 00:52:11] server ready after ~220s
+[sharegpt] conv=0 turn=0 chunks=128 wall=96.99s
+[sharegpt] conv=0 turn=2 chunks=128 wall=61.53s
+[sharegpt] conv=0 turn=4 chunks=128 wall=91.36s
+[sharegpt] conv=0 turn=6 chunks=128 wall=134.94s
+[sharegpt] skip conv=0 turn=8 prompt_chars=6787 > max_prompt_chars=5500
+[sharegpt] skip conv=0 turn=10 prompt_chars=8508 > max_prompt_chars=5500
+Terminated
+[2026-05-07 07:00:29] profiler flush sleep 120s
+ERROR: no torch profiler trace found under /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/wo8/supplementary/serve_trace
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/extract_e2e_kernels.py", line 70, in <module>
+    main()
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/extract_e2e_kernels.py", line 54, in main
+    rows = extract(args.trace, args.config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/extract_e2e_kernels.py", line 21, in extract
+    with gzip.open(trace_path, "rt") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/gzip.py", line 61, in open
+    binary_file = GzipFile(filename, gz_mode, compresslevel)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/gzip.py", line 192, in __init__
+    fileobj = self.myfileobj = builtins.open(filename, mode or 'rb')
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+IsADirectoryError: [Errno 21] Is a directory: '.'
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-02-beta-region-breakdown/extract_regions.py", line 169, in <module>
+    main()
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-02-beta-region-breakdown/extract_regions.py", line 62, in main
+    kernels = pd.read_csv(args.kernels)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/pandas/io/parsers/readers.py", line 873, in read_csv
+    return _read(filepath_or_buffer, kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/pandas/io/parsers/readers.py", line 300, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/pandas/io/parsers/readers.py", line 1645, in __init__
+    self._engine = self._make_engine(f, self.engine)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/pandas/io/parsers/readers.py", line 1904, in _make_engine
+    self.handles = get_handle(
+                   ^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/pandas/io/common.py", line 926, in get_handle
+    handle = open(
+             ^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/wo8/supplementary/sharegpt_profile_kernels.csv'
+[2026-05-07 07:02:32] WARNING: profiler/region extraction failed for wo8 sharegpt
+curl: (7) Failed to connect to localhost port 8000 after 0 ms: Couldn't connect to server
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 204, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/util/connection.py", line 85, in create_connection
+    raise err
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/util/connection.py", line 73, in create_connection
+    sock.connect(sa)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 493, in _make_request
+    conn.request(
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 500, in request
+    self.endheaders()
+  File "/usr/lib/python3.12/http/client.py", line 1351, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.12/http/client.py", line 1111, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.12/http/client.py", line 1055, in send
+    self.connect()
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 331, in connect
+    self.sock = self._new_conn()
+                ^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/connection.py", line 219, in _new_conn
+    raise NewConnectionError(
+urllib3.exceptions.NewConnectionError: HTTPConnection(host='localhost', port=8000): Failed to establish a new connection: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/adapters.py", line 645, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/urllib3/util/retry.py", line 535, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /v1/completions (Caused by NewConnectionError("HTTPConnection(host='localhost', port=8000): Failed to establish a new connection: [Errno 111] Connection refused"))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 455, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 448, in main
+    return run_longdecode(args)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 300, in run_longdecode
+    result = stream_completion(
+             ^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-04-wo-split-prod-soak/_replay.py", line 68, in stream_completion
+    with requests.post(
+         ^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/api.py", line 115, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/sessions.py", line 592, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/sessions.py", line 706, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/requests/adapters.py", line 678, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /v1/completions (Caused by NewConnectionError("HTTPConnection(host='localhost', port=8000): Failed to establish a new connection: [Errno 111] Connection refused"))
+[2026-05-07 07:02:32] WARNING: supplementary longdecode wo8 replay failed (rc=1); attempting best-effort flush + extract
+curl: (7) Failed to connect to localhost port 8000 after 0 ms: Couldn't connect to server
+[2026-05-07 07:02:32] profiler flush sleep 120s
+ERROR: region timing dump was not produced: /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/wo8/supplementary/longdecode_region_timings.npy
+[2026-05-07 07:05:33] WARNING: region dump copy failed for wo8 longdecode
+ERROR: no torch profiler trace found under /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/wo8/supplementary/longdecode_trace
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/extract_e2e_kernels.py", line 70, in <module>
+    main()
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/extract_e2e_kernels.py", line 54, in main
+    rows = extract(args.trace, args.config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/extract_e2e_kernels.py", line 21, in extract
+    with gzip.open(trace_path, "rt") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/gzip.py", line 61, in open
+    binary_file = GzipFile(filename, gz_mode, compresslevel)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/gzip.py", line 192, in __init__
+    fileobj = self.myfileobj = builtins.open(filename, mode or 'rb')
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+IsADirectoryError: [Errno 21] Is a directory: '.'
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-02-beta-region-breakdown/extract_regions.py", line 169, in <module>
+    main()
+  File "/home/natfii/docker/nvllm/docs/research/2026-05-02-beta-region-breakdown/extract_regions.py", line 57, in main
+    buf = np.load(args.buf)
+          ^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/numpy/lib/_npyio_impl.py", line 451, in load
+    fid = stack.enter_context(open(os.fspath(file), "rb"))
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/wo8/supplementary/longdecode_region_timings.npy'
+[2026-05-07 07:05:35] WARNING: profiler/region extraction failed for wo8 longdecode
+[2026-05-07 07:05:35] WARNING: supplementary wo8 finished with rc=1; not marking DONE
+wrote /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/summary.md
+[2026-05-07 07:05:35] done: /home/natfii/docker/nvllm/benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/summary.md
+EXIT=0
