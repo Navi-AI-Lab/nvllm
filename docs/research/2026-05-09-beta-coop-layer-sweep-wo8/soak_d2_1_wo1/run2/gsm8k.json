@@ -1,0 +1,463 @@
+{
+  "label": "soak_12L_3_47_d2_1_wo1_run2",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 49,
+  "errors": 0,
+  "accuracy": "49/50 (98.0%)",
+  "total_seconds": 5786.1,
+  "results": [
+    {
+      "i": 0,
+      "expected": "2280",
+      "got": "2180",
+      "status": "WRONG",
+      "elapsed": 96.7,
+      "raw_tail": "rah raised $300\n- Maryam raised $400 more than Sarah, so Maryam raised $300 + $400 = $700\n\nNow I need to add up all the amounts:\n$430 + $750 + $300 + $700 = $2,180\n\nThe total amount raised is $2,180.\n",
+      "question": "The girls are trying to raise money for a carnival. Kim raises $320 more than Al..."
+    },
+    {
+      "i": 1,
+      "expected": "1",
+      "got": "1",
+      "status": "OK",
+      "elapsed": 76.0,
+      "raw_tail": "ate = 4 / 2 = 2 pieces per minute\n3. Combined rate: 4 + 2 = 6 pieces per minute\n4. Total pieces: 360\n5. Time in minutes: 360 / 6 = 60 minutes\n6. Time in hours: 60 / 60 = 1 hour\n\nThe answer is 1 hour.\n",
+      "question": "Kalinda is working on a 360 piece puzzle with her mom. Kalinda can normally add ..."
+    },
+    {
+      "i": 2,
+      "expected": "5",
+      "got": "5",
+      "status": "OK",
+      "elapsed": 94.0,
+      "raw_tail": "30 miles.\n4. Now I need to find out how long it takes to travel 30 miles at 6 mph.\n5. Time = Distance / Speed = 30 / 6 = 5 hours.\n6. So it takes Tom 5 hours to get back.\n\nThe final answer is 5 hours.\n",
+      "question": "Tom's ship can travel at 10 miles per hour.  He is sailing from 1 to 4 PM.  He t..."
+    },
+    {
+      "i": 3,
+      "expected": "12",
+      "got": "12",
+      "status": "OK",
+      "elapsed": 124.9,
+      "raw_tail": "ains 5 candles\n- 20 candles \u00f7 5 candles per pack = 4 packs\n\nFinally, I calculate the total cost:\n- Each pack costs $3\n- 4 packs \u00d7 $3 = $12\n\nTherefore, James spends $12 on candles.\n\nThe answer is $12.\n",
+      "question": "James decides to buy birthday candles for his 2 sons.  One of them is 12 and the..."
+    },
+    {
+      "i": 4,
+      "expected": "273",
+      "got": "273",
+      "status": "OK",
+      "elapsed": 114.9,
+      "raw_tail": " used 1/2 * 364 = 182 yards.\nNow, I need to add the yards used by Mariah and her grandma to find the total. 91 + 182 = 273 yards.\nTherefore, they used 273 yards of yarn altogether.\nThe answer is 273.\n",
+      "question": "Mariah\u2019s grandma was teaching her to knit. Mariah used 1/4 of a skein of yarn. H..."
+    },
+    {
+      "i": 5,
+      "expected": "45",
+      "got": "45",
+      "status": "OK",
+      "elapsed": 86.2,
+      "raw_tail": "o, 25 fairies joined the original 50.\nNow, the total number of fairies is 50 + 25 = 75.\nTen minutes later, 30 fairies flew away.\nSo, the remaining number of fairies is 75 - 30 = 45.\nThe answer is 45.\n",
+      "question": "While playing with her friends in their school playground, Katelyn saw 50 fairie..."
+    },
+    {
+      "i": 6,
+      "expected": "21",
+      "got": "21",
+      "status": "OK",
+      "elapsed": 69.8,
+      "raw_tail": "er brother is twice her age, so: 9 * 2 = 18 years old.\nNow I need to find out how old he will be in 3 years.\n18 + 3 = 21 years old.\nSo Ann's brother will be 21 years old in 3 years.\nThe answer is 21.\n",
+      "question": "If Ann is 9 years old and her brother is twice her age, how old will her brother..."
+    },
+    {
+      "i": 7,
+      "expected": "145",
+      "got": "145",
+      "status": "OK",
+      "elapsed": 108.6,
+      "raw_tail": "00.\nThis is the total cost for twenty dozen cups. Twenty dozen is 20 \u00d7 12 = 240 cups.\nTo find the cost per cup, I divide the total cost by the number of cups: $34800 \u00f7 240 = $145.\nThe answer is $145.\n",
+      "question": "Twenty dozen cups cost $1200 less than the total cost of half a dozen plates sol..."
+    },
+    {
+      "i": 8,
+      "expected": "60",
+      "got": "60",
+      "status": "OK",
+      "elapsed": 56.6,
+      "raw_tail": "s\n2. Increase percentage: 20%\n3. Calculate the increase: 50 \u00d7 0.20 = 10 students\n4. Add the increase to last year's enrollment: 50 + 10 = 60 students\n5. Therefore, 60 students are enrolled this year.\n",
+      "question": "Last year there were 50 students enrolled in a calligraphy class. This year, the..."
+    },
+    {
+      "i": 9,
+      "expected": "122",
+      "got": "122",
+      "status": "OK",
+      "elapsed": 85.9,
+      "raw_tail": " crabs than Bo, so Monic has 40 - 4 = 36 crabs.\nRani has 10 more crabs than Monic, so Rani has 36 + 10 = 46 crabs.\nNow I need to find the total number of crabs: 40 + 36 + 46 = 122.\nThe answer is 122.\n",
+      "question": "Rani has ten more crabs than Monic, who has 4 fewer crabs than Bo. If Bo has 40 ..."
+    },
+    {
+      "i": 10,
+      "expected": "29",
+      "got": "29",
+      "status": "OK",
+      "elapsed": 289.7,
+      "raw_tail": "um of all periods: $3 \\text{ liters} + 6 \\text{ liters} + 20 \\text{ liters}$.\n    *   Calculation: $3 + 6 = 9$; $9 + 20 = 29$.\n\nThe total amount of water removed is 29 liters.\n\n**Answer:** 29 liters.\n",
+      "question": "Brian's basement was damp and musty, so he bought a dehumidifier to remove moist..."
+    },
+    {
+      "i": 11,
+      "expected": "80",
+      "got": "80",
+      "status": "OK",
+      "elapsed": 123.7,
+      "raw_tail": "0 (Mr. George) = 520 burritos consumed.\nFinally, I need to calculate the leftover burritos. George ordered 600 burritos, and 520 were consumed. So, 600 - 520 = 80 leftover burritos.\nThe answer is 80.\n",
+      "question": "George, a grade six teacher, ordered 600 burritos for the sixth-grade class picn..."
+    },
+    {
+      "i": 12,
+      "expected": "36",
+      "got": "36",
+      "status": "OK",
+      "elapsed": 98.0,
+      "raw_tail": " hours per day.\n3. Since he does this 3 times a week, the weekly total is: 3 hours/day \u00d7 3 days/week = 9 hours per week.\n4. Finally, for 4 weeks: 9 hours/week \u00d7 4 weeks = 36 hours.\n\nThe answer is 36.\n",
+      "question": "Jim spends 2 hours watching TV and then decides to go to bed and reads for half ..."
+    },
+    {
+      "i": 13,
+      "expected": "1430",
+      "got": "1430",
+      "status": "OK",
+      "elapsed": 86.8,
+      "raw_tail": "ance cost, which is 10% of the total cost:\n10% of $1300 = 0.10 \u00d7 $1300 = $130\n\nFinally, I need to add the insurance cost to the total cost:\n$1300 + $130 = $1430\n\nTherefore, Janet paid $1430 in total.\n",
+      "question": "Janet buys a brooch for her daughter.  She pays $500 for the material to make it..."
+    },
+    {
+      "i": 14,
+      "expected": "5",
+      "got": "5",
+      "status": "OK",
+      "elapsed": 89.2,
+      "raw_tail": "I need to convert this to a daily amount.\n   - There are 7 days in a week\n   - Daily amount = 35 \u00f7 7 = 5 pounds\n\nTherefore, the flock of ten ducks needs 5 pounds of insects per day.\n\nThe answer is 5.\n",
+      "question": "Ducks need to eat 3.5 pounds of insects each week to survive. If there is a floc..."
+    },
+    {
+      "i": 15,
+      "expected": "5",
+      "got": "5",
+      "status": "OK",
+      "elapsed": 113.5,
+      "raw_tail": "d to find the difference between Joey's score and Marcy's score to determine by how many points Joey is winning.\nDifference: 240 - 235 = 5 points\n\nSo Joey is now winning by 5 points.\nThe answer is 5.\n",
+      "question": "Joey has 214 points before his turn in Scrabble. He scores 26 points. Then Marcy..."
+    },
+    {
+      "i": 16,
+      "expected": "5",
+      "got": "5",
+      "status": "OK",
+      "elapsed": 80.7,
+      "raw_tail": "$15 = 20 books\n\nNow, Sarah gave an equal number of books to her 4 kids.\nBooks per child = Total books / Number of kids\nBooks per child = 20 / 4 = 5 books\n\nSo, each child got 5 books.\nThe answer is 5.\n",
+      "question": "Sarah went to buy books from the store and spent $300 on the books. If each book..."
+    },
+    {
+      "i": 17,
+      "expected": "66",
+      "got": "66",
+      "status": "OK",
+      "elapsed": 59.9,
+      "raw_tail": "Ted buys 3 books at $16 each, so that's 3 * 16 = $48.\nHe also buys 3 pencils at $6 each, so that's 3 * 6 = $18.\nAdding these together: 48 + 18 = $66.\nSo Ted spent $66 in total.\nThe answer is 66.\n",
+      "question": "Ted starts with $200. He buys 3 books for 16 dollars each and 3 pencils for 6 do..."
+    },
+    {
+      "i": 18,
+      "expected": "15",
+      "got": "15",
+      "status": "OK",
+      "elapsed": 65.9,
+      "raw_tail": "4 of the original amount left.\n3. Calculate how many pomelos she has left: 20 \u00d7 1/4 = 5 pomelos.\n4. Calculate how many pomelos she gave away: 20 - 5 = 15 pomelos.\nTherefore, Eve gave away 15 pomelos.\n",
+      "question": "Eve had 20 pieces of pomelos. After giving her friend some pomelos, Eve is left ..."
+    },
+    {
+      "i": 19,
+      "expected": "40",
+      "got": "40",
+      "status": "OK",
+      "elapsed": 75.6,
+      "raw_tail": "kittens.\n3. Trixie has had 12 kittens.\n4. The total number of kittens is the sum of the adopted kittens and the kittens from Patchy and Trixie.\n5. Total = 7 + 21 + 12 = 40 kittens.\n\nThe answer is 40.\n",
+      "question": "The Doubtfire sisters are driving home with 7 kittens adopted from the local ani..."
+    },
+    {
+      "i": 20,
+      "expected": "93",
+      "got": "93",
+      "status": "OK",
+      "elapsed": 58.5,
+      "raw_tail": "Jen has 3 fish.\n2. Each fish needs $1 worth of food per day.\n3. So, daily cost = 3 fish \u00d7 $1/fish = $3 per day.\n4. May has 31 days.\n5. Total cost for May = $3/day \u00d7 31 days = $93.\n\nThe answer is $93.\n",
+      "question": "Jen got 3 fish.  They each need $1 worth of food a day.  How much does she spend..."
+    },
+    {
+      "i": 21,
+      "expected": "2000",
+      "got": "2000",
+      "status": "OK",
+      "elapsed": 165.9,
+      "raw_tail": "e jog, he has 2,000 steps remaining, which means he has taken 10,000 - 2,000 = 8,000 steps in total.\n8. Therefore, the steps taken during the jog is 8,000 - 6,000 = 2,000 steps.\n\nThe answer is 2,000.\n",
+      "question": "Elliott is trying to walk 10,000 steps a day. He finished half of his steps on h..."
+    },
+    {
+      "i": 22,
+      "expected": "1520",
+      "got": "1520",
+      "status": "OK",
+      "elapsed": 62.0,
+      "raw_tail": "Rafaela's tips: 40 customers \u00d7 $20 = $800\nJulieta's tips: $800 \u00d7 (1 - 0.10) = $800 \u00d7 0.90 = $720\nTotal tips: $800 + $720 = $1,520\nThe answer is $1,520.\n",
+      "question": "While working at the restaurant, each of the forty customers who came into the r..."
+    },
+    {
+      "i": 23,
+      "expected": "11050",
+      "got": "11050",
+      "status": "OK",
+      "elapsed": 86.1,
+      "raw_tail": " = $45.\nTwo days later, the cost increased by $20, so the new cost per balloon is $45 + $20 = $65.\nBentley filled 170 balloons at the new price, so he paid 170 * $65 = $11,050.\nThe answer is $11,050.\n",
+      "question": "On a certain day, the total cost of filling up 20 helium balloons was $900. Two ..."
+    },
+    {
+      "i": 24,
+      "expected": "90",
+      "got": "90",
+      "status": "OK",
+      "elapsed": 115.9,
+      "raw_tail": "ofit per lollipop is $0.8 - $0.5 = $0.3.\nFinally, I need to find the total profit. Since they sold 300 lollipops and made $0.3 profit on each, the total profit is 300 * $0.3 = $90.\nThe answer is $90.\n",
+      "question": "To raise money for their class fund, each of the 30 students from one class sold..."
+    },
+    {
+      "i": 25,
+      "expected": "40000",
+      "got": "40000",
+      "status": "OK",
+      "elapsed": 105.0,
+      "raw_tail": "d to calculate how much he used to pay off debts: 60% of $100,000 = 0.60 \u00d7 $100,000 = $60,000\n3. Finally, I need to calculate the leftover amount: $100,000 - $60,000 = $40,000\n\nThe answer is $40,000.\n",
+      "question": "John decides to get a loan by mortgaging his home.  His house is worth $250,000...."
+    },
+    {
+      "i": 26,
+      "expected": "21",
+      "got": "21",
+      "status": "OK",
+      "elapsed": 81.5,
+      "raw_tail": "e $63 that weekend.\nTo find out how many more dollars Mitchell made than Liam, I subtract Liam's earnings from Mitchell's earnings.\n84 - 63 = 21\nSo Mitchell made $21 more than Liam.\nThe answer is 21.\n",
+      "question": "Liam and Mitchell own competing lemonade stands across the street from one anoth..."
+    },
+    {
+      "i": 27,
+      "expected": "18",
+      "got": "18",
+      "status": "OK",
+      "elapsed": 196.4,
+      "raw_tail": "ith 18\n- Sold 1/3 at green house: 18/3 = 6, remaining: 12\n- Sold 2 at red house: 12 - 2 = 10\n- Sold half of remaining at orange house: 10/2 = 5, remaining: 5\n- Final remaining: 5 \u2713\n\nThe answer is 18.\n",
+      "question": "Melanie is a door-to-door saleswoman. She sold a third of her vacuum cleaners at..."
+    },
+    {
+      "i": 28,
+      "expected": "14",
+      "got": "14",
+      "status": "OK",
+      "elapsed": 106.3,
+      "raw_tail": "(x + 5) - 7 + 8 = x + 6.\n4. We know that at the third stop, there were 20 people on the bus.\n5. So, x + 6 = 20.\n6. Solving for x: x = 20 - 6 = 14.\nTherefore, 14 people got on the bus at the terminal.\n",
+      "question": "Some people got on a bus at the terminal. At the first bus stop, 5 more people g..."
+    },
+    {
+      "i": 29,
+      "expected": "23",
+      "got": "23",
+      "status": "OK",
+      "elapsed": 155.4,
+      "raw_tail": "rom the total.\n    *   Sum of known cars: $12 (\\text{red}) + 10 (\\text{green}) + 30 (\\text{blue}) = 52$ cars.\n    *   Calculation for yellow: $75 - 52 = 23$ yellow cars.\n\nThe rink has 23 yellow cars.\n",
+      "question": "A bumper car rink has 12 red cars. They have 2 fewer green cars than they have r..."
+    },
+    {
+      "i": 30,
+      "expected": "145",
+      "got": "145",
+      "status": "OK",
+      "elapsed": 167.5,
+      "raw_tail": "Let me recalculate.\nThe total points collected by the class is 50 + 65 + 35 + 105 = 255 points.\nThe minimum threshold is 400 points, so the class is missing 400 - 255 = 145 points.\nThe answer is 145.\n",
+      "question": "Students in class 3B are collecting school points for behavior. If they get enou..."
+    },
+    {
+      "i": 31,
+      "expected": "123",
+      "got": "123",
+      "status": "OK",
+      "elapsed": 124.2,
+      "raw_tail": "imes 30 = 3$.\n4.  **Calculate the total number of children:** Add the number of boys, girls, and nongendered children.\n    *   Total = $30 + 90 + 3 = 123$.\n\nThe classroom has a total of 123 children.\n",
+      "question": "If a classroom has 3 times as many girls as they do boys, and 1/10 as many nonge..."
+    },
+    {
+      "i": 32,
+      "expected": "98",
+      "got": "98",
+      "status": "OK",
+      "elapsed": 89.9,
+      "raw_tail": "mula: Area = length \u00d7 width\n360 = 9 \u00d7 width\nwidth = 360 \u00f7 9 = 40 feet\nNow I can calculate the perimeter: Perimeter = 2 \u00d7 (length + width)\nPerimeter = 2 \u00d7 (9 + 40) = 2 \u00d7 49 = 98 feet\nThe answer is 98.\n",
+      "question": "The area of Billie's rectangular bedroom is 360 square feet. If the length of hi..."
+    },
+    {
+      "i": 33,
+      "expected": "7",
+      "got": "7",
+      "status": "OK",
+      "elapsed": 143.0,
+      "raw_tail": "ow I need to calculate the cost of 10 lollipops and 10 candies.\n10 lollipops cost 10 \u00d7 $0.40 = $4.00.\n10 candies cost 10 \u00d7 $0.30 = $3.00.\nThe total cost is $4.00 + $3.00 = $7.00.\nThe answer is $7.00.\n",
+      "question": "Manolo bought five lollipops and four candies that cost $3.20. If each lollipop ..."
+    },
+    {
+      "i": 34,
+      "expected": "34",
+      "got": "34",
+      "status": "OK",
+      "elapsed": 204.7,
+      "raw_tail": "number of friends.\nNumber of friends = 3\nAmount each friend paid = Total cost / Number of friends\nAmount each friend paid = $102 / 3 = $34\n\nTherefore, each of them paid $34.\n\nThe final answer is $34.\n",
+      "question": "Three friends spent $20.25 on 3 tickets to the fair. They also spent $4.50 less ..."
+    },
+    {
+      "i": 35,
+      "expected": "38",
+      "got": "38",
+      "status": "OK",
+      "elapsed": 74.3,
+      "raw_tail": "- Peaches: 6 pounds \u00d7 $2.00 per pound = $12.00\n- Plums: 8 pounds \u00d7 $1.00 per pound = $8.00\n- Apricots: 6 pounds \u00d7 $3.00 per pound = $18.00\n- Total: $12.00 + $8.00 + $18.00 = $38.00\nThe answer is 38.\n",
+      "question": "At the local Pick Your Own fruit orchard, you could pick your own peaches for $2..."
+    },
+    {
+      "i": 36,
+      "expected": "320",
+      "got": "320",
+      "status": "OK",
+      "elapsed": 142.0,
+      "raw_tail": " 100 = 200 cards.\nNow, I need to add up all the cards she has:\nInitial cards: 20\nFirst month: 60\nSecond month: 60 - 20 = 40\nThird month: 200\nTotal = 20 + 60 + 40 + 200 = 320 cards.\nThe answer is 320.\n",
+      "question": "Elaine initially had 20 Pokemon cards. After a month, she collected three times ..."
+    },
+    {
+      "i": 37,
+      "expected": "50",
+      "got": "50",
+      "status": "OK",
+      "elapsed": 137.1,
+      "raw_tail": "al number of votes is 100, and we know that candidate A got 20 votes and candidate B got 30 votes. So, candidate C got 100 - 20 - 30 = 50 votes.\nTherefore, candidate C got 50 votes.\nThe answer is 50.\n",
+      "question": "In a student council election, candidate A got 20% of the votes while candidate ..."
+    },
+    {
+      "i": 38,
+      "expected": "50",
+      "got": "50",
+      "status": "OK",
+      "elapsed": 104.0,
+      "raw_tail": "is worth $100 / 5 = $20.\nGerald's share = 3 parts \u00d7 $20 = $60.\nJulia's share = 2 parts \u00d7 $20 = $40.\nNow, Gerald spent $10 on a book.\nSo, Gerald's remaining money = $60 - $10 = $50.\nThe answer is $50.\n",
+      "question": "Gerald and Julia divided $100 in the ratio 3:2. If Gerald spent $10 on a book, h..."
+    },
+    {
+      "i": 39,
+      "expected": "84",
+      "got": "84",
+      "status": "OK",
+      "elapsed": 84.8,
+      "raw_tail": "and each pie requires 12 grapes, so she used 4 * 12 = 48 grapes.\n4. The total number of grapes used is 6 + 30 + 48 = 84 grapes.\n5. Therefore, there were 84 grapes at the beginning.\n\nThe answer is 84.\n",
+      "question": "Madeline ate 6 grapes. Her brother wanted to make grape juice and used up 5 time..."
+    },
+    {
+      "i": 40,
+      "expected": "50",
+      "got": "50",
+      "status": "OK",
+      "elapsed": 188.4,
+      "raw_tail": " is $1125, so: $45x = $1125\n9. Solving for x: x = $1125 / 45 = $25\n10. So Elvis saves $25 per day in the first half.\n11. In the second half, he saves $2x = $2 \u00d7 $25 = $50 per day.\n\nThe answer is $50.\n",
+      "question": "Elvis has a monthly saving target of $1125. In April, he wants to save twice as ..."
+    },
+    {
+      "i": 41,
+      "expected": "8000",
+      "got": "8000",
+      "status": "OK",
+      "elapsed": 113.4,
+      "raw_tail": " H = 88,000 (they sold 88,000 copies combined)\nSubstituting M = 10H into the second equation:\n10H + H = 88,000\n11H = 88,000\nH = 88,000 / 11\nH = 8,000\nSo Harald sold 8,000 copies.\nThe answer is 8,000.\n",
+      "question": "Marilyn's first record sold 10 times as many copies as Harald's. If they sold 88..."
+    },
+    {
+      "i": 42,
+      "expected": "280",
+      "got": "280",
+      "status": "OK",
+      "elapsed": 99.4,
+      "raw_tail": " number of children:\n   - 5 schools \u00d7 56 children per school = 280 children\n4. Let me verify this calculation:\n   - Total children = 5 schools \u00d7 7 rows \u00d7 8 children = 280 children\n\nThe answer is 280.\n",
+      "question": "For the children's day celebration, children are to perform mass drills in the p..."
+    },
+    {
+      "i": 43,
+      "expected": "30",
+      "got": "30",
+      "status": "OK",
+      "elapsed": 55.9,
+      "raw_tail": "is 24 years old.\n2. Martha is 4 years younger than Mike, so Martha is 24 - 4 = 20 years old.\n3. Jeff is 10 years older than Martha, so Jeff is 20 + 10 = 30 years old.\nTherefore, Jeff is 30 years old.\n",
+      "question": "Jeff is 10 years older than his younger sister, Martha. Martha, on the other han..."
+    },
+    {
+      "i": 44,
+      "expected": "192",
+      "got": "192",
+      "status": "OK",
+      "elapsed": 346.5,
+      "raw_tail": "pretation 1 is more likely - there's a typo in the problem, and it should say \"ten stalls\" not \"twenty stalls.\"\n\nTherefore, the answer is 192 cows.\n\nWait, let me reconsider once more. The problem says",
+      "question": "Ten stalls have 20 cows each. Mr. Sylas buys 40 cows and divides them equally, p..."
+    },
+    {
+      "i": 45,
+      "expected": "276",
+      "got": "276",
+      "status": "OK",
+      "elapsed": 123.7,
+      "raw_tail": "needed in total.\n\nHenry has a box with 650 wheels.\nTo find how many wheels will be left, I subtract the wheels needed from the total wheels available.\n650 - 374 = 276 wheels left.\n\nThe answer is 276.\n",
+      "question": "Henry needs to assemble some toys, specifically 57 cars and 73 motorcycles. Henr..."
+    },
+    {
+      "i": 46,
+      "expected": "32",
+      "got": "32",
+      "status": "OK",
+      "elapsed": 92.9,
+      "raw_tail": "kin: 10 + 6 + 3 = 19\n\nLocsin caught:\n- Starfish: 10 - 5 = 5\n- Sea horses: 6 - 3 = 3\n- Clownfish: 3 + 2 = 5\nTotal for Locsin: 5 + 3 + 5 = 13\n\nTotal fish caught by both: 19 + 13 = 32\n\nThe answer is 32.\n",
+      "question": "Anakin and Locsin went to the beach today. Anakin caught 10 starfish, 6 sea hors..."
+    },
+    {
+      "i": 47,
+      "expected": "25",
+      "got": "25",
+      "status": "OK",
+      "elapsed": 142.1,
+      "raw_tail": "the total weight in ounces.\n200 + 200 = 400 ounces\n\nFinally, I need to convert ounces to pounds. There are 16 ounces in a pound.\n400 \u00f7 16 = 25 pounds\n\nThe total weight is 25 pounds.\nThe answer is 25.\n",
+      "question": "Nik has 200 crayons. He wants to separate them into groups of 8 and put them int..."
+    },
+    {
+      "i": 48,
+      "expected": "10",
+      "got": "10",
+      "status": "OK",
+      "elapsed": 84.1,
+      "raw_tail": " pounds.\n   - New weight = 8 + 4 = 12 pounds.\n3. He then uses a weight two pounds lighter than 12 pounds.\n   - 12 - 2 = 10 pounds.\n4. Therefore, the weight he now uses is 10 pounds.\nThe answer is 10.\n",
+      "question": "Jamaal is at the gym. He has been using an 8-pound weight. He increases the weig..."
+    },
+    {
+      "i": 49,
+      "expected": "84",
+      "got": "84",
+      "status": "OK",
+      "elapsed": 138.4,
+      "raw_tail": "lly, I need to add the total age of the sisters and the total age of the brothers to get the total age of all siblings. 48 + 36 = 84 years.\nTherefore, the total age of all these siblings is 84 years.\n",
+      "question": "In a family, there are 2 brothers and 3 sisters. All sisters are the same age, w..."
+    }
+  ]
+}
