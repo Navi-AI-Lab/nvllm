@@ -1,0 +1,19 @@
+{
+  "arm": "16L_3_63",
+  "ok": false,
+  "git_sha": "9f118cdc571360b83cc3922ca9c72ce04b66c0c5",
+  "image_id": "sha256:9c0f1d31c92c29488f66a2c136183950cea787035d735ff95dd6af193740f530",
+  "fusion": 1,
+  "phase_e_layers": "3,7,11,15,19,23,27,31,35,39,43,47,51,55,59,63",
+  "wo_split": 8,
+  "expected_coop_layers": "3,7,11,15,19,23,27,31,35,39,43,47,51,55,59,63",
+  "dispatch_audit": "pass",
+  "gsm8k_correct": 36,
+  "gsm8k_errors": 0,
+  "gsm8k_floor": 45,
+  "gsm8k_pass": false,
+  "beta_per_call_median_ms": null,
+  "beta_per_call_gate_ms": 7,
+  "beta_per_call_gate_ok": "n/a",
+  "description": "β-coop on all 16 full-attn layers"
+}

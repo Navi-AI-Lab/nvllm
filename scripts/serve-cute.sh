@@ -12,6 +12,14 @@
 # Usage:
 #   ./scripts/serve-cute.sh          # Standard launch
 #   ./scripts/serve-cute.sh --debug  # Eager mode, no CUDA graphs
+#
+# CAUTION — β-coop layer count: when running with CUTE_PHASE_E_FUSION=1,
+# keep CUTE_PHASE_E_LAYERS limited to the 2L_3_7 arm ("3,7"). Wider arms
+# (>=12L) passed the single-run quality gate but FAILED the Stage 2b
+# survival soak with silent quality collapse under sustained load — see
+# docs/research/2026-05-09-beta-coop-layer-sweep-wo8/DIAGNOSIS.md
+# (Runs 4-5 collapse after ~Q12; recovery is self-triggered, ~51 broken
+# requests later. Do not raise defaults until root cause + fix land.)
 
 set -euo pipefail
 
@@ -84,6 +92,14 @@ mkdir -p /tmp/c2_diag
   # qwen3_5.py reads /tmp/c2_diag/ENV at module import and calls
   # os.environ.setdefault(). Same pattern as CUTE_C2_* above.
   echo "CUTE_WO_SPLIT=${CUTE_WO_SPLIT:-1}"
+  # Phase E + region-timing keys also need the sentinel-file workaround;
+  # without them EngineCore silently runs phaseE-off regardless of host env.
+  echo "CUTE_PHASE_E_FUSION=${CUTE_PHASE_E_FUSION:-0}"
+  echo "CUTE_PHASE_E_PATH=${CUTE_PHASE_E_PATH:-auto}"
+  echo "CUTE_PHASE_E_LAYERS=${CUTE_PHASE_E_LAYERS:-}"
+  echo "CUTE_PHASE_E_FALLBACK_RAISE=${CUTE_PHASE_E_FALLBACK_RAISE:-0}"
+  echo "CUTE_PHASE_E_DISPATCH_LOG=${CUTE_PHASE_E_DISPATCH_LOG:-0}"
+  echo "CUTE_BETA_REGION_TIMING=${CUTE_BETA_REGION_TIMING:-0}"
 } > /tmp/c2_diag/ENV
 
 # Optional bind-mount of the cute_paged subdir for Python-only iteration
@@ -97,6 +113,17 @@ if [ "${NVLLM_BIND_MOUNT_CUTE_PAGED:-0}" = "1" ]; then
   echo "  Bind mount:  $HOST_CUTE_DIR -> /app/nvllm/vllm/v1/attention/backends/cute_paged"
 fi
 
+# Optional bind-mount of vllm/nvllm/models/qwen3_5.py for Python-only
+# iteration on the model wrapper (sentinel-file reader, residual plumbing,
+# Phase E gating). Same rationale as CUTE_PAGED above. Enable with
+# NVLLM_BIND_MOUNT_QWEN35=1.
+BIND_MOUNT_QWEN35=()
+if [ "${NVLLM_BIND_MOUNT_QWEN35:-0}" = "1" ]; then
+  HOST_QWEN35="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)/vllm/nvllm/models/qwen3_5.py"
+  BIND_MOUNT_QWEN35=(-v "$HOST_QWEN35:/app/nvllm/vllm/nvllm/models/qwen3_5.py")
+  echo "  Bind mount:  $HOST_QWEN35 -> /app/nvllm/vllm/nvllm/models/qwen3_5.py"
+fi
+
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -107,6 +134,7 @@ docker run -d \
   -v "/tmp/nvllm-dumps:/tmp/nvllm-dumps" \
   -v "/tmp/c2_diag:/tmp/c2_diag" \
   "${BIND_MOUNT_CUTE[@]}" \
+  "${BIND_MOUNT_QWEN35[@]}" \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \

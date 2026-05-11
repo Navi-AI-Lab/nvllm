@@ -1,0 +1,15 @@
+Host memory: 113 GiB available (threshold 90 GiB) — OK
+=== Launching Qwen3.5-27B-NVFP4 (ig1/Qwen3.5-27B-NVFP4) — CuTe Paged Attention ===
+  Model:       ig1/Qwen3.5-27B-NVFP4
+  Attention:   CUTE_PAGED
+  KV cache:    fp8_e4m3
+  Context:     65536 tokens
+  Max seqs:    4
+  Port:        8000
+
+  Bind mount:  /home/natfii/docker/nvllm-beta-layer-sweep-wo8/vllm/v1/attention/backends/cute_paged -> /app/nvllm/vllm/v1/attention/backends/cute_paged
+  Bind mount:  /home/natfii/docker/nvllm-beta-layer-sweep-wo8/vllm/nvllm/models/qwen3_5.py -> /app/nvllm/vllm/nvllm/models/qwen3_5.py
+43dc5cbd81ff22a071e8131b77bed350f9a43964d6d540e0a8bd5fd5836045f4
+Container started: nvllm
+  API:  http://localhost:8000/v1
+  Logs: docker logs -f nvllm

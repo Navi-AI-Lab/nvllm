@@ -1376,6 +1376,42 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 or _phase_e_env.forced_path == "auto"
             )
         )
+        # CUTE_PHASE_E_DISPATCH_LOG=1: emit one line per layer the first
+        # time its β predicate is computed during decode. Lets the
+        # layer-sweep runner audit which layers actually took β-coop vs
+        # β-lite vs paged. Deduped via a per-impl set so PIECEWISE replay
+        # doesn't spam logs once per token. See plan
+        # docs/superpowers/plans/2026-05-09-beta-coop-layer-sweep-wo8.md
+        # Stage 0a.
+        if (
+            os.environ.get("CUTE_PHASE_E_DISPATCH_LOG", "0") == "1"
+            and is_decode_only
+        ):
+            _seen = getattr(self, "_phase_e_dispatch_logged", None)
+            if _seen is None:
+                _seen = set()
+                self._phase_e_dispatch_logged = _seen
+            _key = (_layer_name, _use_beta_coop, _use_beta_lite)
+            if _key not in _seen:
+                _seen.add(_key)
+                logger.info(
+                    "[PHASE_E_DISPATCH] layer_name=%s layer_idx=%s "
+                    "enabled=%s restricted_layers=%s is_decode_only=%s "
+                    "use_fusion=%s num_seqs=%d resident_cap=%s "
+                    "use_beta_coop=%s use_beta_lite=%s",
+                    _layer_name,
+                    _layer_idx,
+                    _phase_e_env.enabled,
+                    sorted(_phase_e_env.restricted_layers)
+                    if _phase_e_env.restricted_layers is not None
+                    else None,
+                    is_decode_only,
+                    use_fusion,
+                    num_seqs,
+                    _resident_cap,
+                    _use_beta_coop,
+                    _use_beta_lite,
+                )
         # PHASE 5 EDIT (2026-04-28): drop `and not _framework_output_route`
         # from skip rule. Paged is now skipped whenever β-coop will fire,
         # regardless of route. The β-coop except handler below explicitly

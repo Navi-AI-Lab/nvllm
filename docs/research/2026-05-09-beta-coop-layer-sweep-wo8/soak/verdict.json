@@ -1,0 +1,19 @@
+{
+  "arm": "12L_3_47",
+  "git_sha": "9f118cdc571360b83cc3922ca9c72ce04b66c0c5",
+  "image_id": "nvllm:gb10@9c0f1d31c92c",
+  "phase_e_layers": "3,7,11,15,19,23,27,31,35,39,43,47",
+  "wo_split": 8,
+  "n_runs": 5,
+  "gsm8k_floor": 45,
+  "runs": [
+    {"run": 1, "correct": 48, "errors": 0, "pass": true},
+    {"run": 2, "correct": 48, "errors": 0, "pass": true},
+    {"run": 3, "correct": 48, "errors": 0, "pass": true},
+    {"run": 4, "correct": 11, "errors": 0, "pass": false},
+    {"run": 5, "correct": 37, "errors": 0, "pass": false}
+  ],
+  "container_alive_at_end": true,
+  "docker_log_corruption_hits": 0,
+  "gate_2b_pass": false
+}

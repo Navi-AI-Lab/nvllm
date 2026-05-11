@@ -1,0 +1,6 @@
+arm,phase_e_fusion,phase_e_layers,wo_split,expected_coop_layers,description
+2L_3_7,1,"3,7",8,"3,7",β-coop on layers 3 and 7
+4L_3_15,1,"3,7,11,15",8,"3,7,11,15",β-coop on first 4 full-attn layers
+8L_3_31,1,"3,7,11,15,19,23,27,31",8,"3,7,11,15,19,23,27,31",β-coop on first 8 full-attn layers
+12L_3_47,1,"3,7,11,15,19,23,27,31,35,39,43,47",8,"3,7,11,15,19,23,27,31,35,39,43,47",β-coop on first 12 full-attn layers
+16L_3_63,1,"3,7,11,15,19,23,27,31,35,39,43,47,51,55,59,63",8,"3,7,11,15,19,23,27,31,35,39,43,47,51,55,59,63",β-coop on all 16 full-attn layers

@@ -1,0 +1,61 @@
+[1/50] WRONG (gold=2280 pred=2180) 57.7s
+[2/50] OK (gold=1 pred=1) 44.0s
+[3/50] OK (gold=5 pred=5) 56.0s
+[4/50] OK (gold=12 pred=12) 80.1s
+[5/50] OK (gold=273 pred=273) 62.3s
+[6/50] OK (gold=45 pred=45) 55.9s
+[7/50] OK (gold=21 pred=21) 42.9s
+[8/50] OK (gold=145 pred=145) 76.3s
+[9/50] OK (gold=60 pred=60) 64.5s
+[10/50] OK (gold=122 pred=122) 66.1s
+[11/50] OK (gold=29 pred=29) 177.2s
+[12/50] OK (gold=80 pred=80) 78.4s
+[13/50] OK (gold=36 pred=36) 99.8s
+[14/50] OK (gold=1430 pred=1430) 55.5s
+[15/50] OK (gold=5 pred=5) 52.8s
+[16/50] OK (gold=5 pred=5) 56.6s
+[17/50] OK (gold=5 pred=5) 46.9s
+[18/50] OK (gold=66 pred=66) 36.3s
+[19/50] OK (gold=15 pred=15) 40.0s
+[20/50] OK (gold=40 pred=40) 36.6s
+[21/50] OK (gold=93 pred=93) 48.4s
+[22/50] ERROR (gold=2000 pred=) 180.0s
+[23/50] OK (gold=1520 pred=1520) 36.4s
+[24/50] OK (gold=11050 pred=11050) 53.1s
+[25/50] OK (gold=90 pred=90) 73.2s
+[26/50] OK (gold=40000 pred=40000) 63.7s
+[27/50] OK (gold=21 pred=21) 36.1s
+[28/50] OK (gold=18 pred=18) 97.0s
+[29/50] OK (gold=14 pred=14) 61.7s
+[30/50] OK (gold=23 pred=23) 39.8s
+[31/50] OK (gold=145 pred=145) 69.9s
+[32/50] OK (gold=123 pred=123) 86.3s
+[33/50] OK (gold=98 pred=98) 66.6s
+[34/50] OK (gold=7 pred=7) 89.5s
+[35/50] OK (gold=34 pred=34) 84.1s
+[36/50] OK (gold=38 pred=38) 46.4s
+[37/50] OK (gold=320 pred=320) 82.9s
+[38/50] OK (gold=50 pred=50) 115.1s
+[39/50] OK (gold=50 pred=50) 67.0s
+[40/50] OK (gold=84 pred=84) 46.6s
+[41/50] OK (gold=50 pred=50) 92.5s
+[42/50] OK (gold=8000 pred=8000) 90.2s
+[43/50] OK (gold=280 pred=280) 48.1s
+[44/50] OK (gold=30 pred=30) 34.0s
+[45/50] ERROR (gold=192 pred=) 180.1s
+[46/50] OK (gold=276 pred=276) 63.8s
+[47/50] OK (gold=32 pred=32) 73.5s
+[48/50] OK (gold=25 pred=25) 104.3s
+[49/50] OK (gold=10 pred=10) 55.5s
+[50/50] OK (gold=84 pred=84) 58.3s
+{
+  "label": "stage0b_2L_wo8",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 2,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3530.2
+}

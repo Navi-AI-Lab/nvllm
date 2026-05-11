@@ -52,6 +52,8 @@ if os.path.isfile(_C2_ENV_FILE):
             if "=" in _c2_ln and (
                 _c2_ln.startswith("CUTE_C2_")
                 or _c2_ln.startswith("CUTE_WO_SPLIT=")
+                or _c2_ln.startswith("CUTE_PHASE_E_")
+                or _c2_ln.startswith("CUTE_BETA_REGION_TIMING=")
             ):
                 _c2_k, _c2_v = _c2_ln.strip().split("=", 1)
                 if _c2_v:  # skip empty values so we don't shadow real env
