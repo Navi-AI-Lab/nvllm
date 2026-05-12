@@ -70,6 +70,15 @@ def main() -> int:
         help="Comma-separated layer indices expected to fire β-coop. "
         "Pass empty string for arms that should fire 0 β-coop layers.",
     )
+    p.add_argument(
+        "--expect-lite-layers",
+        type=str,
+        default=None,
+        help="Comma-separated layer indices expected to fire β-lite. "
+        "Use for D2.2-style arms (CUTE_PHASE_E_PATH=lite). Pass empty "
+        "string for arms that should fire 0 β-lite layers. Symmetric "
+        "fail-closed: coop must be empty when this is set.",
+    )
     p.add_argument("--json-out", type=str, default=None)
     p.add_argument("--input", type=str, default=None,
                    help="Read from file instead of stdin")
@@ -148,6 +157,30 @@ def main() -> int:
         sys.stderr.write(
             f"DISPATCH AUDIT OK: coop_layers={coop_layers} "
             f"lite_layers={lite_layers}\n"
+        )
+
+    if args.expect_lite_layers is not None:
+        expected = sorted({
+            int(x.strip())
+            for x in args.expect_lite_layers.split(",")
+            if x.strip()
+        })
+        if lite_layers != expected:
+            sys.stderr.write(
+                f"DISPATCH AUDIT FAIL: expected lite_layers={expected} "
+                f"got lite_layers={lite_layers}\n"
+            )
+            return 2
+        if coop_layers:
+            sys.stderr.write(
+                "DISPATCH AUDIT FAIL: β-lite arm but observed β-coop "
+                f"on layers {coop_layers}; the restricted layer set "
+                "must not also fire β-coop (fallback contamination).\n"
+            )
+            return 2
+        sys.stderr.write(
+            f"DISPATCH AUDIT OK: lite_layers={lite_layers} "
+            f"coop_layers={coop_layers}\n"
         )
     return 0
 

@@ -1,0 +1,61 @@
+[1/50] WRONG (gold=2280 pred=2180) 97.7s
+[2/50] OK (gold=1 pred=1) 145.3s
+[3/50] OK (gold=5 pred=5) 87.0s
+[4/50] OK (gold=12 pred=12) 124.4s
+[5/50] OK (gold=273 pred=273) 105.2s
+[6/50] OK (gold=45 pred=45) 82.6s
+[7/50] OK (gold=21 pred=21) 68.9s
+[8/50] OK (gold=145 pred=145) 106.3s
+[9/50] OK (gold=60 pred=60) 87.0s
+[10/50] OK (gold=122 pred=122) 93.6s
+[11/50] OK (gold=29 pred=29) 282.7s
+[12/50] OK (gold=80 pred=80) 124.6s
+[13/50] OK (gold=36 pred=36) 148.5s
+[14/50] OK (gold=1430 pred=1430) 85.1s
+[15/50] OK (gold=5 pred=5) 86.9s
+[16/50] OK (gold=5 pred=5) 91.0s
+[17/50] OK (gold=5 pred=5) 84.4s
+[18/50] OK (gold=66 pred=66) 64.3s
+[19/50] OK (gold=15 pred=15) 65.7s
+[20/50] OK (gold=40 pred=40) 60.0s
+[21/50] OK (gold=93 pred=93) 66.9s
+[22/50] OK (gold=2000 pred=2000) 137.7s
+[23/50] OK (gold=1520 pred=1520) 49.8s
+[24/50] OK (gold=11050 pred=11050) 85.8s
+[25/50] OK (gold=90 pred=90) 151.0s
+[26/50] OK (gold=40000 pred=40000) 140.0s
+[27/50] OK (gold=21 pred=21) 71.8s
+[28/50] OK (gold=18 pred=18) 195.7s
+[29/50] OK (gold=14 pred=14) 105.9s
+[30/50] OK (gold=23 pred=23) 63.8s
+[31/50] OK (gold=145 pred=145) 111.8s
+[32/50] OK (gold=123 pred=123) 123.8s
+[33/50] OK (gold=98 pred=98) 89.6s
+[34/50] OK (gold=7 pred=7) 142.4s
+[35/50] OK (gold=34 pred=34) 124.6s
+[36/50] OK (gold=38 pred=38) 76.0s
+[37/50] OK (gold=320 pred=320) 103.3s
+[38/50] OK (gold=50 pred=50) 134.5s
+[39/50] OK (gold=50 pred=50) 103.5s
+[40/50] OK (gold=84 pred=84) 84.5s
+[41/50] OK (gold=50 pred=50) 194.9s
+[42/50] OK (gold=8000 pred=8000) 104.2s
+[43/50] OK (gold=280 pred=280) 73.7s
+[44/50] OK (gold=30 pred=30) 55.7s
+[45/50] WRONG (gold=192 pred=20) 344.9s
+[46/50] OK (gold=276 pred=276) 123.1s
+[47/50] OK (gold=32 pred=32) 122.6s
+[48/50] OK (gold=25 pred=25) 159.5s
+[49/50] OK (gold=10 pred=10) 83.8s
+[50/50] OK (gold=84 pred=84) 132.4s
+{
+  "label": "soak_12L_3_47_d2_2_lite_run3",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 48,
+  "errors": 0,
+  "accuracy": "48/50 (96.0%)",
+  "total_seconds": 5648.3
+}

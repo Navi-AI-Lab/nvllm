@@ -1,0 +1,463 @@
+{
+  "label": "soak_12L_3_47_d2_2_lite_run4",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 11,
+  "errors": 0,
+  "accuracy": "11/50 (22.0%)",
+  "total_seconds": 14460.9,
+  "results": [
+    {
+      "i": 0,
+      "expected": "2280",
+      "got": "2180",
+      "status": "WRONG",
+      "elapsed": 97.6,
+      "raw_tail": "d $300\n- Maryam raised $400 more than Sarah, so Maryam raised $300 + $400 = $700\n\nNow I need to add up all the amounts:\n$430 + $750 + $300 + $700 = $2,180\n\nTherefore, they all raised $2,180 in total.\n",
+      "question": "The girls are trying to raise money for a carnival. Kim raises $320 more than Al..."
+    },
+    {
+      "i": 1,
+      "expected": "1",
+      "got": "1",
+      "status": "OK",
+      "elapsed": 145.1,
+      "raw_tail": "  - Time in minutes: 360 \u00f7 6 = 60 minutes\n\n4. Finally, I need to convert minutes to hours:\n   - 60 minutes = 1 hour\n\nTherefore, it will take them 1 hour to complete the puzzle.\n\nThe answer is 1 hour.\n",
+      "question": "Kalinda is working on a 360 piece puzzle with her mom. Kalinda can normally add ..."
+    },
+    {
+      "i": 2,
+      "expected": "5",
+      "got": "5",
+      "status": "OK",
+      "elapsed": 86.9,
+      "raw_tail": "30 miles\n\n2. Now I need to find out how long it takes to travel back.\n   - Distance: 30 miles (same distance)\n   - Speed: 6 mph\n   - Time = Distance \u00f7 Speed = 30 \u00f7 6 = 5 hours\n\nThe answer is 5 hours.\n",
+      "question": "Tom's ship can travel at 10 miles per hour.  He is sailing from 1 to 4 PM.  He t..."
+    },
+    {
+      "i": 3,
+      "expected": "12",
+      "got": "12",
+      "status": "OK",
+      "elapsed": 124.3,
+      "raw_tail": "to buy.\nEach pack contains 5 candles.\nNumber of packs needed: 20 \u00f7 5 = 4 packs\nNow I can calculate the total cost.\nEach pack costs $3.\nTotal cost: 4 \u00d7 $3 = $12\nTherefore, James spends $12 on candles.\n",
+      "question": "James decides to buy birthday candles for his 2 sons.  One of them is 12 and the..."
+    },
+    {
+      "i": 4,
+      "expected": "273",
+      "got": "273",
+      "status": "OK",
+      "elapsed": 105.1,
+      "raw_tail": "a used. Her grandma used 1/2 of a skein, so she used 1/2 * 364 = 182 yards.\nFinally, I need to add the yards used by Mariah and her grandma to find the total. 91 + 182 = 273 yards.\nThe answer is 273.\n",
+      "question": "Mariah\u2019s grandma was teaching her to knit. Mariah used 1/4 of a skein of yarn. H..."
+    },
+    {
+      "i": 5,
+      "expected": "45",
+      "got": "45",
+      "status": "OK",
+      "elapsed": 82.5,
+      "raw_tail": "alf of 50 is 25.\nSo, 25 fairies joined the original 50 fairies.\nNow, there are 50 + 25 = 75 fairies.\nTen minutes later, 30 fairies flew away.\nSo, 75 - 30 = 45 fairies are remaining.\nThe answer is 45.\n",
+      "question": "While playing with her friends in their school playground, Katelyn saw 50 fairie..."
+    },
+    {
+      "i": 6,
+      "expected": "21",
+      "got": "21",
+      "status": "OK",
+      "elapsed": 68.8,
+      "raw_tail": "2, which gives me 18.\nNext, I need to find out how old he will be in 3 years. I add 3 to his current age of 18, which gives me 21.\nSo, Ann's brother will be 21 years old in 3 years.\nThe answer is 21.\n",
+      "question": "If Ann is 9 years old and her brother is twice her age, how old will her brother..."
+    },
+    {
+      "i": 7,
+      "expected": "145",
+      "got": "145",
+      "status": "OK",
+      "elapsed": 106.2,
+      "raw_tail": "6,000 - $1200 = $34,800\n\nTwenty dozen cups means 20 \u00d7 12 = 240 cups.\n\nTo find the cost per cup, I divide the total cost by the number of cups:\nCost per cup = $34,800 \u00f7 240 = $145\n\nThe answer is $145.\n",
+      "question": "Twenty dozen cups cost $1200 less than the total cost of half a dozen plates sol..."
+    },
+    {
+      "i": 8,
+      "expected": "60",
+      "got": "60",
+      "status": "OK",
+      "elapsed": 86.9,
+      "raw_tail": "0% of 50.\n4. 20% of 50 = 0.20 \u00d7 50 = 10 students.\n5. To find this year's enrollment, I add the increase to last year's enrollment.\n6. This year's enrollment = 50 + 10 = 60 students.\nThe answer is 60.\n",
+      "question": "Last year there were 50 students enrolled in a calligraphy class. This year, the..."
+    },
+    {
+      "i": 9,
+      "expected": "122",
+      "got": "122",
+      "status": "OK",
+      "elapsed": 93.5,
+      "raw_tail": " has 40 - 4 = 36 crabs.\nRani has 10 more crabs than Monic, so Rani has 36 + 10 = 46 crabs.\nNow I need to add up all the crabs: 40 + 36 + 46 = 122.\nThe total number of crabs is 122.\nThe answer is 122.\n",
+      "question": "Rani has ten more crabs than Monic, who has 4 fewer crabs than Bo. If Bo has 40 ..."
+    },
+    {
+      "i": 10,
+      "expected": "29",
+      "got": "29",
+      "status": "OK",
+      "elapsed": 282.1,
+      "raw_tail": " water removed:**\n    *   Sum of all periods: $3 \\text{ liters} + 6 \\text{ liters} + 20 \\text{ liters}$.\n    *   Calculation: $3 + 6 + 20 = 29$.\n\nThe total amount of water removed is 29 liters.\n\n29.0\n",
+      "question": "Brian's basement was damp and musty, so he bought a dehumidifier to remove moist..."
+    },
+    {
+      "i": 11,
+      "expected": "80",
+      "got": "80",
+      "status": "OK",
+      "elapsed": 124.4,
+      "raw_tail": "r. George) = 520 burritos consumed.\nFinally, I need to calculate the leftover burritos. Mr. George ordered 600 burritos, and 520 were consumed. So, 600 - 520 = 80 leftover burritos.\nThe answer is 80.\n",
+      "question": "George, a grade six teacher, ordered 600 burritos for the sixth-grade class picn..."
+    },
+    {
+      "i": 12,
+      "expected": "36",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 344.5,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Jim spends 2 hours watching TV and then decides to go to bed and reads for half ..."
+    },
+    {
+      "i": 13,
+      "expected": "1430",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.4,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Janet buys a brooch for her daughter.  She pays $500 for the material to make it..."
+    },
+    {
+      "i": 14,
+      "expected": "5",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 342.8,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Ducks need to eat 3.5 pounds of insects each week to survive. If there is a floc..."
+    },
+    {
+      "i": 15,
+      "expected": "5",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.1,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Joey has 214 points before his turn in Scrabble. He scores 26 points. Then Marcy..."
+    },
+    {
+      "i": 16,
+      "expected": "5",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.1,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Sarah went to buy books from the store and spent $300 on the books. If each book..."
+    },
+    {
+      "i": 17,
+      "expected": "66",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 342.9,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Ted starts with $200. He buys 3 books for 16 dollars each and 3 pencils for 6 do..."
+    },
+    {
+      "i": 18,
+      "expected": "15",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.0,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Eve had 20 pieces of pomelos. After giving her friend some pomelos, Eve is left ..."
+    },
+    {
+      "i": 19,
+      "expected": "40",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 344.0,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "The Doubtfire sisters are driving home with 7 kittens adopted from the local ani..."
+    },
+    {
+      "i": 20,
+      "expected": "93",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 342.7,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Jen got 3 fish.  They each need $1 worth of food a day.  How much does she spend..."
+    },
+    {
+      "i": 21,
+      "expected": "2000",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 344.3,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Elliott is trying to walk 10,000 steps a day. He finished half of his steps on h..."
+    },
+    {
+      "i": 22,
+      "expected": "1520",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.3,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "While working at the restaurant, each of the forty customers who came into the r..."
+    },
+    {
+      "i": 23,
+      "expected": "11050",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.6,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "On a certain day, the total cost of filling up 20 helium balloons was $900. Two ..."
+    },
+    {
+      "i": 24,
+      "expected": "90",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 344.1,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "To raise money for their class fund, each of the 30 students from one class sold..."
+    },
+    {
+      "i": 25,
+      "expected": "40000",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.7,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "John decides to get a loan by mortgaging his home.  His house is worth $250,000...."
+    },
+    {
+      "i": 26,
+      "expected": "21",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.6,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Liam and Mitchell own competing lemonade stands across the street from one anoth..."
+    },
+    {
+      "i": 27,
+      "expected": "18",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.4,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Melanie is a door-to-door saleswoman. She sold a third of her vacuum cleaners at..."
+    },
+    {
+      "i": 28,
+      "expected": "14",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.8,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Some people got on a bus at the terminal. At the first bus stop, 5 more people g..."
+    },
+    {
+      "i": 29,
+      "expected": "23",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.7,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "A bumper car rink has 12 red cars. They have 2 fewer green cars than they have r..."
+    },
+    {
+      "i": 30,
+      "expected": "145",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 344.9,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Students in class 3B are collecting school points for behavior. If they get enou..."
+    },
+    {
+      "i": 31,
+      "expected": "123",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.5,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "If a classroom has 3 times as many girls as they do boys, and 1/10 as many nonge..."
+    },
+    {
+      "i": 32,
+      "expected": "98",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.2,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "The area of Billie's rectangular bedroom is 360 square feet. If the length of hi..."
+    },
+    {
+      "i": 33,
+      "expected": "7",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.4,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Manolo bought five lollipops and four candies that cost $3.20. If each lollipop ..."
+    },
+    {
+      "i": 34,
+      "expected": "34",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.9,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Three friends spent $20.25 on 3 tickets to the fair. They also spent $4.50 less ..."
+    },
+    {
+      "i": 35,
+      "expected": "38",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 344.3,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "At the local Pick Your Own fruit orchard, you could pick your own peaches for $2..."
+    },
+    {
+      "i": 36,
+      "expected": "320",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 344.1,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Elaine initially had 20 Pokemon cards. After a month, she collected three times ..."
+    },
+    {
+      "i": 37,
+      "expected": "50",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.6,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "In a student council election, candidate A got 20% of the votes while candidate ..."
+    },
+    {
+      "i": 38,
+      "expected": "50",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.1,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Gerald and Julia divided $100 in the ratio 3:2. If Gerald spent $10 on a book, h..."
+    },
+    {
+      "i": 39,
+      "expected": "84",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.9,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Madeline ate 6 grapes. Her brother wanted to make grape juice and used up 5 time..."
+    },
+    {
+      "i": 40,
+      "expected": "50",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.7,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Elvis has a monthly saving target of $1125. In April, he wants to save twice as ..."
+    },
+    {
+      "i": 41,
+      "expected": "8000",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.2,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Marilyn's first record sold 10 times as many copies as Harald's. If they sold 88..."
+    },
+    {
+      "i": 42,
+      "expected": "280",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.5,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "For the children's day celebration, children are to perform mass drills in the p..."
+    },
+    {
+      "i": 43,
+      "expected": "30",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.4,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Jeff is 10 years older than his younger sister, Martha. Martha, on the other han..."
+    },
+    {
+      "i": 44,
+      "expected": "192",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.5,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Ten stalls have 20 cows each. Mr. Sylas buys 40 cows and divides them equally, p..."
+    },
+    {
+      "i": 45,
+      "expected": "276",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.8,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Henry needs to assemble some toys, specifically 57 cars and 73 motorcycles. Henr..."
+    },
+    {
+      "i": 46,
+      "expected": "32",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 344.0,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Anakin and Locsin went to the beach today. Anakin caught 10 starfish, 6 sea hors..."
+    },
+    {
+      "i": 47,
+      "expected": "25",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 344.2,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Nik has 200 crayons. He wants to separate them into groups of 8 and put them int..."
+    },
+    {
+      "i": 48,
+      "expected": "10",
+      "got": "1",
+      "status": "WRONG",
+      "elapsed": 343.7,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "Jamaal is at the gym. He has been using an 8-pound weight. He increases the weig..."
+    },
+    {
+      "i": 49,
+      "expected": "84",
+      "got": "",
+      "status": "WRONG",
+      "elapsed": 343.6,
+      "raw_tail": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "question": "In a family, there are 2 brothers and 3 sisters. All sisters are the same age, w..."
+    }
+  ]
+}
