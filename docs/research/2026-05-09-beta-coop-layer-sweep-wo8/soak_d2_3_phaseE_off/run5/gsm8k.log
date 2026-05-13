@@ -1,0 +1,61 @@
+[1/50] WRONG (gold=2280 pred=) 392.4s
+[2/50] OK (gold=1 pred=1) 392.2s
+[3/50] WRONG (gold=5 pred=1) 392.2s
+[4/50] WRONG (gold=12 pred=) 392.1s
+[5/50] WRONG (gold=273 pred=) 392.4s
+[6/50] WRONG (gold=45 pred=1) 392.7s
+[7/50] WRONG (gold=21 pred=) 391.4s
+[8/50] WRONG (gold=145 pred=) 391.5s
+[9/50] WRONG (gold=60 pred=1) 391.5s
+[10/50] WRONG (gold=122 pred=1) 391.5s
+[11/50] WRONG (gold=29 pred=1) 394.5s
+[12/50] WRONG (gold=80 pred=) 391.8s
+[13/50] WRONG (gold=36 pred=1) 391.2s
+[14/50] WRONG (gold=1430 pred=1) 391.7s
+[15/50] WRONG (gold=5 pred=1) 391.1s
+[16/50] WRONG (gold=5 pred=) 391.3s
+[17/50] OK (gold=5 pred=5) 247.2s
+[18/50] OK (gold=66 pred=66) 106.5s
+[19/50] WRONG (gold=15 pred=1) 391.8s
+[20/50] WRONG (gold=40 pred=7) 392.2s
+[21/50] WRONG (gold=93 pred=2) 263.8s
+[22/50] WRONG (gold=2000 pred=5000) 393.2s
+[23/50] OK (gold=1520 pred=1520) 207.4s
+[24/50] WRONG (gold=11050 pred=65) 392.3s
+[25/50] OK (gold=90 pred=90) 227.0s
+[26/50] WRONG (gold=40000 pred=250) 392.6s
+[27/50] OK (gold=21 pred=21) 228.3s
+[28/50] WRONG (gold=18 pred=2) 392.3s
+[29/50] WRONG (gold=14 pred=2) 391.8s
+[30/50] WRONG (gold=23 pred=2) 391.7s
+[31/50] WRONG (gold=145 pred=30) 392.7s
+[32/50] OK (gold=123 pred=123) 390.9s
+[33/50] WRONG (gold=98 pred=1) 390.6s
+[34/50] WRONG (gold=7 pred=2) 390.9s
+[35/50] WRONG (gold=34 pred=20) 391.3s
+[36/50] WRONG (gold=38 pred=12) 391.8s
+[37/50] WRONG (gold=320 pred=40) 391.7s
+[38/50] WRONG (gold=50 pred=20) 391.3s
+[39/50] WRONG (gold=50 pred=0) 390.7s
+[40/50] OK (gold=84 pred=84) 294.8s
+[41/50] WRONG (gold=50 pred=2) 391.9s
+[42/50] WRONG (gold=8000 pred=10) 390.5s
+[43/50] WRONG (gold=280 pred=7) 390.9s
+[44/50] WRONG (gold=30 pred=1) 390.9s
+[45/50] WRONG (gold=192 pred=8) 352.7s
+[46/50] WRONG (gold=276 pred=4) 392.5s
+[47/50] WRONG (gold=32 pred=1) 392.1s
+[48/50] WRONG (gold=25 pred=8) 392.2s
+[49/50] OK (gold=10 pred=10) 265.2s
+[50/50] WRONG (gold=84 pred=12) 392.4s
+{
+  "label": "soak_12L_3_47_d2_3_phaseE_off_run5",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 9,
+  "errors": 0,
+  "accuracy": "9/50 (18.0%)",
+  "total_seconds": 18257.8
+}
