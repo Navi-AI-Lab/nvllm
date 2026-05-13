@@ -1,0 +1,323 @@
+[2026-05-13 09:28:28] boot serve-cute.sh (arm=2L_3_7_d2_5_control, layers=[3,7], FUSION=1, PATH=auto, wo=8) ...
+[2026-05-13 09:28:28] wait for ready on http://localhost:8000/v1/models ...
+[2026-05-13 09:32:50] ready (~262s)
+[2026-05-13 09:32:50] dispatch audit (expect coop_layers=[3,7], records present)
+[2026-05-13 09:32:50] dispatch audit OK
+[2026-05-13 09:32:50] ==> run 1/5 GSM8K-50
+[1/50] WRONG (gold=2280 pred=2180) 57.6s
+[2/50] OK (gold=1 pred=1) 44.1s
+[3/50] OK (gold=5 pred=5) 55.8s
+[4/50] OK (gold=12 pred=12) 80.0s
+[5/50] OK (gold=273 pred=273) 62.2s
+[6/50] OK (gold=45 pred=45) 55.8s
+[7/50] OK (gold=21 pred=21) 42.8s
+[8/50] OK (gold=145 pred=145) 76.2s
+[9/50] OK (gold=60 pred=60) 64.4s
+[10/50] OK (gold=122 pred=122) 66.0s
+[11/50] OK (gold=29 pred=29) 177.0s
+[12/50] OK (gold=80 pred=80) 78.3s
+[13/50] OK (gold=36 pred=36) 99.7s
+[14/50] OK (gold=1430 pred=1430) 55.5s
+[15/50] OK (gold=5 pred=5) 52.8s
+[16/50] OK (gold=5 pred=5) 56.5s
+[17/50] OK (gold=5 pred=5) 46.8s
+[18/50] OK (gold=66 pred=66) 36.3s
+[19/50] OK (gold=15 pred=15) 40.0s
+[20/50] OK (gold=40 pred=40) 36.6s
+[21/50] OK (gold=93 pred=93) 48.3s
+[22/50] WRONG (gold=2000 pred=5000) 211.8s
+[23/50] OK (gold=1520 pred=1520) 35.7s
+[24/50] OK (gold=11050 pred=11050) 53.0s
+[25/50] OK (gold=90 pred=90) 73.2s
+[26/50] OK (gold=40000 pred=40000) 63.6s
+[27/50] OK (gold=21 pred=21) 36.1s
+[28/50] OK (gold=18 pred=18) 96.9s
+[29/50] OK (gold=14 pred=14) 61.6s
+[30/50] OK (gold=23 pred=23) 39.7s
+[31/50] OK (gold=145 pred=145) 69.9s
+[32/50] OK (gold=123 pred=123) 86.2s
+[33/50] OK (gold=98 pred=98) 66.6s
+[34/50] OK (gold=7 pred=7) 89.5s
+[35/50] OK (gold=34 pred=34) 84.0s
+[36/50] OK (gold=38 pred=38) 46.4s
+[37/50] OK (gold=320 pred=320) 82.9s
+[38/50] OK (gold=50 pred=50) 115.0s
+[39/50] OK (gold=50 pred=50) 66.9s
+[40/50] OK (gold=84 pred=84) 46.6s
+[41/50] OK (gold=50 pred=50) 92.5s
+[42/50] OK (gold=8000 pred=8000) 90.1s
+[43/50] OK (gold=280 pred=280) 48.1s
+[44/50] OK (gold=30 pred=30) 33.9s
+[45/50] WRONG (gold=192 pred=8) 210.7s
+[46/50] OK (gold=276 pred=276) 63.2s
+[47/50] OK (gold=32 pred=32) 73.4s
+[48/50] OK (gold=25 pred=25) 104.2s
+[49/50] OK (gold=10 pred=10) 55.5s
+[50/50] OK (gold=84 pred=84) 58.3s
+{
+  "label": "soak_2L_3_7_d2_5_control_run1",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 0,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3588.3
+}
+[2026-05-13 10:32:39] <== run 1 correct=47 errors=0
+[2026-05-13 10:32:39] ==> run 2/5 GSM8K-50
+[1/50] WRONG (gold=2280 pred=2180) 58.5s
+[2/50] OK (gold=1 pred=1) 44.1s
+[3/50] OK (gold=5 pred=5) 55.8s
+[4/50] OK (gold=12 pred=12) 79.7s
+[5/50] OK (gold=273 pred=273) 62.0s
+[6/50] OK (gold=45 pred=45) 55.6s
+[7/50] OK (gold=21 pred=21) 42.7s
+[8/50] OK (gold=145 pred=145) 75.9s
+[9/50] OK (gold=60 pred=60) 64.2s
+[10/50] OK (gold=122 pred=122) 65.8s
+[11/50] OK (gold=29 pred=29) 176.3s
+[12/50] OK (gold=80 pred=80) 78.3s
+[13/50] OK (gold=36 pred=36) 99.7s
+[14/50] OK (gold=1430 pred=1430) 55.5s
+[15/50] OK (gold=5 pred=5) 52.8s
+[16/50] OK (gold=5 pred=5) 56.6s
+[17/50] OK (gold=5 pred=5) 46.9s
+[18/50] OK (gold=66 pred=66) 36.3s
+[19/50] OK (gold=15 pred=15) 40.0s
+[20/50] OK (gold=40 pred=40) 36.6s
+[21/50] OK (gold=93 pred=93) 48.3s
+[22/50] WRONG (gold=2000 pred=5000) 211.8s
+[23/50] OK (gold=1520 pred=1520) 35.6s
+[24/50] OK (gold=11050 pred=11050) 53.0s
+[25/50] OK (gold=90 pred=90) 73.2s
+[26/50] OK (gold=40000 pred=40000) 63.7s
+[27/50] OK (gold=21 pred=21) 36.1s
+[28/50] OK (gold=18 pred=18) 97.0s
+[29/50] OK (gold=14 pred=14) 61.7s
+[30/50] OK (gold=23 pred=23) 39.7s
+[31/50] OK (gold=145 pred=145) 69.9s
+[32/50] OK (gold=123 pred=123) 86.3s
+[33/50] OK (gold=98 pred=98) 66.6s
+[34/50] OK (gold=7 pred=7) 89.5s
+[35/50] OK (gold=34 pred=34) 84.0s
+[36/50] OK (gold=38 pred=38) 46.4s
+[37/50] OK (gold=320 pred=320) 82.9s
+[38/50] OK (gold=50 pred=50) 115.0s
+[39/50] OK (gold=50 pred=50) 67.0s
+[40/50] OK (gold=84 pred=84) 46.6s
+[41/50] OK (gold=50 pred=50) 92.5s
+[42/50] OK (gold=8000 pred=8000) 90.1s
+[43/50] OK (gold=280 pred=280) 48.1s
+[44/50] OK (gold=30 pred=30) 33.9s
+[45/50] WRONG (gold=192 pred=8) 210.7s
+[46/50] OK (gold=276 pred=276) 63.2s
+[47/50] OK (gold=32 pred=32) 73.5s
+[48/50] OK (gold=25 pred=25) 104.3s
+[49/50] OK (gold=10 pred=10) 55.5s
+[50/50] OK (gold=84 pred=84) 58.3s
+{
+  "label": "soak_2L_3_7_d2_5_control_run2",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 0,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3587.5
+}
+[2026-05-13 11:32:26] <== run 2 correct=47 errors=0
+[2026-05-13 11:32:26] ==> run 3/5 GSM8K-50
+[1/50] WRONG (gold=2280 pred=2180) 58.5s
+[2/50] OK (gold=1 pred=1) 44.1s
+[3/50] OK (gold=5 pred=5) 55.8s
+[4/50] OK (gold=12 pred=12) 79.7s
+[5/50] OK (gold=273 pred=273) 62.0s
+[6/50] OK (gold=45 pred=45) 55.6s
+[7/50] OK (gold=21 pred=21) 42.7s
+[8/50] OK (gold=145 pred=145) 75.9s
+[9/50] OK (gold=60 pred=60) 64.2s
+[10/50] OK (gold=122 pred=122) 65.8s
+[11/50] OK (gold=29 pred=29) 176.3s
+[12/50] OK (gold=80 pred=80) 78.3s
+[13/50] OK (gold=36 pred=36) 99.7s
+[14/50] OK (gold=1430 pred=1430) 55.5s
+[15/50] OK (gold=5 pred=5) 52.8s
+[16/50] OK (gold=5 pred=5) 56.6s
+[17/50] OK (gold=5 pred=5) 46.9s
+[18/50] OK (gold=66 pred=66) 36.3s
+[19/50] OK (gold=15 pred=15) 40.0s
+[20/50] OK (gold=40 pred=40) 36.6s
+[21/50] OK (gold=93 pred=93) 48.3s
+[22/50] WRONG (gold=2000 pred=5000) 211.8s
+[23/50] OK (gold=1520 pred=1520) 35.6s
+[24/50] OK (gold=11050 pred=11050) 53.1s
+[25/50] OK (gold=90 pred=90) 73.2s
+[26/50] OK (gold=40000 pred=40000) 63.7s
+[27/50] OK (gold=21 pred=21) 36.1s
+[28/50] OK (gold=18 pred=18) 97.0s
+[29/50] OK (gold=14 pred=14) 61.7s
+[30/50] OK (gold=23 pred=23) 39.8s
+[31/50] OK (gold=145 pred=145) 69.9s
+[32/50] OK (gold=123 pred=123) 86.3s
+[33/50] OK (gold=98 pred=98) 66.6s
+[34/50] OK (gold=7 pred=7) 89.5s
+[35/50] OK (gold=34 pred=34) 84.1s
+[36/50] OK (gold=38 pred=38) 46.4s
+[37/50] OK (gold=320 pred=320) 82.9s
+[38/50] OK (gold=50 pred=50) 115.1s
+[39/50] OK (gold=50 pred=50) 67.0s
+[40/50] OK (gold=84 pred=84) 46.6s
+[41/50] OK (gold=50 pred=50) 92.5s
+[42/50] OK (gold=8000 pred=8000) 90.2s
+[43/50] OK (gold=280 pred=280) 48.1s
+[44/50] OK (gold=30 pred=30) 34.0s
+[45/50] WRONG (gold=192 pred=8) 210.8s
+[46/50] OK (gold=276 pred=276) 63.2s
+[47/50] OK (gold=32 pred=32) 73.5s
+[48/50] OK (gold=25 pred=25) 104.3s
+[49/50] OK (gold=10 pred=10) 55.5s
+[50/50] OK (gold=84 pred=84) 58.3s
+{
+  "label": "soak_2L_3_7_d2_5_control_run3",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 0,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3588.1
+}
+[2026-05-13 12:32:15] <== run 3 correct=47 errors=0
+[2026-05-13 12:32:15] ==> run 4/5 GSM8K-50
+[1/50] WRONG (gold=2280 pred=2180) 58.5s
+[2/50] OK (gold=1 pred=1) 44.1s
+[3/50] OK (gold=5 pred=5) 55.8s
+[4/50] OK (gold=12 pred=12) 79.7s
+[5/50] OK (gold=273 pred=273) 62.0s
+[6/50] OK (gold=45 pred=45) 55.6s
+[7/50] OK (gold=21 pred=21) 42.7s
+[8/50] OK (gold=145 pred=145) 75.9s
+[9/50] OK (gold=60 pred=60) 64.2s
+[10/50] OK (gold=122 pred=122) 65.8s
+[11/50] OK (gold=29 pred=29) 176.3s
+[12/50] OK (gold=80 pred=80) 78.3s
+[13/50] WRONG (gold=36 pred=1) 210.8s
+[14/50] WRONG (gold=1430 pred=) 210.3s
+[15/50] WRONG (gold=5 pred=1) 209.7s
+[16/50] WRONG (gold=5 pred=) 210.0s
+[17/50] WRONG (gold=5 pred=) 209.9s
+[18/50] WRONG (gold=66 pred=) 209.7s
+[19/50] WRONG (gold=15 pred=1) 209.8s
+[20/50] WRONG (gold=40 pred=1) 210.8s
+[21/50] WRONG (gold=93 pred=1) 209.5s
+[22/50] WRONG (gold=2000 pred=1) 211.1s
+[23/50] WRONG (gold=1520 pred=) 210.1s
+[24/50] WRONG (gold=11050 pred=) 210.3s
+[25/50] WRONG (gold=90 pred=) 210.8s
+[26/50] WRONG (gold=40000 pred=1) 210.5s
+[27/50] WRONG (gold=21 pred=) 210.4s
+[28/50] WRONG (gold=18 pred=) 210.2s
+[29/50] WRONG (gold=14 pred=1) 210.5s
+[30/50] WRONG (gold=23 pred=1) 210.4s
+[31/50] WRONG (gold=145 pred=) 211.5s
+[32/50] WRONG (gold=123 pred=1) 210.0s
+[33/50] WRONG (gold=98 pred=) 209.7s
+[34/50] WRONG (gold=7 pred=) 210.0s
+[35/50] WRONG (gold=34 pred=) 210.5s
+[36/50] WRONG (gold=38 pred=) 210.9s
+[37/50] WRONG (gold=320 pred=) 210.7s
+[38/50] WRONG (gold=50 pred=) 210.3s
+[39/50] WRONG (gold=50 pred=) 209.7s
+[40/50] WRONG (gold=84 pred=1) 210.5s
+[41/50] WRONG (gold=50 pred=1) 210.4s
+[42/50] WRONG (gold=8000 pred=) 209.8s
+[43/50] WRONG (gold=280 pred=1) 210.2s
+[44/50] WRONG (gold=30 pred=1) 210.0s
+[45/50] WRONG (gold=192 pred=) 210.1s
+[46/50] WRONG (gold=276 pred=) 210.5s
+[47/50] WRONG (gold=32 pred=) 210.7s
+[48/50] WRONG (gold=25 pred=) 210.9s
+[49/50] WRONG (gold=10 pred=1) 210.5s
+[50/50] WRONG (gold=84 pred=) 210.4s
+{
+  "label": "soak_2L_3_7_d2_5_control_run4",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 11,
+  "errors": 0,
+  "accuracy": "11/50 (22.0%)",
+  "total_seconds": 8851.0
+}
+[2026-05-13 14:59:46] <== run 4 correct=11 errors=0
+[2026-05-13 14:59:46] ==> run 5/5 GSM8K-50
+[1/50] WRONG (gold=2280 pred=) 210.5s
+[2/50] OK (gold=1 pred=1) 210.3s
+[3/50] WRONG (gold=5 pred=1) 210.1s
+[4/50] WRONG (gold=12 pred=) 210.1s
+[5/50] WRONG (gold=273 pred=) 210.5s
+[6/50] WRONG (gold=45 pred=) 210.8s
+[7/50] WRONG (gold=21 pred=) 209.6s
+[8/50] WRONG (gold=145 pred=) 209.8s
+[9/50] WRONG (gold=60 pred=1) 210.0s
+[10/50] WRONG (gold=122 pred=) 210.0s
+[11/50] WRONG (gold=29 pred=1) 213.2s
+[12/50] WRONG (gold=80 pred=) 210.5s
+[13/50] WRONG (gold=36 pred=1) 210.1s
+[14/50] WRONG (gold=1430 pred=) 210.5s
+[15/50] OK (gold=5 pred=5) 52.1s
+[16/50] OK (gold=5 pred=5) 56.6s
+[17/50] OK (gold=5 pred=5) 46.9s
+[18/50] OK (gold=66 pred=66) 36.3s
+[19/50] OK (gold=15 pred=15) 40.0s
+[20/50] OK (gold=40 pred=40) 36.7s
+[21/50] OK (gold=93 pred=93) 48.4s
+[22/50] WRONG (gold=2000 pred=5000) 212.2s
+[23/50] OK (gold=1520 pred=1520) 35.7s
+[24/50] OK (gold=11050 pred=11050) 53.1s
+[25/50] OK (gold=90 pred=90) 73.3s
+[26/50] OK (gold=40000 pred=40000) 63.8s
+[27/50] OK (gold=21 pred=21) 36.2s
+[28/50] OK (gold=18 pred=18) 97.1s
+[29/50] OK (gold=14 pred=14) 61.8s
+[30/50] OK (gold=23 pred=23) 39.8s
+[31/50] OK (gold=145 pred=145) 70.0s
+[32/50] OK (gold=123 pred=123) 86.4s
+[33/50] OK (gold=98 pred=98) 66.7s
+[34/50] OK (gold=7 pred=7) 89.6s
+[35/50] OK (gold=34 pred=34) 84.2s
+[36/50] OK (gold=38 pred=38) 46.5s
+[37/50] OK (gold=320 pred=320) 83.0s
+[38/50] OK (gold=50 pred=50) 115.2s
+[39/50] OK (gold=50 pred=50) 67.1s
+[40/50] OK (gold=84 pred=84) 46.7s
+[41/50] OK (gold=50 pred=50) 92.7s
+[42/50] OK (gold=8000 pred=8000) 90.3s
+[43/50] OK (gold=280 pred=280) 48.2s
+[44/50] OK (gold=30 pred=30) 34.0s
+[45/50] WRONG (gold=192 pred=8) 211.0s
+[46/50] OK (gold=276 pred=276) 63.3s
+[47/50] OK (gold=32 pred=32) 73.6s
+[48/50] OK (gold=25 pred=25) 104.4s
+[49/50] OK (gold=10 pred=10) 55.6s
+[50/50] OK (gold=84 pred=84) 58.4s
+{
+  "label": "soak_2L_3_7_d2_5_control_run5",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 35,
+  "errors": 0,
+  "accuracy": "35/50 (70.0%)",
+  "total_seconds": 5523.3
+}
+[2026-05-13 16:31:49] <== run 5 correct=35 errors=0
+[2026-05-13 16:31:50] D2.5 soak complete (gate_d2_5_pass=false)
+[2026-05-13 16:31:50] artifacts: /home/natfii/docker/nvllm-beta-layer-sweep-wo8/docs/research/2026-05-09-beta-coop-layer-sweep-wo8/soak_d2_5_2L_3_7_control/
+[2026-05-13 16:31:50] next: build_soak_summary.py for the per-question miss table

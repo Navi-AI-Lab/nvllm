@@ -1,0 +1,61 @@
+[1/50] WRONG (gold=2280 pred=2180) 57.6s
+[2/50] OK (gold=1 pred=1) 44.1s
+[3/50] OK (gold=5 pred=5) 55.8s
+[4/50] OK (gold=12 pred=12) 80.0s
+[5/50] OK (gold=273 pred=273) 62.2s
+[6/50] OK (gold=45 pred=45) 55.8s
+[7/50] OK (gold=21 pred=21) 42.8s
+[8/50] OK (gold=145 pred=145) 76.2s
+[9/50] OK (gold=60 pred=60) 64.4s
+[10/50] OK (gold=122 pred=122) 66.0s
+[11/50] OK (gold=29 pred=29) 177.0s
+[12/50] OK (gold=80 pred=80) 78.3s
+[13/50] OK (gold=36 pred=36) 99.7s
+[14/50] OK (gold=1430 pred=1430) 55.5s
+[15/50] OK (gold=5 pred=5) 52.8s
+[16/50] OK (gold=5 pred=5) 56.5s
+[17/50] OK (gold=5 pred=5) 46.8s
+[18/50] OK (gold=66 pred=66) 36.3s
+[19/50] OK (gold=15 pred=15) 40.0s
+[20/50] OK (gold=40 pred=40) 36.6s
+[21/50] OK (gold=93 pred=93) 48.3s
+[22/50] WRONG (gold=2000 pred=5000) 211.8s
+[23/50] OK (gold=1520 pred=1520) 35.7s
+[24/50] OK (gold=11050 pred=11050) 53.0s
+[25/50] OK (gold=90 pred=90) 73.2s
+[26/50] OK (gold=40000 pred=40000) 63.6s
+[27/50] OK (gold=21 pred=21) 36.1s
+[28/50] OK (gold=18 pred=18) 96.9s
+[29/50] OK (gold=14 pred=14) 61.6s
+[30/50] OK (gold=23 pred=23) 39.7s
+[31/50] OK (gold=145 pred=145) 69.9s
+[32/50] OK (gold=123 pred=123) 86.2s
+[33/50] OK (gold=98 pred=98) 66.6s
+[34/50] OK (gold=7 pred=7) 89.5s
+[35/50] OK (gold=34 pred=34) 84.0s
+[36/50] OK (gold=38 pred=38) 46.4s
+[37/50] OK (gold=320 pred=320) 82.9s
+[38/50] OK (gold=50 pred=50) 115.0s
+[39/50] OK (gold=50 pred=50) 66.9s
+[40/50] OK (gold=84 pred=84) 46.6s
+[41/50] OK (gold=50 pred=50) 92.5s
+[42/50] OK (gold=8000 pred=8000) 90.1s
+[43/50] OK (gold=280 pred=280) 48.1s
+[44/50] OK (gold=30 pred=30) 33.9s
+[45/50] WRONG (gold=192 pred=8) 210.7s
+[46/50] OK (gold=276 pred=276) 63.2s
+[47/50] OK (gold=32 pred=32) 73.4s
+[48/50] OK (gold=25 pred=25) 104.2s
+[49/50] OK (gold=10 pred=10) 55.5s
+[50/50] OK (gold=84 pred=84) 58.3s
+{
+  "label": "soak_2L_3_7_d2_5_control_run1",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 0,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3588.3
+}

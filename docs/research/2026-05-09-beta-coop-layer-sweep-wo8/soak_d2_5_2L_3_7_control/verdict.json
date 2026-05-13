@@ -1,0 +1,21 @@
+{
+  "arm": "2L_3_7_d2_5_control",
+  "git_sha": "07de4ebe71891320648547c61f4599e231b21215",
+  "image_id": "nvllm:gb10@9c0f1d31c92c",
+  "phase_e_layers": "3,7",
+  "phase_e_fusion": 1,
+  "phase_e_path": "auto",
+  "wo_split": 8,
+  "n_runs": 5,
+  "gsm8k_floor": 45,
+  "runs": [
+    {"run": 1, "correct": 47, "errors": 0, "pass": true},
+    {"run": 2, "correct": 47, "errors": 0, "pass": true},
+    {"run": 3, "correct": 47, "errors": 0, "pass": true},
+    {"run": 4, "correct": 11, "errors": 0, "pass": false},
+    {"run": 5, "correct": 35, "errors": 0, "pass": false}
+  ],
+  "container_alive_at_end": true,
+  "docker_log_corruption_hits": 0,
+  "gate_d2_5_pass": false
+}
