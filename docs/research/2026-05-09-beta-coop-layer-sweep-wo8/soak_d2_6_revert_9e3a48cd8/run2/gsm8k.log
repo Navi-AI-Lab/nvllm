@@ -1,0 +1,61 @@
+[1/50] WRONG (gold=2280 pred=2180) 58.8s
+[2/50] OK (gold=1 pred=1) 44.3s
+[3/50] OK (gold=5 pred=5) 56.0s
+[4/50] OK (gold=12 pred=12) 80.1s
+[5/50] OK (gold=273 pred=273) 62.3s
+[6/50] OK (gold=45 pred=45) 55.9s
+[7/50] OK (gold=21 pred=21) 42.9s
+[8/50] OK (gold=145 pred=145) 76.3s
+[9/50] OK (gold=60 pred=60) 64.6s
+[10/50] OK (gold=122 pred=122) 66.2s
+[11/50] OK (gold=29 pred=29) 177.2s
+[12/50] OK (gold=80 pred=80) 78.7s
+[13/50] OK (gold=36 pred=36) 100.3s
+[14/50] OK (gold=1430 pred=1430) 55.8s
+[15/50] OK (gold=5 pred=5) 53.1s
+[16/50] OK (gold=5 pred=5) 56.9s
+[17/50] OK (gold=5 pred=5) 47.2s
+[18/50] OK (gold=66 pred=66) 36.5s
+[19/50] OK (gold=15 pred=15) 40.2s
+[20/50] OK (gold=40 pred=40) 36.9s
+[21/50] OK (gold=93 pred=93) 48.7s
+[22/50] WRONG (gold=2000 pred=5000) 213.1s
+[23/50] OK (gold=1520 pred=1520) 35.9s
+[24/50] OK (gold=11050 pred=11050) 53.4s
+[25/50] OK (gold=90 pred=90) 73.7s
+[26/50] OK (gold=40000 pred=40000) 64.1s
+[27/50] OK (gold=21 pred=21) 36.4s
+[28/50] OK (gold=18 pred=18) 97.6s
+[29/50] OK (gold=14 pred=14) 62.0s
+[30/50] OK (gold=23 pred=23) 40.0s
+[31/50] OK (gold=145 pred=145) 70.3s
+[32/50] OK (gold=123 pred=123) 86.8s
+[33/50] OK (gold=98 pred=98) 67.0s
+[34/50] OK (gold=7 pred=7) 90.0s
+[35/50] OK (gold=34 pred=34) 84.5s
+[36/50] OK (gold=38 pred=38) 46.7s
+[37/50] OK (gold=320 pred=320) 83.4s
+[38/50] OK (gold=50 pred=50) 115.7s
+[39/50] OK (gold=50 pred=50) 67.4s
+[40/50] OK (gold=84 pred=84) 46.9s
+[41/50] OK (gold=50 pred=50) 93.0s
+[42/50] OK (gold=8000 pred=8000) 90.7s
+[43/50] OK (gold=280 pred=280) 48.4s
+[44/50] OK (gold=30 pred=30) 34.2s
+[45/50] WRONG (gold=192 pred=8) 211.9s
+[46/50] OK (gold=276 pred=276) 63.6s
+[47/50] OK (gold=32 pred=32) 73.9s
+[48/50] OK (gold=25 pred=25) 104.9s
+[49/50] OK (gold=10 pred=10) 55.8s
+[50/50] OK (gold=84 pred=84) 58.6s
+{
+  "label": "soak_2L_3_7_d2_6_revert_9e3a48cd8_run2",
+  "model": "default",
+  "api": "http://localhost:8000/v1",
+  "n": 50,
+  "seed": 42,
+  "correct": 47,
+  "errors": 0,
+  "accuracy": "47/50 (94.0%)",
+  "total_seconds": 3608.8
+}

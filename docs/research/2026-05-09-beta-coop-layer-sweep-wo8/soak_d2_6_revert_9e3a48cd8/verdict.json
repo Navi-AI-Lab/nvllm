@@ -1,0 +1,23 @@
+{
+  "arm": "2L_3_7_d2_6_revert_9e3a48cd8",
+  "git_sha": "6c0ca5824b97b940acbbeb68ff3ab9179da52dfa",
+  "reverted_commit": "9e3a48cd8",
+  "image": "nvllm:gb10-d2_6",
+  "image_id": "nvllm:gb10-d2_6@b2fe34355d26",
+  "phase_e_layers": "3,7",
+  "phase_e_fusion": 1,
+  "phase_e_path": "auto",
+  "wo_split": 8,
+  "n_runs": 5,
+  "gsm8k_floor": 45,
+  "runs": [
+    {"run": 1, "correct": 47, "errors": 0, "pass": true},
+    {"run": 2, "correct": 47, "errors": 0, "pass": true},
+    {"run": 3, "correct": 47, "errors": 0, "pass": true},
+    {"run": 4, "correct": 11, "errors": 0, "pass": false},
+    {"run": 5, "correct": 33, "errors": 0, "pass": false}
+  ],
+  "container_alive_at_end": true,
+  "docker_log_corruption_hits": 0,
+  "gate_d2_6_pass": false
+}
