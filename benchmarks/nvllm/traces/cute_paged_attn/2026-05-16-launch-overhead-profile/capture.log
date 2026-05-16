@@ -1,0 +1,91 @@
+[capture] mode=smoke legs=timing_on timed=100 max_tokens=64
+[capture] commit=1953ebbb0
+[capture] started 2026-05-16T10:28:20-04:00
+
+==============================================================
+=== Leg: timing_on (CUTE_BETA_REGION_TIMING=1)
+==============================================================
+[timing_on] container up; waiting for /v1/models (up to 20 min)...
+[capture] mode=smoke legs=timing_on timed=100 max_tokens=64
+[capture] commit=1953ebbb0
+[capture] started 2026-05-16T11:27:09-04:00
+
+==============================================================
+=== Leg: timing_on (CUTE_BETA_REGION_TIMING=1)
+==============================================================
+[timing_on] container up; waiting for /v1/models (up to 20 min)...
+[timing_on] server ready at iter=44 (~220 s)
+[timing_on] warmup: 15 requests at bs=1 (max_time 600s for JIT)
+[timing_on] warmup done
+[timing_on] timed window: 100 reqs concurrent=1 max_tokens=64
+[warmup] 2 requests at concurrency 1
+[profiler] started via http://localhost:8000/start_profile
+[timed]  100 requests at concurrency 1
+[timed]  elapsed=2634.27s, throughput=0.04 req/s
+[profiler] /stop_profile sent (fire-and-forget)
+[timing_on] CUPTI flush: sleeping 120s...
+[timing_on]   [flush +10s] trace size: 28761765 bytes
+[timing_on]   [flush +20s] trace size: 28761765 bytes
+[timing_on]   [flush +30s] trace size: 28761765 bytes
+[timing_on]   [flush +40s] trace size: 28761765 bytes
+[timing_on] dropping sentinel + drain request
+[timing_on] saved: timing_on.pt.trace.json.gz (28761765 bytes)
+
+==============================================================
+=== Capture complete ===
+==============================================================
+total 28404
+drwxrwxr-x  2 natfii natfii     4096 May 16 12:25 .
+drwxrwxr-x 12 natfii natfii     4096 May 16 09:55 ..
+-rw-rw-r--  1 natfii natfii     1690 May 16 12:25 capture.log
+-rw-r--r--  1 root   root      20653 May 16 11:41 profiler_out_0.txt
+-rw-r--r--  1 natfii natfii    59104 May 16 12:25 timing_on_host_launch_walls.npy
+-rw-rw-r--  1 natfii natfii    45078 May 16 12:25 timing_on_mem.log
+-rw-r--r--  1 root   root   28761765 May 16 11:41 timing_on.pt.trace.json.gz
+-rw-r--r--  1 natfii natfii    16512 May 16 12:25 timing_on_region_timings.npy
+-rw-rw-r--  1 natfii natfii   147766 May 16 12:25 timing_on_serve.log
+[capture] finished 2026-05-16T12:25:38-04:00
+[capture] mode=control legs=timing_off timed=20 max_tokens=64
+[capture] commit=1953ebbb0
+[capture] started 2026-05-16T12:27:39-04:00
+
+==============================================================
+=== Leg: timing_off (CUTE_BETA_REGION_TIMING=0)
+==============================================================
+[timing_off] container up; waiting for /v1/models (up to 20 min)...
+[timing_off] server ready at iter=44 (~220 s)
+[timing_off] warmup: 15 requests at bs=1 (max_time 600s for JIT)
+[timing_off] warmup done
+[timing_off] timed window: 20 reqs concurrent=1 max_tokens=64
+[warmup] 2 requests at concurrency 1
+[profiler] started via http://localhost:8000/start_profile
+[timed]  20 requests at concurrency 1
+[timed]  elapsed=566.53s, throughput=0.04 req/s
+[profiler] /stop_profile sent (fire-and-forget)
+[timing_off] CUPTI flush: sleeping 120s...
+[timing_off]   [flush +10s] trace size: 28517295 bytes
+[timing_off]   [flush +20s] trace size: 28517295 bytes
+[timing_off]   [flush +30s] trace size: 28517295 bytes
+[timing_off]   [flush +40s] trace size: 28517295 bytes
+[timing_off] saved: timing_off.pt.trace.json.gz (28517295 bytes)
+
+==============================================================
+=== Capture complete ===
+==============================================================
+total 56500
+drwxrwxr-x  2 natfii natfii     4096 May 16 12:51 .
+drwxrwxr-x 12 natfii natfii     4096 May 16 09:55 ..
+-rw-rw-r--  1 natfii natfii     3643 May 16 12:51 capture.log
+-rw-r--r--  1 root   root      20653 May 16 12:41 profiler_out_0.txt
+-rw-rw-r--  1 natfii natfii     3402 May 16 12:27 summary.md
+-rw-rw-r--  1 natfii natfii    16244 May 16 12:50 timing_off_mem.log
+-rw-r--r--  1 root   root   28517295 May 16 12:41 timing_off.pt.trace.json.gz
+-rw-rw-r--  1 natfii natfii    89513 May 16 12:51 timing_off_serve.log
+-rw-r--r--  1 natfii natfii    59104 May 16 12:25 timing_on_host_launch_walls.npy
+-rw-rw-r--  1 natfii natfii    45078 May 16 12:25 timing_on_mem.log
+-rw-rw-r--  1 natfii natfii   133012 May 16 12:27 timing_on_per_call.csv
+-rw-r--r--  1 root   root   28761765 May 16 11:41 timing_on.pt.trace.json.gz
+-rw-rw-r--  1 natfii natfii     1721 May 16 12:27 timing_on_region_breakdown.csv
+-rw-r--r--  1 natfii natfii    16512 May 16 12:25 timing_on_region_timings.npy
+-rw-rw-r--  1 natfii natfii   147766 May 16 12:25 timing_on_serve.log
+[capture] finished 2026-05-16T12:51:06-04:00
