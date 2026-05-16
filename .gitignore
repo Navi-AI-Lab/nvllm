@@ -357,3 +357,6 @@ benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.pt.trace
 !benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.md
 !benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.json
 !benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.txt
+benchmarks/nvllm/traces/cute_paged_attn/2026-05-15-phaseE-tax-3leg-post-ssm/**/*.pt.trace.json.gz
+benchmarks/nvllm/traces/cute_paged_attn/2026-05-15-phaseE-tax-3leg-post-ssm/**/*_serve.log
+benchmarks/nvllm/traces/cute_paged_attn/2026-05-15-phaseE-tax-3leg-post-ssm/**/profiler_out_*.txt

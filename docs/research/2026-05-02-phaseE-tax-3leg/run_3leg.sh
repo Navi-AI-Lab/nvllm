@@ -79,7 +79,7 @@ HF_MODEL="${HF_MODEL:-ig1/Qwen3.5-27B-NVFP4}"
 CONTAINER="nvllm"
 PORT=8000
 
-OUT_ROOT="$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg"
+OUT_ROOT="${OUT_ROOT:-$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg}"
 mkdir -p "$OUT_ROOT"
 
 GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"

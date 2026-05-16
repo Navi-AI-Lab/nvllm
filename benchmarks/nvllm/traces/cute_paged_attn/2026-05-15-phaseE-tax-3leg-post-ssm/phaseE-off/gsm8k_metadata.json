@@ -1,0 +1,35 @@
+{
+  "leg": "phaseE-off",
+  "phase": "gsm8k",
+  "timestamp_iso": "2026-05-16T03:01:36-04:00",
+  "git_commit": "67619835b",
+  "image_id": "sha256:b7ede5c875760fe253b356190ebac3e88bb4fddb215da31588818ecffa7cdd28",
+  "model": "ig1/Qwen3.5-27B-NVFP4",
+  "model_revision": "4c546624f1fa8b77f5b7cfb3b6c96bf46d25c3a9",
+  "cudagraph_mode": "PIECEWISE",
+  "cudagraph_capture_sizes": [
+    1
+  ],
+  "max_num_seqs": 1,
+  "max_model_len": 16384,
+  "max_num_batched_tokens": 65536,
+  "kv_cache_dtype": "fp8_e4m3",
+  "attention_backend": "CUTE_PAGED",
+  "gpu_memory_utilization": 0.65,
+  "bless_mounted": false,
+  "manifest_enforced": false,
+  "config_hash": "61d0ee00dae561471406089f2a1d3b9585cf4844d043be6d84446b0671ae9bfa",
+  "env": {
+    "CUTE_PHASE_E_FUSION": "0",
+    "CUTE_PHASE_E_LAYERS": "0,1,2,3,4,5,6,7",
+    "CUTE_PHASE_E_FALLBACK_RAISE": "1",
+    "CUTE_FULL_GRAPH_PROBE": "0",
+    "CUTE_WO_RESET_LOG": "0",
+    "CUTE_DISPATCH_AUDIT": "0",
+    "CUTE_MLP_FUSION": "1",
+    "CUTE_ATTN_FUSION": "1",
+    "VLLM_NVFP4_GEMM_BACKEND": "cutlass",
+    "B12X_CUTE_COMPILE_DISK_CACHE": "1"
+  },
+  "launcher_command": "docs/research/2026-05-02-phaseE-tax-3leg/run_3leg.sh (inline docker run)"
+}
