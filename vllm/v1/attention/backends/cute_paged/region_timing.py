@@ -46,12 +46,17 @@ REGION_NAMES = [
     "phase3_3d_arrival",
     "phase1_pre_wo_wait",      # NEW R11: bx>0 W_O CTAs wait for attn producers
     "phase1_gather_reduce",    # NEW R12: last-CTA gather of total_wo_slots partials
+    # ===== B' instrumentation (2026-05-16) =====
+    "prologue_pre_r0",          # NEW R13: kernel prologue (entry -> R0 entry)
+    "epilogue_post_r10",        # NEW R14: kernel epilogue (R10 exit -> kernel return)
+    "phase3_3d_last_cta_gather",  # NEW R15: elected-CTA gather inside R10 (was hidden in R10 median)
 ]
 PHASE0_REGIONS = {0}                        # single CTA per seq
 PHASE1_REGIONS = {1, 2, 3}                  # 4 CTAs per seq (bx==0, by<4)
 WAIT_NOT_WORK_REGIONS = {4, 11}             # R4 grid barrier + R11 pre-W_O wait
-DYNAMIC_SINGLE_CTA_REGIONS = {12}           # R12 elected gather/reduce
+DYNAMIC_SINGLE_CTA_REGIONS = {12, 15}       # R12 elected gather/reduce, R15 elected last-CTA gather
 PHASE3_REGIONS = {5, 6, 7, 8, 9, 10}        # all CTAs
+KERNEL_BOUNDARY_REGIONS = {13, 14}          # B': all-CTA tid==0, kernel prologue + epilogue
 
 
 def _phase0_cta_ids(slice_ctas: int, num_k_tiles: int, num_seqs: int) -> np.ndarray:
@@ -116,8 +121,9 @@ def reduce_region_timings(
     nsys_total_us: Optional[float] = None,
     wo_split: int = 1,
     num_kv_heads: int = 0,
+    host_launch_wall_us: Optional[float] = None,
 ) -> pd.DataFrame:
-    """Reduce a (num_ctas, 13, 2) tick buffer to per-region rows.
+    """Reduce a (num_ctas, 16, 2) tick buffer to per-region rows.
 
     Active-CTA masks are derived from (slice_ctas, num_k_tiles, num_seqs)
     so callers do NOT pass a "num_attn_active_ctas" count — that count
@@ -141,10 +147,20 @@ def reduce_region_timings(
         arr = buf.cpu().numpy()
     else:
         arr = np.asarray(buf)
-    assert arr.dtype == np.int64
+    assert arr.dtype == np.int64, (
+        f"region timing buf dtype must be int64, got "
+        f"{type(arr.dtype).__name__}: {arr.dtype!r}"
+    )
     num_ctas, num_regions, two = arr.shape
-    assert two == 2
-    assert num_regions == len(REGION_NAMES)
+    assert two == 2, f"got {type(two).__name__}: {two!r} (expected slot dim=2)"
+    # B' (2026-05-16): hard fail-loud if buf shape doesn't match the new
+    # 16-region layout. No silent fallback to the legacy 13-region path —
+    # caller must pass a (num_ctas, 16, 2) buffer when timing is enabled.
+    assert num_regions == len(REGION_NAMES), (
+        f"region timing buf has num_regions={num_regions} but "
+        f"REGION_NAMES has {len(REGION_NAMES)} entries (B' bumped 13->16); "
+        f"caller must allocate (num_ctas, 16, 2) int64"
+    )
     assert num_ctas == slice_ctas * num_k_tiles * num_seqs, (
         f"num_ctas {num_ctas} != slice_ctas*num_k_tiles*num_seqs "
         f"{slice_ctas*num_k_tiles*num_seqs}"
@@ -192,11 +208,19 @@ def reduce_region_timings(
                 active_ids = all_ids
             cta_class = "barrier_wait"
         elif r in DYNAMIC_SINGLE_CTA_REGIONS:
-            # R12 (phase1_gather_reduce) is the elected single-CTA
-            # gather. Even with wo_split>1 only one CTA writes a tick;
-            # nonzero filter handles it. Mask is all_ids.
+            # R12 (phase1_gather_reduce) and R15 (B':
+            # phase3_3d_last_cta_gather) are elected single-CTA gathers.
+            # Even with wo_split>1 only one CTA per (bz, by) writes a
+            # tick; nonzero filter handles it. Mask is all_ids.
             active_ids = all_ids
             cta_class = "dynamic_single"
+        elif r in KERNEL_BOUNDARY_REGIONS:
+            # B' R13 (prologue_pre_r0) + R14 (epilogue_post_r10): all 64
+            # CTAs write on tid==0. Classed separately from phase3 work
+            # so summaries can quote "kernel-boundary overhead" without
+            # double-counting against the work fraction.
+            active_ids = all_ids
+            cta_class = "kernel_boundary"
         else:
             active_ids = all_ids
             cta_class = "phase3"
@@ -251,4 +275,28 @@ def reduce_region_timings(
             median_us=median_us,
             frac_of_kernel=frac,
         ))
-    return pd.DataFrame([row.__dict__ for row in rows])
+    df = pd.DataFrame([row.__dict__ for row in rows])
+
+    # ===== B' instrumentation (2026-05-16) =====
+    # wall_minus_regions_us = host_launch_wall_us
+    #                       - sum(median_us for r in 0..15
+    #                             if r not in WAIT_NOT_WORK_REGIONS)
+    # Quantifies the budget NOT accounted for by per-region tags after
+    # the B' additions (R13/R14/R15). Negative means the per-CTA medians
+    # exceed the launch wall — expected when many regions are concurrent
+    # across CTAs; report raw for transparency.
+    # Column populated for every row (constant per call); NaN when
+    # host_launch_wall_us is not supplied or median_us is NaN.
+    if host_launch_wall_us is not None and tick_source == "globaltimer":
+        # Sum medians over WORK regions only (exclude wait/barrier).
+        work_mask = ~df["region_id"].isin(WAIT_NOT_WORK_REGIONS)
+        # median_us is NaN when nsys_total_us was not supplied. Recompute
+        # median_us locally from median_ticks for the wall delta so the
+        # column is populated even without an nsys calibration.
+        median_us_for_sum = df.loc[work_mask, "median_ticks"] / 1000.0
+        sum_work_us = float(median_us_for_sum.sum())
+        df["wall_minus_regions_us"] = float(host_launch_wall_us) - sum_work_us
+    else:
+        df["wall_minus_regions_us"] = float("nan")
+
+    return df

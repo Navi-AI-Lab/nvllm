@@ -37,7 +37,9 @@ LOG2_E = 1.4426950408889634
 # regions × 2 slots (entry/exit) × 8 bytes (u64).
 # Must match _REGION_TIMING_NUM_REGIONS in _backend.py and
 # REGION_NAMES len in region_timing.py.
-_REGION_TIMING_PER_CTA_STRIDE = 13 * 2 * 8  # 208 bytes
+# B' instrumentation (2026-05-16): bumped 13 -> 16 to add
+#   R13 prologue_pre_r0, R14 epilogue_post_r10, R15 last-CTA gather.
+_REGION_TIMING_PER_CTA_STRIDE = 16 * 2 * 8  # 256 bytes
 
 
 # --- CuTe DSL import guard (mirrors kernel.py / mlp_kernel.py) --------------
@@ -355,7 +357,16 @@ class PhaseE_Beta_Kernel:
         )
         # Number of measured regions; matches the host reducer in
         # vllm/v1/attention/backends/cute_paged/region_timing.py.
-        self._region_timing_num_regions = 13
+        # B' instrumentation (2026-05-16): R0..R15 (+R13 prologue,
+        # +R14 epilogue, +R15 elected-CTA gather inside R10).
+        self._region_timing_num_regions = 16
+
+        # ===== B' instrumentation (2026-05-16): host-side launch wall ====
+        # Per-call CUDA event pair (start, end) recorded around the
+        # cooperative launch when region timing is enabled. Drained by
+        # drain_launch_walls_us() after torch.cuda.synchronize(). Gated
+        # on _region_timing_enabled so the production path pays nothing.
+        self._launch_event_pairs: list = []
 
     # -----------------------------------------------------------------
     # Python-level debug entry point (phase-0-only).
@@ -3135,8 +3146,50 @@ class PhaseE_Beta_Kernel:
         # mlp_partial_fp32.zero_()  # large FP32 — hangs capture
         # wo_output.zero_()         # large FP32 — hangs capture (presumed)
 
-        self._compiled_phase_coop_full(*all_args)
+        # ===== B' instrumentation (2026-05-16): host-side launch wall =====
+        # Wrap the cooperative launch in an NVTX range + a CUDA event pair
+        # so the caller can quantify the host-side launch overhead that no
+        # in-kernel R-tag can ever see. Gated on _region_timing_enabled —
+        # the production path falls straight through to the bare launch.
+        if self._region_timing_enabled:
+            stream_obj = torch.cuda.current_stream()
+            start_evt = torch.cuda.Event(enable_timing=True)
+            end_evt = torch.cuda.Event(enable_timing=True)
+            torch.cuda.nvtx.range_push("phase_e_beta_kernel")
+            start_evt.record(stream_obj)
+            self._compiled_phase_coop_full(*all_args)
+            end_evt.record(stream_obj)
+            torch.cuda.nvtx.range_pop()
+            self._launch_event_pairs.append((start_evt, end_evt))
+        else:
+            self._compiled_phase_coop_full(*all_args)
         return None
+
+    # -----------------------------------------------------------------
+    # B' instrumentation (2026-05-16): drain CUDA-event launch walls.
+    # -----------------------------------------------------------------
+    def drain_launch_walls_us(self) -> list:
+        """Drain queued (start, end) CUDA events into per-call walls (μs).
+
+        Synchronizes the current stream first to guarantee event.record
+        completion, then computes elapsed_time (which is milliseconds in
+        torch.cuda.Event API) and converts to μs. Returns a list of
+        floats; clears the internal queue so a subsequent call returns
+        only newly-recorded pairs. Safe to call when timing is disabled
+        (returns an empty list).
+        """
+        if not self._launch_event_pairs:
+            return []
+        torch.cuda.synchronize()
+        walls_us: list = []
+        for start_evt, end_evt in self._launch_event_pairs:
+            ms = start_evt.elapsed_time(end_evt)
+            assert isinstance(ms, float), (
+                f"got {type(ms).__name__}: {ms!r} (expected float ms)"
+            )
+            walls_us.append(ms * 1000.0)
+        self._launch_event_pairs.clear()
+        return walls_us
 
     # -----------------------------------------------------------------
     # Phase E.1 follow-up #1 — shared β-coop compile cache.
@@ -3446,6 +3499,32 @@ class PhaseE_Beta_Kernel:
             lane = cute.arch.lane_idx()
             warp = cute.arch.warp_idx()
             tid = warp * Int32(32) + lane
+
+            # ===== B' R13 entry: kernel prologue (pre-R0). =====
+            # B' instrumentation (2026-05-16, fix-up 2026-05-16): captures
+            # the kernel body's very first runtime instant, immediately
+            # after thread/block indices are available. The interval
+            # [R13.entry, R13.exit] thus measures group/sub derivation +
+            # seq_idx assignment + SMEM symbol resolution (q_smem,
+            # k_smem, v_smem, sync_o, sync_md) — all the runtime work
+            # that happens BEFORE any instrumented region (R0). All 64
+            # CTAs, tid==0 only.
+            if region_timing_enabled:
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry_p13 = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(13 * 2 * 8)              # region 13
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry_p13,
+                    )
+
             group = lane >> Int32(2)
             sub = lane & Int32(3)
 
@@ -3466,6 +3545,27 @@ class PhaseE_Beta_Kernel:
                 smem + Int32(self._sync_o_small_offset))
             sync_md = shared_ptr_to_i64(
                 smem + Int32(self._sync_md_small_offset))
+
+            # ===== B' R13 exit: just before R0 entry. =====
+            # The interval [R13.entry, R13.exit] measures the time spent
+            # in the kernel epilogue's mirror — i.e. arg unpacking, SMEM
+            # symbol resolution, derived constants — before the kernel
+            # touches R0's active-CTA gate.
+            if region_timing_enabled:
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit_p13 = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(13 * 2 * 8)              # region 13
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit_p13,
+                    )
 
             # Region 0: Phase 0 (pre-attn). Active CTA mask: bx==0 && by==0
             # (single CTA per seq — see phase_e_kernel.py:2689). Other CTAs
@@ -5369,6 +5469,28 @@ class PhaseE_Beta_Kernel:
             is_last = Int32(last_flag_u32) == Int32(1)
 
             if is_last:
+                # ===== B' R15 entry: elected-CTA gather inside R10. =====
+                # B' instrumentation (2026-05-16): splits the previously
+                # hidden last-CTA gather work out of R10's median. Only
+                # 1 CTA per (bz, by) records a tick — dynamic_single mask
+                # in the host reducer. R10 now bounds "wait for last CTA
+                # + tag-only overhead"; R15 bounds "actual gather + reset".
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_entry_p15 = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(15 * 2 * 8)              # region 15
+                            + Int64(0 * 8),                  # slot 0 = entry
+                            t_entry_p15,
+                        )
+
                 if cutlass.const_expr(self._threads_per_row == 1):
                     rpt = self._rows_per_thread
                     rows_per_thread = Int32(rpt)
@@ -5435,6 +5557,26 @@ class PhaseE_Beta_Kernel:
                         Int32(0) - slice_ctas,
                     )
 
+                # ===== B' R15 exit: end of elected-CTA gather. =====
+                # Closes the dynamic_single region inside R10. Placed
+                # AFTER the counter reset so the reset's atomic_add cost
+                # is attributed to R15 (it's part of last-CTA-only work).
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_exit_p15 = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(15 * 2 * 8)              # region 15
+                            + Int64(1 * 8),                  # slot 1 = exit
+                            t_exit_p15,
+                        )
+
             # Region 10 exit: kernel exit (Phase 3 end). All 64 CTAs.
             # Closes Region 10 which spans Phase 3.4 (per-k-tile arrival
             # counter increment, last-CTA gather, and FULL-graph counter
@@ -5456,6 +5598,28 @@ class PhaseE_Beta_Kernel:
                         t_exit,
                     )
 
+            # ===== B' R14 entry: kernel epilogue (post-R10). =====
+            # B' instrumentation (2026-05-16): captures any work
+            # between R10 exit and the kernel's return. On the current
+            # tree this is just teardown (no Phase 4), so R14 should be
+            # near-zero — but the tag locks in that invariant. All 64
+            # CTAs, tid==0 only.
+            if region_timing_enabled:
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry_p14 = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(14 * 2 * 8)              # region 14
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry_p14,
+                    )
+
             # =================================================================
             # C1.5: Phase 4 (secondary barrier + ε epilogue + next-layer
             # input_LN bake) deleted. Kernel ends at the Phase 3 MLP write
@@ -5471,3 +5635,23 @@ class PhaseE_Beta_Kernel:
             # 2026-04-30); phase1_arrival_count is reset inside Phase 1
             # Phase C (see _kernel_phase_01).
             # =================================================================
+
+            # ===== B' R14 exit: very last write before kernel return. =====
+            # MUST be the final instrumented op in the kernel body. If
+            # any code is added below this in the future, the R14 exit
+            # must be moved to remain the last write.
+            if region_timing_enabled:
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_exit_p14 = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(14 * 2 * 8)              # region 14
+                        + Int64(1 * 8),                  # slot 1 = exit
+                        t_exit_p14,
+                    )

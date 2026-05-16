@@ -60,7 +60,9 @@ _VERIFY_FRAMEWORK_OUTPUTS: bool = os.environ.get("CUTE_VERIFY_FW", "0") == "1"
 _REGION_TIMING_ENABLED = (
     os.environ.get("CUTE_BETA_REGION_TIMING", "0") == "1"
 )
-_REGION_TIMING_NUM_REGIONS = 13
+# B' instrumentation (2026-05-16): 13 -> 16 (R13 prologue_pre_r0,
+# R14 epilogue_post_r10, R15 phase3_3d_last_cta_gather).
+_REGION_TIMING_NUM_REGIONS = 16
 
 # CuTe DSL disk cache — runtime hookup. Without this call, the env vars
 # B12X_CUTE_COMPILE_DISK_CACHE and B12X_CUTE_COMPILE_CACHE_DIR are inert
@@ -1603,6 +1605,24 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 torch.ops.vllm.cute_paged_reset_wo_output(
                     self._phase_e_coop_wo_output, nat
                 )
+                # B' (2026-05-16): zero the populated slice of
+                # region_timing_buf before each β-coop launch. Without
+                # this, dynamic_single regions (R12 phase1_gather_reduce,
+                # R15 phase3_3d_last_cta_gather) only overwrite the ONE
+                # CTA elected this launch — and the host reducer's
+                # `delta > 0` nonzero filter then picks up every CTA
+                # that was ever elected across the buf's lifetime,
+                # inflating n_active over time. All-CTA regions
+                # (R0..R11, R13, R14) overwrite every active row per
+                # launch and don't have this issue, but zeroing them is
+                # harmless. Gated on timing-enabled so production pays
+                # nothing.
+                if self._phase_e_coop_region_timing is not None:
+                    self._phase_e_coop_region_timing[
+                        : nat
+                        * self._phase_e_coop_kernel.slice_ctas
+                        * self._phase_e_coop_kernel.num_k_tiles
+                    ].zero_()
                 with record_function(
                     f"PhaseE_Beta.coop.{_layer_name}"
                 ):
@@ -2033,10 +2053,36 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
                 out_path = "/root/.cache/vllm/region_timings.npy"
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 np.save(out_path, buf)
-                logger.warning(
-                    "[β-coop region timing] dumped %d bytes (shape=%s) to %s",
-                    buf.nbytes, buf.shape, out_path,
+                # B' (2026-05-16): also drain the host-side launch-wall
+                # CUDA-event pairs accumulated by run_beta_coop_full and
+                # save them alongside region_timings.npy. The reducer
+                # uses the last value as host_launch_wall_us to populate
+                # wall_minus_regions_us. drain_launch_walls_us() syncs
+                # the stream first; safe inside this dump path because
+                # we're past the cute kernel launch for this step.
+                walls_us = (
+                    self._phase_e_coop_kernel.drain_launch_walls_us()
                 )
+                if walls_us:
+                    walls_path = "/root/.cache/vllm/host_launch_walls.npy"
+                    np.save(
+                        walls_path,
+                        np.asarray(walls_us, dtype=np.float64),
+                    )
+                    logger.warning(
+                        "[β-coop region timing] dumped %d bytes "
+                        "(shape=%s) to %s + %d host launch wall(s) "
+                        "to %s (last_wall_us=%.3f)",
+                        buf.nbytes, buf.shape, out_path,
+                        len(walls_us), walls_path, walls_us[-1],
+                    )
+                else:
+                    logger.warning(
+                        "[β-coop region timing] dumped %d bytes "
+                        "(shape=%s) to %s (no host launch walls "
+                        "drained — queue was empty)",
+                        buf.nbytes, buf.shape, out_path,
+                    )
             finally:
                 # Always clear the sentinel so we don't dump every step.
                 try:
