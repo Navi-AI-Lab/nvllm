@@ -68,9 +68,9 @@ _REGION_TIMING_NUM_REGIONS = 13
 # CompileCallable._compile so that subsequent cute.compile() calls
 # consult the on-disk cache before invoking NVRTC.
 #
-# Build-time warmup (vllm/v1/attention/backends/cute_paged/warmup.py:43)
-# already calls this; the runtime path historically did not, which is why
-# the runtime container could not benefit from a build-time-warmed cache.
+# Historical note: build-time warmup was retired with the FULL+blessed AOT
+# cache work (see docs/research/2026-04-29-full-graph-spike/); the runtime
+# now consults the disk cache directly via this hook.
 if os.environ.get("B12X_CUTE_COMPILE_DISK_CACHE", "0") == "1":
     from vllm.v1.attention.backends.cute_paged.disk_cache import (
         apply_disk_cache_patch,
