@@ -1031,8 +1031,11 @@ class GPUModelRunner(
         Called from gpu_worker.py outside the CuMem pool context.
         """
         self._kv_block_zeroer = KVBlockZeroer(self.device, self.pin_memory)
+        # Materialize the attn-groups iterator so KVBlockZeroer can walk it
+        # twice (once for full-attn segments, once for Mamba state tensors).
+        attn_groups_list = list(self._kv_cache_spec_attn_group_iterator())
         self._kv_block_zeroer.init_meta(
-            attn_groups_iter=self._kv_cache_spec_attn_group_iterator(),
+            attn_groups_iter=attn_groups_list,
             kernel_block_sizes=self._kernel_block_sizes,
             cache_dtype=self.cache_config.cache_dtype,
             runner_only_attn_layers=self.runner_only_attn_layers,

@@ -77,6 +77,95 @@ def _zero_kv_blocks_kernel(
     tl.store(ptr + offset + cols, tl.zeros([BLOCK_SIZE], dtype=tl.int32))
 
 
+# Ops-visibility counter for the SSM zero-on-realloc pass. Logged at first
+# fire (count==1) and every 100th fire thereafter. Module-global; survives
+# across requests within a worker process. EngineCore strips env vars on
+# subprocess spawn, so this is intentionally not env-gated.
+_SSM_ZERO_FIRE_COUNT = 0
+
+
+def _ssm_zero_fired(n_block_ids: int) -> None:
+    """Increment fire counter and log at first fire + every 100th."""
+    global _SSM_ZERO_FIRE_COUNT
+    _SSM_ZERO_FIRE_COUNT += 1
+    if _SSM_ZERO_FIRE_COUNT == 1:
+        logger.info(
+            "nvllm.ssm_zero_on_realloc.first_fire n_block_ids=%d",
+            n_block_ids,
+        )
+    elif _SSM_ZERO_FIRE_COUNT % 100 == 0:
+        logger.info(
+            "nvllm.ssm_zero_on_realloc.fire_count count=%d",
+            _SSM_ZERO_FIRE_COUNT,
+        )
+
+
+class MambaBlockZeroer:
+    """Zeroes Mamba conv_state / ssm_state rows for given block IDs.
+
+    Mamba state tensors have a per-layer leading "block" dim equal to the
+    number of blocks; row ``[block_id]`` is one block of state. The full-attn
+    KVBlockZeroer Triton kernel assumes a uniform page size across all
+    registered segments, which does not hold once Mamba layers are mixed in
+    (conv vs ssm vs attn page sizes all differ). This zeroer instead uses
+    PyTorch index-assignment per registered state tensor: simple, idempotent,
+    and called only at request-free / block-realloc time (not in the hot
+    decode path).
+    """
+
+    def __init__(self, device: torch.device, pin_memory: bool):
+        self.device = device
+        self.pin_memory = pin_memory
+        self._tensors: list[torch.Tensor] = []
+
+    def init_meta(
+        self,
+        attn_groups_iter: Iterable["AttentionGroup"],
+        static_forward_context: dict[str, Any],
+    ) -> None:
+        seen: set[int] = set()
+        for group in attn_groups_iter:
+            spec = group.kv_cache_spec
+            if not isinstance(spec, MambaSpec):
+                continue
+            for layer_name in group.layer_names:
+                layer = static_forward_context.get(layer_name, None)
+                if layer is None:
+                    continue
+                kv = getattr(layer, "kv_cache", None)
+                # Mamba layers bind kv_cache as a list/tuple of state tensors
+                # (conv_state, ssm_state, ...). Each tensor's leading dim is
+                # num_blocks.
+                if not isinstance(kv, (list, tuple)):
+                    continue
+                for state in kv:
+                    if not isinstance(state, torch.Tensor):
+                        continue
+                    key = state.data_ptr()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    self._tensors.append(state)
+
+    def zero_block_ids(self, block_ids: list[int]) -> None:
+        if not block_ids or not self._tensors:
+            return
+        # Same-step block_ids are tiny (<= max_num_seqs), so a fresh tensor is
+        # cheaper than a pinned buffer. Hybrid configs use a single block-id
+        # space (uniform page-size padding), so IDs from any per-spec manager
+        # are valid for every per-spec tensor; we defensively filter to each
+        # tensor's leading dim to survive future config drift.
+        idx_cpu = torch.tensor(block_ids, dtype=torch.long)
+        for state in self._tensors:
+            n = state.shape[0]
+            mask = (idx_cpu >= 0) & (idx_cpu < n)
+            local_ids = idx_cpu[mask] if not mask.all() else idx_cpu
+            if local_ids.numel() == 0:
+                continue
+            idx_gpu = local_ids.to(device=self.device, non_blocking=True)
+            state.index_fill_(0, idx_gpu, 0)
+
+
 class KVBlockZeroer:
     """Manages efficient zeroing of KV cache blocks via a Triton kernel.
 
@@ -92,6 +181,7 @@ class KVBlockZeroer:
         self._id_cap: int = 0
         self._ids_pinned: torch.Tensor | None = None
         self._ids_gpu: torch.Tensor | None = None
+        self._mamba_zeroer: MambaBlockZeroer | None = None
 
     def init_meta(
         self,
@@ -112,8 +202,21 @@ class KVBlockZeroer:
         PAGE_SIZE_EL accounts for this ratio so that
         ``block_id * PAGE_SIZE_EL`` lands at the correct offset.
 
-        Only AttentionSpec layers are processed; Mamba layers are skipped.
+        Full-attention layers go through the Triton zeroing kernel below.
+        Mamba layers are handed off to MambaBlockZeroer for a per-tensor
+        PyTorch ``index_fill_`` because the conv / ssm page sizes differ from
+        the full-attn page size and cannot share PAGE_SIZE_EL.
         """
+        # Materialize the iterator so it can be walked twice (full-attn here +
+        # mamba in MambaBlockZeroer.init_meta below). gpu_model_runner.py
+        # already passes a list; this is defensive against other callers.
+        if not isinstance(attn_groups_iter, (list, tuple)):
+            attn_groups_iter = list(attn_groups_iter)
+
+        # Set up sister zeroer for Mamba layers BEFORE the full-attn walk.
+        self._mamba_zeroer = MambaBlockZeroer(self.device, self.pin_memory)
+        self._mamba_zeroer.init_meta(attn_groups_iter, static_forward_context)
+
         seen_ptrs: set[int] = set()
         seg_addrs: list[int] = []
         page_size_el: int | None = None
@@ -188,6 +291,13 @@ class KVBlockZeroer:
 
     def zero_block_ids(self, block_ids: list[int]) -> None:
         """Zero the KV cache memory for the given block IDs."""
+        # Mamba layers are zeroed via PyTorch index_fill_; the sister zeroer
+        # tolerates the full block-ID list because it filters per-tensor by
+        # leading dim. Runs unconditionally so recycled conv_state / ssm_state
+        # rows are cleared before the next prefill writes into them.
+        if block_ids and self._mamba_zeroer is not None:
+            self._mamba_zeroer.zero_block_ids(block_ids)
+            _ssm_zero_fired(len(block_ids))
         if not block_ids or self._meta is None:
             return
         seg_addrs, page_size_el, blk_size, n_segs = self._meta
