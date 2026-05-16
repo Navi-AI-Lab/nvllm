@@ -159,7 +159,8 @@ done
 
 GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 IMAGE_ID="$(docker images --format '{{.Repository}}:{{.Tag}}@{{.ID}}' "$NVLLM_IMAGE" | head -n1)"
-IMAGE_DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$NVLLM_IMAGE" 2>/dev/null || echo "no-digest")"
+IMAGE_DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$NVLLM_IMAGE" 2>/dev/null || true)"
+IMAGE_DIGEST="${IMAGE_DIGEST:-no-digest}"
 HOST_DRIVER="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 || echo "unknown")"
 HOST_KERNEL="$(uname -r 2>/dev/null || echo unknown)"
 HOST_NAME="$(hostname 2>/dev/null || echo unknown)"
