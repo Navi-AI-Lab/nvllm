@@ -1,0 +1,15 @@
+{
+  "out_dir": "/tmp/ssm_ablation_suite_v2",
+  "git_sha": "670724746c596f6c095970c4d50b82e6328423db",
+  "image": "nvllm:gb10-d2_7",
+  "n_runs": 5,
+  "gsm8k_floor": 45,
+  "patched_repo": "/tmp/nvllm-ssm-sentinel-patched",
+  "sentinels_root": "/tmp/nvllm-ablation-sentinels-v2",
+  "arms": [
+    {"arm": "both", "ssm_sentinel": 1, "kv_sentinel": 1, "gate_pass": "true", "correct_per_run": "48,48,48,48,48", "verdict": "/tmp/ssm_ablation_suite_v2/both/verdict.json"},
+    {"arm": "neither", "ssm_sentinel": 0, "kv_sentinel": 0, "gate_pass": "true", "correct_per_run": "48,48,48,48,48", "verdict": "/tmp/ssm_ablation_suite_v2/neither/verdict.json"},
+    {"arm": "ssm_only", "ssm_sentinel": 1, "kv_sentinel": 0, "gate_pass": "true", "correct_per_run": "48,48,48,48,48", "verdict": "/tmp/ssm_ablation_suite_v2/ssm_only/verdict.json"},
+    {"arm": "kv_only", "ssm_sentinel": 0, "kv_sentinel": 1, "gate_pass": "true", "correct_per_run": "47,47,47,47,47", "verdict": "/tmp/ssm_ablation_suite_v2/kv_only/verdict.json"}
+  ]
+}
