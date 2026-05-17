@@ -359,6 +359,122 @@ EOF
   rm -rf "$cache_dir" "$manifest_dir"
 }
 
+# ---- schema v2 (mounts[] + flat files[] with mount_id) tests ----
+
+test_verify_v2_pass() {
+  echo "[test] verify_v2_pass"
+  local vllm_root cute_root manifest_dir manifest
+  local sha_aot sha_ko
+  vllm_root=$(mktemp -d); cute_root=$(mktemp -d); manifest_dir=$(mktemp -d)
+  mkdir -p "$vllm_root/sub"
+  printf 'aot-bytes-padding' > "$vllm_root/sub/model"
+  printf 'kernel-object-padding' > "$cute_root/k.o"
+  sha_aot=$(sha256sum "$vllm_root/sub/model" | awk '{print $1}')
+  sha_ko=$(sha256sum "$cute_root/k.o" | awk '{print $1}')
+  manifest="$manifest_dir/m.json"
+  cat > "$manifest" <<EOF
+{
+  "schema_version": 2,
+  "config_hash": "x",
+  "mounts": [
+    {"id":"vllm_cache","host_path":"$vllm_root","container_path":"/root/.cache/vllm","mode":"ro"},
+    {"id":"cute_kernel_cache","host_path":"$cute_root","container_path":"/opt/vllm/kernel_cache","mode":"ro"}
+  ],
+  "files": [
+    {"relative_path":"sub/model","sha256":"$sha_aot","size_bytes":$(stat -c '%s' "$vllm_root/sub/model"),"role":"aot_model","mount_id":"vllm_cache"},
+    {"relative_path":"k.o","sha256":"$sha_ko","size_bytes":$(stat -c '%s' "$cute_root/k.o"),"role":"cute_native_object","mount_id":"cute_kernel_cache"}
+  ]
+}
+EOF
+  assert_exit_code "v2 verify passes" 0 nvllm_verify_blessed_cache "$manifest"
+  rm -rf "$vllm_root" "$cute_root" "$manifest_dir"
+}
+
+test_verify_v2_fail_on_cute_sha_drift() {
+  echo "[test] verify_v2_fail_on_cute_sha_drift"
+  local vllm_root cute_root manifest_dir manifest sha_aot
+  vllm_root=$(mktemp -d); cute_root=$(mktemp -d); manifest_dir=$(mktemp -d)
+  mkdir -p "$vllm_root/sub"
+  printf 'aot' > "$vllm_root/sub/model"
+  printf 'kernel-obj' > "$cute_root/k.o"
+  sha_aot=$(sha256sum "$vllm_root/sub/model" | awk '{print $1}')
+  manifest="$manifest_dir/m.json"
+  cat > "$manifest" <<EOF
+{
+  "schema_version": 2,
+  "config_hash": "x",
+  "mounts": [
+    {"id":"vllm_cache","host_path":"$vllm_root","container_path":"/root/.cache/vllm","mode":"ro"},
+    {"id":"cute_kernel_cache","host_path":"$cute_root","container_path":"/opt/vllm/kernel_cache","mode":"ro"}
+  ],
+  "files": [
+    {"relative_path":"sub/model","sha256":"$sha_aot","size_bytes":3,"role":"aot_model","mount_id":"vllm_cache"},
+    {"relative_path":"k.o","sha256":"00deadbeef00","size_bytes":10,"role":"cute_native_object","mount_id":"cute_kernel_cache"}
+  ]
+}
+EOF
+  assert_exit_code "v2 verify fails on cute sha drift" 1 nvllm_verify_blessed_cache "$manifest"
+  rm -rf "$vllm_root" "$cute_root" "$manifest_dir"
+}
+
+test_verify_v2_fail_on_unknown_mount_id() {
+  echo "[test] verify_v2_fail_on_unknown_mount_id"
+  local vllm_root manifest_dir manifest sha
+  vllm_root=$(mktemp -d); manifest_dir=$(mktemp -d)
+  mkdir -p "$vllm_root/sub"
+  printf 'aot' > "$vllm_root/sub/model"
+  sha=$(sha256sum "$vllm_root/sub/model" | awk '{print $1}')
+  manifest="$manifest_dir/m.json"
+  cat > "$manifest" <<EOF
+{
+  "schema_version": 2,
+  "config_hash": "x",
+  "mounts": [
+    {"id":"vllm_cache","host_path":"$vllm_root","container_path":"/root/.cache/vllm","mode":"ro"}
+  ],
+  "files": [
+    {"relative_path":"sub/model","sha256":"$sha","size_bytes":3,"role":"aot_model","mount_id":"ghost_cache"}
+  ]
+}
+EOF
+  assert_exit_code "v2 verify fails on unknown mount_id" 1 nvllm_verify_blessed_cache "$manifest"
+  rm -rf "$vllm_root" "$manifest_dir"
+}
+
+test_verify_v2_fail_on_missing_mount_host_path() {
+  echo "[test] verify_v2_fail_on_missing_mount_host_path"
+  local manifest_dir manifest
+  manifest_dir=$(mktemp -d)
+  manifest="$manifest_dir/m.json"
+  cat > "$manifest" <<EOF
+{
+  "schema_version": 2,
+  "config_hash": "x",
+  "mounts": [
+    {"id":"vllm_cache","host_path":"/nonexistent/path/that/cannot/exist","container_path":"/root/.cache/vllm","mode":"ro"}
+  ],
+  "files": [
+    {"relative_path":"sub/model","sha256":"x","size_bytes":1,"role":"aot_model","mount_id":"vllm_cache"}
+  ]
+}
+EOF
+  assert_exit_code "v2 verify fails on missing mount host_path" 1 nvllm_verify_blessed_cache "$manifest"
+  rm -rf "$manifest_dir"
+}
+
+test_verify_unsupported_schema_rejected() {
+  echo "[test] verify_unsupported_schema_rejected"
+  local cache_dir manifest_dir manifest
+  cache_dir=$(mktemp -d); manifest_dir=$(mktemp -d)
+  manifest="$manifest_dir/m.json"
+  cat > "$manifest" <<EOF
+{"schema_version":999,"config_hash":"x","mounts":[],"files":[]}
+EOF
+  assert_exit_code "verify rejects schema_version=999" 1 \
+    nvllm_verify_blessed_cache "$manifest"
+  rm -rf "$cache_dir" "$manifest_dir"
+}
+
 # ---- refuse_* tests ----
 
 test_refuse_no_manifest_exits_1_with_hint() {
@@ -439,6 +555,11 @@ main() {
   test_verify_cache_fail_on_missing
   test_verify_cache_fail_on_zero_byte
   test_verify_cache_fail_on_empty_files_array
+  test_verify_v2_pass
+  test_verify_v2_fail_on_cute_sha_drift
+  test_verify_v2_fail_on_unknown_mount_id
+  test_verify_v2_fail_on_missing_mount_host_path
+  test_verify_unsupported_schema_rejected
   test_refuse_no_manifest_exits_1_with_hint
   test_refuse_cache_drift_exits_1_with_diagnostic
   test_refuse_unsafe_dev_manifest_exits_1

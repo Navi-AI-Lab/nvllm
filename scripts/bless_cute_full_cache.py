@@ -219,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest_root=manifest_root,
             cfg=cfg,
             resolved_paths=ph1["resolved_paths"],
+            cute_files=ph1.get("cute_files", []),
             trial_results=results,
             launch_config=launch_config,
             archive_root=blessed_root,
@@ -243,10 +244,30 @@ PHASE1_PROMPT = "The capital of France is"
 PHASE1_MAX_TOKENS = 8
 
 
+MOUNT_ID_VLLM_CACHE = "vllm_cache"
+MOUNT_ID_CUTE_CACHE = "cute_kernel_cache"
+
+# Mount container paths must match build_phase1_docker_args / serve-cute-full.sh.
+MOUNT_CONTAINER_PATH = {
+    MOUNT_ID_VLLM_CACHE: "/root/.cache/vllm",
+    MOUNT_ID_CUTE_CACHE: "/opt/vllm/kernel_cache",
+}
+
+# Subdirectory under staging_dir where Phase 1 close-out copies the CuTe
+# .o cache. Becomes the host root for the cute_kernel_cache mount in the
+# blessed dir.
+STAGING_CUTE_SUBDIR = "cute_kernel_cache"
+
+
 def expected_cache_files() -> list[dict[str, str]]:
-    """Return the 4 expected files (relative_path may be a glob — torch's
-    AOT artifact path includes a hash that varies per torch/vLLM version;
-    Phase 1 resolves the actual path post-bootstrap)."""
+    """Return the expected vllm_cache files (relative_path may be a glob
+    — torch's AOT artifact path includes a hash that varies per torch/vLLM
+    version; Phase 1 resolves the actual path post-bootstrap).
+
+    CuTe kernel cache files (cute_native_object role) are enumerated
+    dynamically by enumerate_cute_kernel_cache_files() — they have no
+    fixed glob and there can be many.
+    """
     return [
         {"role": "aot_model",
          "relative_path_glob":
@@ -260,6 +281,65 @@ def expected_cache_files() -> list[dict[str, str]]:
         {"role": "model_info",
          "relative_path_glob": "modelinfos/*.json"},
     ]
+
+
+def copy_cute_kernel_cache_into_staging(
+    cute_host_cache: Path, staging_dir: Path
+) -> Path:
+    """Copy the CuTe DSL disk cache (.o + sidecar files) from its host
+    location into staging_dir/cute_kernel_cache/ so the blessed-cache dir
+    becomes the single source of truth for production serve.
+
+    Treating the blessed dir as the release artifact (rather than relying
+    on the separate /tmp/nvllm-cute-cache mount) eliminates the second
+    mutable host root that previously had its own lifecycle.
+
+    Returns the destination path. Empty cute_host_cache → empty dest
+    dir (callers should refuse the bless in that case).
+    """
+    dest = staging_dir / STAGING_CUTE_SUBDIR
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    if not cute_host_cache.is_dir():
+        return dest
+    for src in cute_host_cache.rglob("*"):
+        if src.is_dir():
+            continue
+        rel = src.relative_to(cute_host_cache)
+        out = dest / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, out)
+    return dest
+
+
+def enumerate_cute_kernel_cache_files(
+    cute_staging_dir: Path,
+) -> list[dict[str, object]]:
+    """List every file under the staged cute_kernel_cache dir as a
+    manifest file-entry. Each entry:
+        {role: "cute_native_object",
+         mount_id: "cute_kernel_cache",
+         relative_path: "<rel-to-cute-staging>",
+         sha256, size_bytes}
+
+    Order is sorted-by-relative-path for determinism.
+    """
+    if not cute_staging_dir.is_dir():
+        return []
+    entries: list[dict[str, object]] = []
+    for p in sorted(cute_staging_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        sha, size = _sha256_size(p)
+        entries.append({
+            "role": "cute_native_object",
+            "mount_id": MOUNT_ID_CUTE_CACHE,
+            "relative_path": str(p.relative_to(cute_staging_dir)),
+            "sha256": sha,
+            "size_bytes": size,
+        })
+    return entries
 
 
 def build_phase1_docker_args(
@@ -450,7 +530,16 @@ def phase1_bootstrap(
     cute_phase_e_layers: str = "0,1,2,3,4,5,6,7",
     bootstrap_log_path: Path,
 ) -> dict[str, Any]:
-    """Run Phase 1; return {'aot_sha': str, 'aot_size': int, 'resolved_paths': {role: rel_path}}."""
+    """Run Phase 1; return:
+        {'aot_sha': str,
+         'aot_size': int,
+         'resolved_paths': {role: rel_path},     # vllm_cache files
+         'cute_files': list[{role, mount_id, relative_path, sha256, size_bytes}]}
+
+    Phase 1 close-out also copies the CuTe DSL disk cache into
+    staging_dir/cute_kernel_cache/ so it ships as part of the blessed dir
+    (manifest schema v2).
+    """
     # Clean staging.
     if staging_dir.exists():
         _normalize_staging_permissions_for_host(staging_dir, image)
@@ -512,10 +601,26 @@ def phase1_bootstrap(
     aot_sha, aot_size = _sha256_size(aot_path)
     print(f"[bless/phase1] AOT model: {aot_path.relative_to(staging_dir)} "
           f"({aot_size} B, sha={aot_sha[:12]}…)", flush=True)
+
+    # Phase 1 close-out (schema v2): copy CuTe .o cache into staging dir
+    # so it ships as part of the blessed artifact, then enumerate it.
+    cute_dest = copy_cute_kernel_cache_into_staging(
+        cute_compile_host_cache, staging_dir
+    )
+    cute_files = enumerate_cute_kernel_cache_files(cute_dest)
+    if not cute_files:
+        raise RuntimeError(
+            "[bless/phase1] CuTe kernel cache is empty after Phase 1 "
+            f"(source={cute_compile_host_cache}). At least one "
+            "cute_native_object is required for schema v2."
+        )
+    print(f"[bless/phase1] CuTe kernel cache: {len(cute_files)} files "
+          f"copied into {cute_dest.relative_to(staging_dir)}/", flush=True)
     return {
         "aot_sha": aot_sha,
         "aot_size": aot_size,
         "resolved_paths": resolved,
+        "cute_files": cute_files,
     }
 
 
@@ -723,6 +828,7 @@ def _human_label_from_config(cfg: BlessConfig, model_id: str,
 def accept(
     *, staging_dir: Path, blessed_root: Path, manifest_root: Path,
     cfg: BlessConfig, resolved_paths: dict[str, str],
+    cute_files: list[dict[str, object]] | None = None,
     trial_results: list[TrialResult],
     launch_config: dict[str, Any],
     archive_root: Path | None = None,
@@ -752,14 +858,18 @@ def accept(
     blessed_root.mkdir(parents=True, exist_ok=True)
     manifest_root.mkdir(parents=True, exist_ok=True)
 
-    files = []
+    files: list[dict[str, object]] = []
     for role, rel in resolved_paths.items():
         full = staging_dir / rel
         sha, sz = _sha256_size(full)
         files.append({
             "relative_path": rel, "sha256": sha,
             "size_bytes": sz, "role": role,
+            "mount_id": MOUNT_ID_VLLM_CACHE,
         })
+    # cute_files entries (from enumerate_cute_kernel_cache_files) already
+    # carry role + mount_id + relative_path + sha + size.
+    files.extend(cute_files or [])
 
     blessed_dir = blessed_root / cfg.config_hash
 
@@ -787,7 +897,7 @@ def accept(
         replaces_artifact_sha256 = prev_aot_sha
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "config_hash": cfg.config_hash,
         "human_label": human_label,
         "blessed_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -798,11 +908,23 @@ def accept(
                if k != "human_label_inputs"},
             "model_revision_resolved": cfg.hf_revision,
         },
-        "mount": {
-            "host_path": str(blessed_dir),
-            "container_path": "/root/.cache/vllm",
-            "mode": "ro",
-        },
+        "mounts": [
+            {
+                "id": MOUNT_ID_VLLM_CACHE,
+                "host_path": str(blessed_dir),
+                "container_path": MOUNT_CONTAINER_PATH[MOUNT_ID_VLLM_CACHE],
+                "mode": "ro",
+            },
+            {
+                "id": MOUNT_ID_CUTE_CACHE,
+                # The cute_kernel_cache subdir lives inside blessed_dir;
+                # the production serve mounts that subdir at the container
+                # CuTe cache path.
+                "host_path": str(blessed_dir / STAGING_CUTE_SUBDIR),
+                "container_path": MOUNT_CONTAINER_PATH[MOUNT_ID_CUTE_CACHE],
+                "mode": "ro",
+            },
+        ],
         "files": files,
         "validation": {
             "trials": len(trial_results),

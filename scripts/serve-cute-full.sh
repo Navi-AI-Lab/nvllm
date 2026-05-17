@@ -109,6 +109,11 @@ BLESS_MOUNTED="false"
 MANIFEST_ENFORCED="false"
 CONFIG_HASH=""
 BLESSED_MANIFEST_CONTAINER_PATH="/opt/nvllm/blessed_manifest.json"
+# When a v2 manifest pins the CuTe .o cache, the blessed dir's
+# cute_kernel_cache subdir is mounted at /opt/vllm/kernel_cache and we
+# MUST NOT also bind-mount the host /tmp/nvllm-cute-cache (would shadow
+# the blessed mount, defeating the verify).
+BLESSED_OVERRIDES_CUTE_MOUNT="false"
 if [ "$DEBUG" -ne 1 ]; then
   IMAGE_ID=$(docker image inspect "$NVLLM_IMAGE" --format '{{.Id}}')
   HF_REVISION=$(nvllm_resolve_hf_revision "$HF_MODEL") || {
@@ -158,9 +163,24 @@ if [ "$DEBUG" -ne 1 ]; then
     fi
     echo "[blessed-cache] verify PASS — mounting :ro"
 
-    BLESSED_HOST_PATH=$(jq -r '.mount.host_path' "$MANIFEST_PATH")
-    BLESSED_HOST_PATH="${BLESSED_HOST_PATH/#\~/$HOME}"
-    BLESSED_MOUNT_ARGS=("-v" "${BLESSED_HOST_PATH}:/root/.cache/vllm:ro")
+    # Build mount args from manifest. v1: single .mount object. v2:
+    # .mounts[] array (each with host_path + container_path + mode).
+    MANIFEST_SCHEMA=$(jq -r '.schema_version // 1' "$MANIFEST_PATH")
+    BLESSED_MOUNT_ARGS=()
+    if [ "$MANIFEST_SCHEMA" = "1" ]; then
+      BLESSED_HOST_PATH=$(jq -r '.mount.host_path' "$MANIFEST_PATH")
+      BLESSED_HOST_PATH="${BLESSED_HOST_PATH/#\~/$HOME}"
+      BLESSED_MOUNT_ARGS+=("-v" "${BLESSED_HOST_PATH}:/root/.cache/vllm:ro")
+    else
+      # v2: iterate mounts[]. CuTe-cache mount shadows the host /tmp mount.
+      while IFS=$'\t' read -r m_id m_host m_container m_mode; do
+        m_host="${m_host/#\~/$HOME}"
+        BLESSED_MOUNT_ARGS+=("-v" "${m_host}:${m_container}:${m_mode}")
+        if [ "$m_id" = "cute_kernel_cache" ]; then
+          BLESSED_OVERRIDES_CUTE_MOUNT="true"
+        fi
+      done < <(jq -r '.mounts[] | "\(.id)\t\(.host_path)\t\(.container_path)\t\(.mode)"' "$MANIFEST_PATH")
+    fi
     # Mount manifest read-only into the container for the Python gate to
     # verify from inside, then enable strict mode (cold compile = hard fail).
     BLESSED_MOUNT_ARGS+=(
@@ -191,6 +211,14 @@ if [ "$DEBUG" -eq 1 ]; then echo "  Mode:        Debug (eager, no CUDA graphs, n
 if [ "$NO_BLESSED_VERIFY" -eq 1 ]; then echo "  Mode:        FULL+PIECEWISE cold (--no-blessed-verify diagnostic)"; fi
 echo ""
 
+# When the manifest (v2) provides its own cute_kernel_cache mount, skip
+# the host /tmp/nvllm-cute-cache bind-mount — otherwise it would shadow
+# the blessed mount and defeat the in-engine verify.
+HOST_CUTE_MOUNT_ARGS=()
+if [ "$BLESSED_OVERRIDES_CUTE_MOUNT" != "true" ]; then
+  HOST_CUTE_MOUNT_ARGS=("-v" "$CUTE_COMPILE_HOST_CACHE_DIR:/opt/vllm/kernel_cache")
+fi
+
 docker run -d \
   --name "$CONTAINER" \
   --gpus all \
@@ -198,7 +226,7 @@ docker run -d \
   --network host \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
-  -v "$CUTE_COMPILE_HOST_CACHE_DIR:/opt/vllm/kernel_cache" \
+  "${HOST_CUTE_MOUNT_ARGS[@]}" \
   "${BLESSED_MOUNT_ARGS[@]}" \
   "${BLESSED_GATE_ENV[@]}" \
   -e B12X_CUTE_COMPILE_DISK_CACHE=1 \
