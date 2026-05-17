@@ -62,7 +62,11 @@ _REGION_TIMING_ENABLED = (
 )
 # B' instrumentation (2026-05-16): 13 -> 16 (R13 prologue_pre_r0,
 # R14 epilogue_post_r10, R15 phase3_3d_last_cta_gather).
-_REGION_TIMING_NUM_REGIONS = 16
+# C' instrumentation (2026-05-16): 16 -> 19 (R16/R17/R18 per-call
+# accumulated sums of R7/R8/R9 across the slice loop).
+# C' rework (same day): 19 -> 20 (+R19 phase3_post_loop_atomic;
+# R9 brackets fixed + renamed phase3_3c_fc2_last_iter).
+_REGION_TIMING_NUM_REGIONS = 20
 
 # CuTe DSL disk cache — runtime hookup. Without this call, the env vars
 # B12X_CUTE_COMPILE_DISK_CACHE and B12X_CUTE_COMPILE_CACHE_DIR are inert

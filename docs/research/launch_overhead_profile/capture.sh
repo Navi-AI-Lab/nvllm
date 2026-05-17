@@ -39,7 +39,8 @@ case "$MODE" in
 esac
 
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-OUT_DIR="$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_attn/2026-05-16-launch-overhead-profile"
+# Override with NVLLM_OUT_DIR for fresh dated dirs (e.g. C' rework re-run).
+OUT_DIR="${NVLLM_OUT_DIR:-$REPO_ROOT/benchmarks/nvllm/traces/cute_paged_attn/2026-05-16-launch-overhead-profile}"
 # Default to nvllm:gb10-bprime (2026-05-16 clean build at commit 1953ebbb0):
 # contains wo_split=8 production, tier-1 cherry-picks, SSM zero-on-realloc,
 # qwen3_5.py sentinel-file workaround, AND PR #17 (B') instrumentation.
@@ -90,6 +91,14 @@ run_leg() {
     echo "CUTE_WO_SPLIT=8"
   } > /tmp/c2_diag/ENV
 
+  # C' rework hot-fix (2026-05-16): bind-mount the repo's β-coop kernel
+  # source over the image's editable install. This is a .py-only DSL fix;
+  # the C++/CUDA extensions in the image are unchanged. Per
+  # feedback_rebuild_guard, bind-mount is canonical for Python source edits.
+  # Provenance recorded below in the SERVE_LOG header.
+  local HOST_KERNEL="$REPO_ROOT/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py"
+  local CTR_KERNEL="/app/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py"
+
   docker run -d \
     --name "$CONTAINER" \
     --gpus all \
@@ -100,6 +109,7 @@ run_leg() {
     -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
     -v "$OUT_DIR:/tmp/profiles" \
     -v "/tmp/c2_diag:/tmp/c2_diag" \
+    -v "$HOST_KERNEL:$CTR_KERNEL:ro" \
     -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
     -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
     -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
@@ -150,6 +160,26 @@ run_leg() {
     docker logs --tail 200 "$CONTAINER" > "$SERVE_LOG" 2>&1 || true
     return 1
   fi
+
+  # === C' rework provenance: prove the bind-mount took effect ===
+  # Records (a) host source commit, (b) container's resolved module path,
+  # (c) sha256 of host file AND container-mounted file. If sha256s mismatch
+  # the bind-mount silently failed and the run must be discarded.
+  {
+    echo ""
+    echo "=== C' BIND-MOUNT PROVENANCE ($LABEL) ==="
+    echo "host_commit=$(git -C "$REPO_ROOT" rev-parse HEAD)"
+    echo "host_kernel=$HOST_KERNEL"
+    echo "host_sha256=$(sha256sum "$HOST_KERNEL" | awk '{print $1}')"
+    echo -n "ctr_module_file="
+    docker exec "$CONTAINER" python3 -c \
+      'import vllm.v1.attention.backends.cute_paged.phase_e_kernel as m; print(m.__file__)' \
+      2>&1 || echo "<resolve-failed>"
+    echo -n "ctr_sha256="
+    docker exec "$CONTAINER" sha256sum "$CTR_KERNEL" 2>&1 | awk '{print $1}' || echo "<sha-failed>"
+    echo "=== END PROVENANCE ==="
+    echo ""
+  } | tee -a "$CAPTURE_LOG"
 
   # Sidecar host watchdog (canary for OOM avoidance per skill).
   ( while :; do

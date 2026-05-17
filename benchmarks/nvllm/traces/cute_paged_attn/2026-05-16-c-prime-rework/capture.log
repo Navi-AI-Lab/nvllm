@@ -1,0 +1,328 @@
+[capture] mode=full legs=timing_on timing_off timed=200 max_tokens=64
+[capture] commit=cb9d1327f
+[capture] started 2026-05-16T14:22:54-04:00
+
+==============================================================
+=== Leg: timing_on (CUTE_BETA_REGION_TIMING=1)
+==============================================================
+[timing_on] container up; waiting for /v1/models (up to 20 min)...
+[timing_on] server ready at iter=48 (~240 s)
+[timing_on] warmup: 15 requests at bs=1 (max_time 600s for JIT)
+[timing_on]   warmup 1 timed out (ok during JIT)
+[timing_on]   warmup 2 timed out (ok during JIT)
+[timing_on]   warmup 3 timed out (ok during JIT)
+[timing_on]   warmup 4 timed out (ok during JIT)
+[timing_on]   warmup 5 timed out (ok during JIT)
+[timing_on]   warmup 6 timed out (ok during JIT)
+[timing_on]   warmup 7 timed out (ok during JIT)
+[timing_on]   warmup 8 timed out (ok during JIT)
+[timing_on]   warmup 9 timed out (ok during JIT)
+[timing_on]   warmup 10 timed out (ok during JIT)
+[timing_on]   warmup 11 timed out (ok during JIT)
+[timing_on]   warmup 12 timed out (ok during JIT)
+[timing_on]   warmup 13 timed out (ok during JIT)
+[timing_on]   warmup 14 timed out (ok during JIT)
+[timing_on]   warmup 15 timed out (ok during JIT)
+[timing_on] warmup done
+[timing_on] timed window: 200 reqs concurrent=1 max_tokens=64
+[warmup] 2 requests at concurrency 1
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/connection.py", line 103, in handle_async_request
+    return await self._connection.handle_async_request(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/http11.py", line 136, in handle_async_request
+    raise exc
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/http11.py", line 106, in handle_async_request
+    ) = await self._receive_response_headers(**kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/http11.py", line 177, in _receive_response_headers
+    event = await self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/http11.py", line 217, in _receive_event
+    data = await self._network_stream.read(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 32, in read
+    with map_exceptions(exc_map):
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ReadTimeout
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 106, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 76, in main
+    await burst(args.base_url, args.model, args.warmup, args.concurrent, args.max_tokens,
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 54, in burst
+    await asyncio.gather(*[one() for _ in range(n_requests)])
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 52, in one
+    return await send_one(client, base_url, model, max_tokens, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 28, in send_one
+    r = await client.post(
+        ^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ReadTimeout
+[capture] mode=full legs=timing_on timing_off timed=200 max_tokens=64
+[capture] commit=cb9d1327f
+[capture] started 2026-05-16T17:10:18-04:00
+
+==============================================================
+=== Leg: timing_on (CUTE_BETA_REGION_TIMING=1)
+==============================================================
+[timing_on] container up; waiting for /v1/models (up to 20 min)...
+[timing_on] server ready at iter=47 (~235 s)
+
+=== C' BIND-MOUNT PROVENANCE (timing_on) ===
+host_commit=cb9d1327fb6442541487e9c0e64339b1e033001b
+host_kernel=/home/natfii/docker/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py
+host_sha256=c1c5a5a4ab792e65b768104026dfc9a6e6a845ceadbfa331e2400ff2ccef8f94
+ctr_module_file=/app/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py
+ctr_sha256=c1c5a5a4ab792e65b768104026dfc9a6e6a845ceadbfa331e2400ff2ccef8f94
+=== END PROVENANCE ===
+
+[timing_on] warmup: 15 requests at bs=1 (max_time 600s for JIT)
+[timing_on]   warmup 1 timed out (ok during JIT)
+[timing_on]   warmup 2 timed out (ok during JIT)
+[timing_on]   warmup 3 timed out (ok during JIT)
+[timing_on]   warmup 4 timed out (ok during JIT)
+[timing_on]   warmup 5 timed out (ok during JIT)
+[timing_on]   warmup 6 timed out (ok during JIT)
+[timing_on]   warmup 7 timed out (ok during JIT)
+[timing_on]   warmup 8 timed out (ok during JIT)
+[timing_on]   warmup 9 timed out (ok during JIT)
+[timing_on]   warmup 10 timed out (ok during JIT)
+[timing_on]   warmup 11 timed out (ok during JIT)
+[timing_on]   warmup 12 timed out (ok during JIT)
+[timing_on]   warmup 13 timed out (ok during JIT)
+[timing_on]   warmup 14 timed out (ok during JIT)
+[timing_on]   warmup 15 timed out (ok during JIT)
+[timing_on] warmup done
+[timing_on] timed window: 200 reqs concurrent=1 max_tokens=64
+[warmup] 2 requests at concurrency 1
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/connection.py", line 103, in handle_async_request
+    return await self._connection.handle_async_request(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/http11.py", line 136, in handle_async_request
+    raise exc
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/http11.py", line 106, in handle_async_request
+    ) = await self._receive_response_headers(**kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/http11.py", line 177, in _receive_response_headers
+    event = await self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_async/http11.py", line 217, in _receive_event
+    data = await self._network_stream.read(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 32, in read
+    with map_exceptions(exc_map):
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ReadTimeout
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 106, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 76, in main
+    await burst(args.base_url, args.model, args.warmup, args.concurrent, args.max_tokens,
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 54, in burst
+    await asyncio.gather(*[one() for _ in range(n_requests)])
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 52, in one
+    return await send_one(client, base_url, model, max_tokens, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/docs/research/gemm_sweep/trace_workload.py", line 28, in send_one
+    r = await client.post(
+        ^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/natfii/docker/nvllm/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ReadTimeout
+[capture] mode=full legs=timing_on timing_off timed=200 max_tokens=64
+[capture] commit=cb9d1327f
+[capture] started 2026-05-16T19:55:31-04:00
+
+==============================================================
+=== Leg: timing_on (CUTE_BETA_REGION_TIMING=1)
+==============================================================
+[timing_on] container up; waiting for /v1/models (up to 20 min)...
+[timing_on] server ready at iter=41 (~205 s)
+
+=== C' BIND-MOUNT PROVENANCE (timing_on) ===
+host_commit=cb9d1327fb6442541487e9c0e64339b1e033001b
+host_kernel=/home/natfii/docker/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py
+host_sha256=6b88f5e927bfca142ab9327d4d369fb7ad42602cbe9d910aa1018afff0a8edc3
+ctr_module_file=/app/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py
+ctr_sha256=6b88f5e927bfca142ab9327d4d369fb7ad42602cbe9d910aa1018afff0a8edc3
+=== END PROVENANCE ===
+
+[timing_on] warmup: 15 requests at bs=1 (max_time 600s for JIT)
+[capture] mode=full legs=timing_on timing_off timed=200 max_tokens=64
+[capture] commit=cb9d1327f
+[capture] started 2026-05-16T20:04:36-04:00
+
+==============================================================
+=== Leg: timing_on (CUTE_BETA_REGION_TIMING=1)
+==============================================================
+[timing_on] container up; waiting for /v1/models (up to 20 min)...
+[timing_on] server ready at iter=41 (~205 s)
+
+=== C' BIND-MOUNT PROVENANCE (timing_on) ===
+host_commit=cb9d1327fb6442541487e9c0e64339b1e033001b
+host_kernel=/home/natfii/docker/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py
+host_sha256=dcc72dd38ebc840af197a3ef6091e9c3ac13c53779e08c643a7f93a458e7ab14
+ctr_module_file=/app/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py
+ctr_sha256=dcc72dd38ebc840af197a3ef6091e9c3ac13c53779e08c643a7f93a458e7ab14
+=== END PROVENANCE ===
+
+[timing_on] warmup: 15 requests at bs=1 (max_time 600s for JIT)
+[timing_on] warmup done
+[timing_on] timed window: 200 reqs concurrent=1 max_tokens=64
+[warmup] 2 requests at concurrency 1
+[profiler] started via http://localhost:8000/start_profile
+[timed]  200 requests at concurrency 1
+[timed]  elapsed=5219.49s, throughput=0.04 req/s
+[profiler] /stop_profile sent (fire-and-forget)
+[timing_on] CUPTI flush: sleeping 120s...
+[timing_on]   [flush +10s] trace size: 28726606 bytes
+[timing_on]   [flush +20s] trace size: 28726606 bytes
+[timing_on]   [flush +30s] trace size: 28726606 bytes
+[timing_on]   [flush +40s] trace size: 28726606 bytes
+[timing_on] dropping sentinel + drain request
+[timing_on] saved: timing_on.pt.trace.json.gz (28726606 bytes)
+
+==============================================================
+=== Leg: timing_off (CUTE_BETA_REGION_TIMING=0)
+==============================================================
+[timing_off] container up; waiting for /v1/models (up to 20 min)...
+[timing_off] server ready at iter=45 (~225 s)
+
+=== C' BIND-MOUNT PROVENANCE (timing_off) ===
+host_commit=cb9d1327fb6442541487e9c0e64339b1e033001b
+host_kernel=/home/natfii/docker/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py
+host_sha256=dcc72dd38ebc840af197a3ef6091e9c3ac13c53779e08c643a7f93a458e7ab14
+ctr_module_file=/app/nvllm/vllm/v1/attention/backends/cute_paged/phase_e_kernel.py
+ctr_sha256=dcc72dd38ebc840af197a3ef6091e9c3ac13c53779e08c643a7f93a458e7ab14
+=== END PROVENANCE ===
+
+[timing_off] warmup: 15 requests at bs=1 (max_time 600s for JIT)
+[timing_off] warmup done
+[timing_off] timed window: 200 reqs concurrent=1 max_tokens=64
+[warmup] 2 requests at concurrency 1
+[profiler] started via http://localhost:8000/start_profile
+[timed]  200 requests at concurrency 1
+[timed]  elapsed=5221.88s, throughput=0.04 req/s
+[profiler] /stop_profile sent (fire-and-forget)
+[timing_off] CUPTI flush: sleeping 120s...
+[timing_off]   [flush +10s] trace size: 29112519 bytes
+[timing_off]   [flush +20s] trace size: 29112519 bytes
+[timing_off]   [flush +30s] trace size: 29112519 bytes
+[timing_off]   [flush +40s] trace size: 29112519 bytes
+[timing_off] saved: timing_off.pt.trace.json.gz (29112519 bytes)
+
+==============================================================
+=== Capture complete ===
+==============================================================
+total 57268
+drwxrwxr-x  2 natfii natfii     4096 May 16 23:26 .
+drwxrwxr-x 13 natfii natfii     4096 May 16 14:22 ..
+-rw-rw-r--  1 natfii natfii    18464 May 16 23:26 capture.log
+-rw-r--r--  1 root   root      20653 May 16 21:59 profiler_out_0.txt
+-rw-rw-r--  1 natfii natfii    80257 May 16 23:26 timing_off_mem.log
+-rw-r--r--  1 root   root   29112519 May 16 21:59 timing_off.pt.trace.json.gz
+-rw-rw-r--  1 natfii natfii   213674 May 16 23:26 timing_off_serve.log
+-rw-r--r--  1 natfii natfii   109504 May 16 21:45 timing_on_host_launch_walls.npy
+-rw-rw-r--  1 natfii natfii    80257 May 16 21:45 timing_on_mem.log
+-rw-r--r--  1 root   root   28726606 May 16 20:17 timing_on.pt.trace.json.gz
+-rw-r--r--  1 natfii natfii    20608 May 16 21:45 timing_on_region_timings.npy
+-rw-rw-r--  1 natfii natfii   215938 May 16 21:45 timing_on_serve.log
+[capture] finished 2026-05-16T23:26:44-04:00
