@@ -1,0 +1,260 @@
+{
+  "schema_version": 2,
+  "config_hash": "93527b3a67dcc878f93f2cb4f1b9750d843282769d02eb986898860eb1be9c69",
+  "human_label": "qwen35-27b-nvfp4_fap_lower8_image-b6f87f5",
+  "blessed_at": "2026-05-17T15:42:36Z",
+  "blessed_by": "natfii@navi-ai",
+  "blessed_image_id": "sha256:b6f87f51a8026f19693a28da42351c626470a1c3d3e18f4939631253aa812e0b",
+  "config": {
+    "model_id": "ig1/Qwen3.5-27B-NVFP4",
+    "kv_cache_dtype": "fp8_e4m3",
+    "attention_backend": "CUTE_PAGED",
+    "cudagraph_mode": "FULL_AND_PIECEWISE",
+    "cudagraph_capture_sizes": [
+      1
+    ],
+    "max_num_seqs": 1,
+    "max_model_len": 16384,
+    "max_num_batched_tokens": 65536,
+    "cute_phase_e_fusion": 1,
+    "cute_phase_e_layers": "0,1,2,3,4,5,6,7",
+    "cute_phase_e_fallback_raise": 1,
+    "cute_full_graph_probe": 0,
+    "cute_wo_reset_log": 0,
+    "cute_dispatch_audit": 0,
+    "cute_mlp_fusion": 1,
+    "cute_attn_fusion": 1,
+    "model_revision_resolved": "4c546624f1fa8b77f5b7cfb3b6c96bf46d25c3a9"
+  },
+  "mounts": [
+    {
+      "id": "vllm_cache",
+      "host_path": "/home/natfii/.cache/nvllm/blessed/93527b3a67dcc878f93f2cb4f1b9750d843282769d02eb986898860eb1be9c69",
+      "container_path": "/root/.cache/vllm",
+      "mode": "ro"
+    },
+    {
+      "id": "cute_kernel_cache",
+      "host_path": "/home/natfii/.cache/nvllm/blessed/93527b3a67dcc878f93f2cb4f1b9750d843282769d02eb986898860eb1be9c69/cute_kernel_cache",
+      "container_path": "/opt/vllm/kernel_cache",
+      "mode": "ro"
+    }
+  ],
+  "files": [
+    {
+      "relative_path": "torch_compile_cache/torch_aot_compile/7e96a8281c26a35ff3d7f94a584610dbb129d6a103aeb01ba7e7c45c0130b418/rank_0_0/model",
+      "sha256": "e60d0e9ff4ba6f54fbf8a1819868863cc7ae72f3335ac729107ffe31404aeb63",
+      "size_bytes": 73531166,
+      "role": "aot_model",
+      "mount_id": "vllm_cache"
+    },
+    {
+      "relative_path": "torch_compile_cache/ca8d68fb19/rank_0_0/backbone/computation_graph.py",
+      "sha256": "a72f3e054a325671c34cdd142c6dfd77e7e03684f5ea89b9bb4bc50430da15c3",
+      "size_bytes": 1757083,
+      "role": "computation_graph",
+      "mount_id": "vllm_cache"
+    },
+    {
+      "relative_path": "torch_compile_cache/ca8d68fb19/rank_0_0/backbone/cache_key_factors.json",
+      "sha256": "09dfb42e7d9590b548b0ec2bbde3c3b98d82e309fac3b39f7690cf34dd42beaa",
+      "size_bytes": 8317,
+      "role": "cache_key_factors",
+      "mount_id": "vllm_cache"
+    },
+    {
+      "relative_path": "modelinfos/vllm-model_executor-models-qwen3_5-Qwen3_5ForConditionalGeneration.json",
+      "sha256": "75d82e1688ae21e17da062beb362e604cbe1a24a2fb47828af43acc51cb24686",
+      "size_bytes": 760,
+      "role": "model_info",
+      "mount_id": "vllm_cache"
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "07/070249d8aea2c64c460bf2278d8f8956396a412f767b5abeedda1de5c67fffe4.o",
+      "sha256": "3bbd431b2a858349d9cae4c1e4d5b6a114b0e996274a3f818d047ee9f689e2d1",
+      "size_bytes": 1214944
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "0e/0edbd4d8f546e0e2e4875bc9748722d357a6a021514779fbdd4c5be534c47d47.o",
+      "sha256": "d26338ba627254e5c8954e5abe588e38c4c0d0cf88cd4d9ffa631f1532d905c6",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "1c/1ca80848dd31bde789b903a16a2a6169c3dd1616a5b98366249e6dffafc0ca85.o",
+      "sha256": "d8a6dac1f5b90a879b8534894215a483a67fc92da9bc9adc90672658a4beb699",
+      "size_bytes": 1288560
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "20/20fb9667388fe9dc2f7d0aabfbe4041b0034fa4609e0f7ecbfe42dafbd34bd52.o",
+      "sha256": "bf95b0b9bbcf7d0a9b30f383bc370e5fbb9520a94d87783df9803912f3cf03e6",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "25/25ad208a9f454eb20c9edb8aaa07c6b5ebdfa1fb690a305d1529ef7daea2096c.o",
+      "sha256": "08a289eef9ac959ae0ca30e8df6af3a451d5cb845a83bf2b8b31b5694ff11a56",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "30/30237a982521c4509a7a907cfcfe8f5a61d5226d0352d4598d60fa08ddcbe3d0.o",
+      "sha256": "601d2594731ab6e9da740e584678a27344e4ac0b3921624ad11e0d154249d827",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "31/31c052c477e340baca9097aeb7ee7fa27217f49d22227daa3e7ff6db306a5531.o",
+      "sha256": "47dfbda1e25a2e382f1440c7c95fe2a30effdf455235a508bcfc553bb8e16d62",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "4d/4dab261ceeb23465b52ac1a89d91467b375127c0fa9ef9a540d9b72867530414.o",
+      "sha256": "b42e3ffccddd945e4f9288759154150ac3a193e6f7f6fdb07a9aacd105f1466f",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "5e/5eea5adf0e74ad26403aaea207c113d75206660680bd64b7be3fc15594da5771.o",
+      "sha256": "3fe7df4331606aea84a583488d12cd9337aa1b202b04059e654c35d3e00d2277",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "60/6092e3330eb5df6358114cbcfbf193919dc94c50f5475a251a0583bf8992e1de.o",
+      "sha256": "5602c5229a388a729c567f9bf25ca94c451078795da569e7ddd2d0bd22825676",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "8d/8daed6878a3a29939ae2a2a55f0e89c81e5da65cb84b1d241cb0e9742d1f02cc.o",
+      "sha256": "82c8f45e6664126a18ea922684d11f0001aa0bfc57fc916135f80559299c9a7b",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "94/94751ee09fb69feb1559652818720abaee8d9f012d8606a20a0029770b68cb2c.o",
+      "sha256": "e69faaefb9740b5aeb59dad9abcf23a1913fe171f0b9ecd7bdc0489405300e31",
+      "size_bytes": 1283360
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "a1/a18d53aa16fa0fde0c956d71a90fe09eecac7e6aebb00f08b1e26602f8eada84.o",
+      "sha256": "64b9629460d4b9da8dd19ad4cc75c3d3c7a242d2f8b0d263614dfe2a213d9f27",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "a5/a5ba60199f49eaabccc96d7622d96786a0c42dfcab7135421bd0271be9d16f40.o",
+      "sha256": "260fb6e2c5385facc2c89c05dc377aff3d825db0dcc0d71f35c1a3a3895bef6b",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "b6/b6509116095c22cd4c4c299f5d509f250543dcbecd9fa811fac77ac3e4c1b7ec.o",
+      "sha256": "0fee74a4438e95f13709cdcd22ccc7e08ba099f9c0683875720de13b8ef8d5f8",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "c3/c32d99c42e8646d93303e283e107147ec5ed98210a7a1f1b71beb4c33098c4e3.o",
+      "sha256": "87570ab38438475845ae44f950a1e40c490d12b6d264633ae740c084025e48f6",
+      "size_bytes": 1214944
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "df/df19760af8cf561d64fa3147169391d0912f591a8bd3a23c03f7522645b43765.o",
+      "sha256": "6b90ab4896cfcf7adfe0feb3f05640b59c6c644afd977f0dee614cf409c063fb",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "f2/f28c7567dc70ff907e8783b15d4956cf82797d01145fc70ff8b5dea3799e540f.o",
+      "sha256": "2ba174fed8fe1d351db4d67d510d4eba10b3deeacffc9fc4f46a2edf11a2de5d",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "fb/fb618d87c4afbb25b66f34645053d4f7315559c72e8b1dcf2c93cb8a097f27de.o",
+      "sha256": "e41a4d163d032e1c678d952fc29a1a8a147a809cd8f329bfb868c570d0e3adf9",
+      "size_bytes": 85816
+    },
+    {
+      "role": "cute_native_object",
+      "mount_id": "cute_kernel_cache",
+      "relative_path": "fd/fd8e2245d54987648b85bfe7338f27020d89a32143c803219e2a52efcf2388a2.o",
+      "sha256": "5d7d3bae7830729c6f3c81657e82125dcc3cbd0de0ce8b21e75eb6f9af6dd6f6",
+      "size_bytes": 85816
+    }
+  ],
+  "validation": {
+    "trials": 5,
+    "trials_passed": 5,
+    "c2_replay_n_replays_per_trial": 8,
+    "criterion": "all-K trials: c2 unique=1 AND cross_prompt=independent AND cache_reused=true",
+    "cache_reuse_signals": [
+      "aot_load_observed_in_logs",
+      "zero_saved_aot_compiled_function_lines",
+      "post_trial_aot_sha256_unchanged"
+    ],
+    "unsafe_dev_trials": false,
+    "per_trial": [
+      {
+        "trial": 1,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "e60d0e9ff4ba6f54fbf8a1819868863cc7ae72f3335ac729107ffe31404aeb63"
+      },
+      {
+        "trial": 2,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "e60d0e9ff4ba6f54fbf8a1819868863cc7ae72f3335ac729107ffe31404aeb63"
+      },
+      {
+        "trial": 3,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "e60d0e9ff4ba6f54fbf8a1819868863cc7ae72f3335ac729107ffe31404aeb63"
+      },
+      {
+        "trial": 4,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "e60d0e9ff4ba6f54fbf8a1819868863cc7ae72f3335ac729107ffe31404aeb63"
+      },
+      {
+        "trial": 5,
+        "c2_pass": true,
+        "cache_reused": true,
+        "aot_sha256_post": "e60d0e9ff4ba6f54fbf8a1819868863cc7ae72f3335ac729107ffe31404aeb63"
+      }
+    ]
+  },
+  "replaces_manifest": null,
+  "replaces_artifact_sha256": null,
+  "archive_paths": null
+}
