@@ -21,7 +21,7 @@ from vllm.compilation import caching
 
 def test_dummy_cache_uses_tempfile_not_vllm_cache_root() -> None:
     src = inspect.getsource(caching.reconstruct_serializable_fn_from_mega_artifact)
-    assert 'tempfile.mkdtemp(prefix="vllm_dummy_cache_")' in src, (
+    assert '_tempfile.mkdtemp(prefix="vllm_dummy_cache_")' in src, (
         "AOT-load dummy_cache must use tempfile.mkdtemp (RO-mount safe), "
         "not VLLM_CACHE_ROOT/dummy_cache. See "
         "docs/research/2026-04-29-full-graph-spike/ for context."
@@ -31,4 +31,12 @@ def test_dummy_cache_uses_tempfile_not_vllm_cache_root() -> None:
         "dummy_cache_dir must be pinned on vllm_backend so its lifetime "
         "tracks the backend (avoids /tmp GC while compiler_manager holds "
         "a reference)."
+    )
+    assert "import tempfile as _tempfile" in src, (
+        "tempfile import MUST be local to the function body. "
+        "torch.compiler.load_compiled_function deserializes this function "
+        "with f_globals=model.forward.__globals__ (not caching.py's "
+        "globals), so a module-level `import tempfile` is invisible at "
+        "load time and produces NameError → AOT load returns None → "
+        "strict-mode tripwire fires."
     )
