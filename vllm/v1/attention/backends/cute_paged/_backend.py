@@ -487,6 +487,19 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
 
             cfg = get_current_vllm_config()
             max_num_seqs = cfg.scheduler_config.max_num_seqs
+            # Spec-decode awareness: each decode step processes
+            # (1 + num_speculative_tokens) tokens per seq, so the fusion
+            # buffers and the runtime `fits_buffer` gate at L1258 must be
+            # sized for `max_num_seqs * decode_query_len` TOKENS, not
+            # just max_num_seqs SEQS. Without this, MTP turns the fusion
+            # path into a silent no-op every step. The field
+            # `_fusion_max_num_seqs` is kept (mis-)named for minimal
+            # blast radius — semantically it is now "max fusion tokens".
+            num_spec = 0
+            if cfg.speculative_config is not None:
+                num_spec = getattr(cfg.speculative_config, "num_speculative_tokens", 0) or 0
+            decode_query_len = 1 + num_spec
+            fusion_max_tokens = max_num_seqs * decode_query_len
         except Exception as e:
             logger.error(
                 "CuTe fusion: attach_fusion cannot resolve max_num_seqs; "
@@ -515,7 +528,10 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         self._post_norm_module = parent_layer.post_attention_layernorm
         self._attn_output_gate = bool(self_attn.attn_output_gate)
         self._fusion_prefix = prefix
-        self._fusion_max_num_seqs = max_num_seqs
+        # Spec-decode-aware capacity (see comment above): both the gate
+        # and the buffer allocation must use fusion_max_tokens, otherwise
+        # fits_buffer at L1258 is False every step when MTP is on.
+        self._fusion_max_num_seqs = fusion_max_tokens
         self._fusion_hidden_dim = hidden_dim
         self._fusion_q_size = q_size
         self._fusion_num_q_heads = num_q_heads
@@ -527,16 +543,18 @@ class CutePagedAttentionImpl(AttentionImpl[CutePagedMetadata]):
         # buffer allocation so CUDA-graph pointers stay stable (H3).
         if not hasattr(self, "wo_output"):
             self._preallocate_fusion_buffers(
-                max_num_seqs, hidden_dim, q_size,
+                fusion_max_tokens, hidden_dim, q_size,
                 total_ctas_per_seq, "cuda",
             )
 
         self._fusion_attached = True
         logger.info(
-            "CuTe fusion attached: layer=%s max_num_seqs=%d hidden_dim=%d "
-            "q_size=%d attn_output_gate=%s",
+            "CuTe fusion attached: layer=%s max_num_seqs=%d num_spec=%d "
+            "fusion_max_tokens=%d hidden_dim=%d q_size=%d attn_output_gate=%s",
             prefix,
             max_num_seqs,
+            num_spec,
+            fusion_max_tokens,
             hidden_dim,
             q_size,
             self._attn_output_gate,

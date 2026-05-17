@@ -66,7 +66,7 @@ HF_REVISION=$(nvllm_resolve_hf_revision "$HF_MODEL") || {
 echo "[bless] HF revision: $HF_REVISION"
 
 # 3. Derive config_hash from the launch defaults baked into Phase 1/2 docker args.
-# These MUST match scripts/serve-cute-full.sh post-Phase-2 defaults exactly.
+# These MUST match scripts/serve-qwen35-full.sh post-Phase-2 defaults exactly.
 CONFIG_HASH=$(nvllm_compute_blessed_config_hash \
   "$IMAGE_ID" "$HF_MODEL" "$HF_REVISION" \
   "fp8_e4m3" "CUTE_PAGED" "FULL_AND_PIECEWISE" "[1]" \

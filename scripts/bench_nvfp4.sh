@@ -45,7 +45,7 @@ mkdir -p "$RESULT_DIR"
 echo "Checking server at $BASE_URL..."
 if ! curl -sf "${BASE_URL}/v1/models" > /dev/null 2>&1; then
   echo "ERROR: No model serving at $BASE_URL" >&2
-  echo "Start a model first, e.g.: ./scripts/serve.sh" >&2
+  echo "Start a model first, e.g.: ./scripts/serve-qwen35.sh" >&2
   exit 1
 fi
 
