@@ -522,6 +522,17 @@ def _support_torch_compile(
                     ):
                         output = self.aot_compiled_fn(self, *args, **kwargs)
                     return output
+                # nvllm blessed-cache strict tripwire: if production claims a
+                # blessed AOT artifact is mounted, an AOT-load miss here means
+                # the artifact path is wrong / file is missing / torch.compile
+                # cache-key drift — fail closed BEFORE the cold compile path
+                # runs. See vllm/v1/attention/backends/cute_paged/blessed_cache_gate.py.
+                if os.environ.get("NVLLM_BLESSED_CACHE_STRICT", "0") == "1":
+                    raise RuntimeError(
+                        "NVLLM_BLESSED_CACHE_STRICT=1: blessed AOT artifact was "
+                        f"not loaded from {aot_compilation_path}; refusing "
+                        "cold torch.compile. Check manifest/AOT path drift."
+                    )
 
         if self.compiled:
             assert (

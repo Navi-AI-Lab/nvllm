@@ -96,10 +96,19 @@ CUTE_ATTN_FUSION_VAL="${CUTE_ATTN_FUSION:-1}"
 #                            Kernel capture happens cold this session;
 #                            Z1 inductor non-determinism risk applies.
 #   default (production)   → full verify + mount; refuse on drift/no-match.
+#                            Also mounts manifest into container and enables
+#                            the import-time Python gate
+#                            (NVLLM_BLESSED_CACHE_GATE=1 +
+#                            NVLLM_BLESSED_CACHE_STRICT=1) so the in-engine
+#                            verify catches mount-path / RO-mode / cold-
+#                            compile errors that the host-side preflight
+#                            can't see.
 BLESSED_MOUNT_ARGS=()
+BLESSED_GATE_ENV=()
 BLESS_MOUNTED="false"
 MANIFEST_ENFORCED="false"
 CONFIG_HASH=""
+BLESSED_MANIFEST_CONTAINER_PATH="/opt/nvllm/blessed_manifest.json"
 if [ "$DEBUG" -ne 1 ]; then
   IMAGE_ID=$(docker image inspect "$NVLLM_IMAGE" --format '{{.Id}}')
   HF_REVISION=$(nvllm_resolve_hf_revision "$HF_MODEL") || {
@@ -152,6 +161,17 @@ if [ "$DEBUG" -ne 1 ]; then
     BLESSED_HOST_PATH=$(jq -r '.mount.host_path' "$MANIFEST_PATH")
     BLESSED_HOST_PATH="${BLESSED_HOST_PATH/#\~/$HOME}"
     BLESSED_MOUNT_ARGS=("-v" "${BLESSED_HOST_PATH}:/root/.cache/vllm:ro")
+    # Mount manifest read-only into the container for the Python gate to
+    # verify from inside, then enable strict mode (cold compile = hard fail).
+    BLESSED_MOUNT_ARGS+=(
+      "-v" "${MANIFEST_PATH}:${BLESSED_MANIFEST_CONTAINER_PATH}:ro"
+    )
+    BLESSED_GATE_ENV=(
+      "-e" "NVLLM_BLESSED_CACHE_GATE=1"
+      "-e" "NVLLM_BLESSED_CACHE_MANIFEST=${BLESSED_MANIFEST_CONTAINER_PATH}"
+      "-e" "NVLLM_BLESSED_CACHE_CONFIG_HASH=${CONFIG_HASH}"
+      "-e" "NVLLM_BLESSED_CACHE_STRICT=1"
+    )
     BLESS_MOUNTED="true"
   fi
 fi
@@ -180,6 +200,7 @@ docker run -d \
   -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
   -v "$CUTE_COMPILE_HOST_CACHE_DIR:/opt/vllm/kernel_cache" \
   "${BLESSED_MOUNT_ARGS[@]}" \
+  "${BLESSED_GATE_ENV[@]}" \
   -e B12X_CUTE_COMPILE_DISK_CACHE=1 \
   -e B12X_CUTE_COMPILE_CACHE_DIR=/opt/vllm/kernel_cache \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \

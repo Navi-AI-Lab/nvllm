@@ -534,7 +534,20 @@ def build_phase2_docker_args(
     attention_backend: str, max_model_len: int, max_num_seqs: int,
     max_num_batched_tokens: int, cute_phase_e_layers: str,
 ) -> list[str]:
-    """Same as Phase 1 but :ro mount on staging."""
+    """Same as Phase 1 but :ro mount on staging, plus the strict-mode
+    cold-compile tripwire (NVLLM_BLESSED_CACHE_STRICT=1).
+
+    Phase 1 MUST NOT set strict (it's the bootstrap cold compile). Phase 2
+    SHOULD set strict because every trial is supposed to be a pure AOT load.
+    Without strict, a silent cold recompile in Phase 2 would only surface as
+    a Phase 3 cache-reuse-marker grep failure; with strict, the engine
+    refuses to start the moment AOT load misses (decorators.py:514).
+
+    Note: NVLLM_BLESSED_CACHE_GATE is intentionally NOT enabled here — there
+    is no manifest to verify yet during bless. The gate runs at production
+    serve time (scripts/serve-cute-full.sh) once accept() has written the
+    manifest.
+    """
     args = build_phase1_docker_args(
         container_name=container_name, image=image,
         hf_cache=hf_cache, flashinfer_cache=flashinfer_cache,
@@ -548,7 +561,12 @@ def build_phase2_docker_args(
     # Replace the staging volume arg with :ro variant.
     rw_arg = f"{staging_dir}:/root/.cache/vllm"
     ro_arg = f"{staging_dir}:/root/.cache/vllm:ro"
-    return [a if a != rw_arg else ro_arg for a in args]
+    args = [a if a != rw_arg else ro_arg for a in args]
+    # Inject strict env var just before the image arg (image is the first
+    # non-flag arg in docker run; insert at that boundary).
+    image_idx = args.index(image)
+    args = args[:image_idx] + ["-e", "NVLLM_BLESSED_CACHE_STRICT=1"] + args[image_idx:]
+    return args
 
 
 def classify_cache_reuse(*, container_log: str, sha_pre: str,
