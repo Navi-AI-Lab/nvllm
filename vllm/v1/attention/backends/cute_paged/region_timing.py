@@ -42,7 +42,7 @@ REGION_NAMES = [
     "phase3_partial_reset",
     "phase3_3a_fc1_silu",
     "phase3_3b_quant",
-    "phase3_3c_fc2_atomic",
+    "phase3_3c_fc2_last_iter",
     "phase3_3d_arrival",
     "phase1_pre_wo_wait",      # NEW R11: bx>0 W_O CTAs wait for attn producers
     "phase1_gather_reduce",    # NEW R12: last-CTA gather of total_wo_slots partials
@@ -50,12 +50,18 @@ REGION_NAMES = [
     "prologue_pre_r0",          # NEW R13: kernel prologue (entry -> R0 entry)
     "epilogue_post_r10",        # NEW R14: kernel epilogue (R10 exit -> kernel return)
     "phase3_3d_last_cta_gather",  # NEW R15: elected-CTA gather inside R10 (was hidden in R10 median)
+    # ===== C' instrumentation (2026-05-16) =====
+    "phase3_3a_fc1_silu_per_call",   # NEW R16: per-call sum of R7 deltas across slice loop
+    "phase3_3b_quant_per_call",      # NEW R17: per-call sum of R8 deltas
+    "phase3_3c_fc2_per_call",        # NEW R18: per-call sum of R9 deltas (now meaningful — R9 exit moved into slice loop)
+    # ===== C' rework (2026-05-16) =====
+    "phase3_post_loop_atomic",       # NEW R19: post-loop _threadfence + sync + per-k-tile arrival _atomic_add_u32 (was absorbed by old R9 hybrid exit)
 ]
 PHASE0_REGIONS = {0}                        # single CTA per seq
 PHASE1_REGIONS = {1, 2, 3}                  # 4 CTAs per seq (bx==0, by<4)
 WAIT_NOT_WORK_REGIONS = {4, 11}             # R4 grid barrier + R11 pre-W_O wait
 DYNAMIC_SINGLE_CTA_REGIONS = {12, 15}       # R12 elected gather/reduce, R15 elected last-CTA gather
-PHASE3_REGIONS = {5, 6, 7, 8, 9, 10}        # all CTAs
+PHASE3_REGIONS = {5, 6, 7, 8, 9, 10, 16, 17, 18, 19}  # all CTAs (16-18 are C' per-call sums; 19 is C' post-loop atomic)
 KERNEL_BOUNDARY_REGIONS = {13, 14}          # B': all-CTA tid==0, kernel prologue + epilogue
 
 
@@ -123,7 +129,7 @@ def reduce_region_timings(
     num_kv_heads: int = 0,
     host_launch_wall_us: Optional[float] = None,
 ) -> pd.DataFrame:
-    """Reduce a (num_ctas, 16, 2) tick buffer to per-region rows.
+    """Reduce a (num_ctas, 20, 2) tick buffer to per-region rows.
 
     Active-CTA masks are derived from (slice_ctas, num_k_tiles, num_seqs)
     so callers do NOT pass a "num_attn_active_ctas" count — that count
@@ -158,7 +164,7 @@ def reduce_region_timings(
     # caller must pass a (num_ctas, 16, 2) buffer when timing is enabled.
     assert num_regions == len(REGION_NAMES), (
         f"region timing buf has num_regions={num_regions} but "
-        f"REGION_NAMES has {len(REGION_NAMES)} entries (B' bumped 13->16); "
+        f"REGION_NAMES has {len(REGION_NAMES)} entries (C' bumped 16->19, rework 19->20); "
         f"caller must allocate (num_ctas, 16, 2) int64"
     )
     assert num_ctas == slice_ctas * num_k_tiles * num_seqs, (

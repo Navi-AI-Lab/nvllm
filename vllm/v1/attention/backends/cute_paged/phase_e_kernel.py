@@ -39,7 +39,13 @@ LOG2_E = 1.4426950408889634
 # REGION_NAMES len in region_timing.py.
 # B' instrumentation (2026-05-16): bumped 13 -> 16 to add
 #   R13 prologue_pre_r0, R14 epilogue_post_r10, R15 last-CTA gather.
-_REGION_TIMING_PER_CTA_STRIDE = 16 * 2 * 8  # 256 bytes
+# C' instrumentation (2026-05-16): bumped 16 -> 19 to add
+#   R16/R17/R18 per-call accumulated sums of R7/R8/R9 across the
+#   slice loop. Then bumped 19 -> 20 to add R19 phase3_post_loop_atomic
+#   (captures post-loop _threadfence + sync + arrival _atomic_add_u32
+#   that R9 previously absorbed via its hybrid exit). R9 also renamed
+#   to phase3_3c_fc2_last_iter to reflect now-clean per-slice semantics.
+_REGION_TIMING_PER_CTA_STRIDE = 20 * 2 * 8  # 320 bytes (C': +R19 phase3_post_loop_atomic)
 
 
 # --- CuTe DSL import guard (mirrors kernel.py / mlp_kernel.py) --------------
@@ -359,7 +365,14 @@ class PhaseE_Beta_Kernel:
         # vllm/v1/attention/backends/cute_paged/region_timing.py.
         # B' instrumentation (2026-05-16): R0..R15 (+R13 prologue,
         # +R14 epilogue, +R15 elected-CTA gather inside R10).
-        self._region_timing_num_regions = 16
+        # C' instrumentation (2026-05-16): +R16/R17/R18 per-call accumulated
+        # sums of R7/R8/R9 (Stage 3a/3b/3c) across the slice loop, written
+        # once per kernel call with slot0=0, slot1=sum-of-deltas.
+        # C' rework (same day): R9 brackets fixed (exit moved into slice loop
+        # for clean per-slice semantics), +R19 phase3_post_loop_atomic captures
+        # post-loop sync + per-k-tile arrival _atomic_add_u32 that R9 used to
+        # absorb. Region count now 20.
+        self._region_timing_num_regions = 20
 
         # ===== B' instrumentation (2026-05-16): host-side launch wall ====
         # Per-call CUDA event pair (start, end) recorded around the
@@ -4928,6 +4941,26 @@ class PhaseE_Beta_Kernel:
                         t_exit,
                     )
 
+            # C' instrumentation (2026-05-16): per-call accumulators for
+            # R7/R8/R9. Declared UNCONDITIONALLY before the slice loop —
+            # the CuTe DSL treats `if region_timing_enabled:` as dynamic
+            # control flow and rejects loop-carried scalars bound inside
+            # it. When region_timing_enabled is False (Constexpr) these
+            # Uint64(0) values are never mutated or read and get DCE'd.
+            #
+            # t_entry / t_exit also hoisted: the per-iter R7/R8/R9 accumulator
+            # update `r16_acc = r16_acc + (t_exit - t_entry)` reads t_entry
+            # from the region's ENTRY tid==0 block at the region's EXIT
+            # tid==0 block — a cross-block read. The DSL rejects this unless
+            # the variable is bound in an outer scope first. Mutation of
+            # hoisted Uint64s inside if-tid==0 blocks works (same pattern as
+            # r16_acc itself).
+            r16_acc = Uint64(0)
+            r17_acc = Uint64(0)
+            r18_acc = Uint64(0)
+            t_entry = Uint64(0)
+            t_exit = Uint64(0)
+
             s = s_start_p3
             while s < s_end_p3:
                 # Region 7 entry: Stage 3a (FC1 + SiLU) for this slice.
@@ -5088,6 +5121,8 @@ class PhaseE_Beta_Kernel:
                             + Int64(1 * 8),                  # slot 1 = exit
                             t_exit,
                         )
+                        # C': accumulate R7 delta into per-call sum (R16).
+                        r16_acc = r16_acc + (t_exit - t_entry)
 
                 # Region 8 entry: Stage 3b (FP4 quantize intermediate).
                 # All 64 CTAs. Brackets the warp-strided block-quantize
@@ -5220,10 +5255,17 @@ class PhaseE_Beta_Kernel:
                             + Int64(1 * 8),                  # slot 1 = exit
                             t_exit,
                         )
+                        # C': accumulate R8 delta into per-call sum (R17).
+                        r17_acc = r17_acc + (t_exit - t_entry)
 
-                # Region 9 entry: Stage 3c (FC2 + atomicAdd) for this slice.
-                # All 64 CTAs. Brackets the FC2 GEMV (per-row dequant +
-                # MAC) and the per-CTA atomic_add into mlp_partial_fp32.
+                # Region 9 entry: Stage 3c (FC2 + per-slice atomic_add into
+                # mlp_partial_fp32). All 64 CTAs. C' rework (2026-05-16):
+                # R9 is now `phase3_3c_fc2_last_iter` — per-slice sample,
+                # last iter wins (matches R7/R8 semantics). Exit MOVED
+                # inside slice loop (was post-loop / Phase 3.4 → caused
+                # hybrid measurement that absorbed Phase 3.4's sync +
+                # arrival atomic, now captured by new R19). R18 = per-call
+                # accumulator of R9 deltas across all slice iters.
                 if region_timing_enabled:
                     if tid == Int32(0):
                         cta_id = (
@@ -5408,9 +5450,57 @@ class PhaseE_Beta_Kernel:
                         )
 
                 cute.arch.sync_threads()
+
+                # ===== C' R9 exit (NEW location, in-loop): per-slice
+                # phase3_3c_fc2_last_iter close. Was previously post-loop
+                # (line ~5445 pre-rework), which created hybrid measurement
+                # absorbing Phase 3.4 work. Now closes inside the slice
+                # loop matching R7/R8 — clean per-slice FC2 + per-CTA
+                # atomic_add(mlp_partial_fp32) + intra-CTA sync sample. =====
+                if region_timing_enabled:
+                    if tid == Int32(0):
+                        cta_id = (
+                            bz * Int32(self.slice_ctas * self.num_k_tiles)
+                            + by * Int32(self.slice_ctas)
+                            + bx
+                        )
+                        t_exit = _read_globaltimer_u64()
+                        _st_global_u64(
+                            region_timing_ptr
+                            + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                            + Int64(9 * 2 * 8)              # region 9
+                            + Int64(1 * 8),                  # slot 1 = exit
+                            t_exit,
+                        )
+                        # C': accumulate R9 delta into per-call sum (R18).
+                        r18_acc = r18_acc + (t_exit - t_entry)
+
                 s = s + Int32(1)
 
             # === Phase 3.4: per-k-tile arrival counter + last-CTA gather ===
+            # ===== C' R19 entry: post-loop sync + per-k-tile arrival atomic =====
+            # NEW (2026-05-16 rework): captures _threadfence + cross-CTA
+            # sync_threads + per-(bz, by) arrival _atomic_add_u32 cost
+            # that R9's old hybrid exit was absorbing. Outside the tid==0
+            # block for the atomic_add (which we want bracketed) but the
+            # R19 entry timestamp itself is gated on tid==0. Pair with
+            # R19 exit just after the atomic returns.
+            if region_timing_enabled:
+                if tid == Int32(0):
+                    cta_id = (
+                        bz * Int32(self.slice_ctas * self.num_k_tiles)
+                        + by * Int32(self.slice_ctas)
+                        + bx
+                    )
+                    t_entry = _read_globaltimer_u64()
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(19 * 2 * 8)             # region 19
+                        + Int64(0 * 8),                  # slot 0 = entry
+                        t_entry,
+                    )
+
             _threadfence()
             cute.arch.sync_threads()
 
@@ -5421,10 +5511,23 @@ class PhaseE_Beta_Kernel:
                     Int32(1),
                 )
 
-                # Region 9 exit: AFTER the atomic_add returns. Region 9
-                # is named "FC2 + atomicAdd" so the atomic_add cost
-                # is attributed to it. We're inside if tid == Int32(0)
-                # — only thread 0 records the timestamp.
+                # ===== C' R19 exit + R16/R17/R18 per-call accumulator writes =====
+                # Merged into a single `if region_timing_enabled:` block so the
+                # one cta_id binding covers all subsequent stores. Sibling
+                # Constexpr `if` blocks don't share scope under the CuTe DSL
+                # — splitting would hit "name 'cta_id' is not defined".
+                #
+                # R19 exit: AFTER post-loop arrival atomic returns. Region 9's
+                # old post-loop exit lived here and absorbed this work; R19
+                # now isolates it cleanly. All 64 CTAs, tid==0.
+                #
+                # R16/R17/R18 per-call accumulated sums:
+                # R16 = sum of R7 (phase3_3a_fc1_silu) deltas across all slice iters.
+                # R17 = sum of R8 (phase3_3b_quant) deltas.
+                # R18 = sum of R9 (phase3_3c_fc2_last_iter) deltas across slice iters.
+                # Written slot0=0, slot1=accumulator so the existing reducer's
+                # delta = slot1 - slot0 yields the per-call sum directly.
+                # All 64 CTAs participate (same n_active as R7/R8/R9), tid==0 only.
                 if region_timing_enabled:
                     cta_id = (
                         bz * Int32(self.slice_ctas * self.num_k_tiles)
@@ -5435,9 +5538,57 @@ class PhaseE_Beta_Kernel:
                     _st_global_u64(
                         region_timing_ptr
                         + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
-                        + Int64(9 * 2 * 8)              # region 9
+                        + Int64(19 * 2 * 8)             # region 19
                         + Int64(1 * 8),                  # slot 1 = exit
                         t_exit,
+                    )
+                    # R16 slot0 = 0
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(16 * 2 * 8)
+                        + Int64(0 * 8),
+                        Uint64(0),
+                    )
+                    # R16 slot1 = r16_acc
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(16 * 2 * 8)
+                        + Int64(1 * 8),
+                        r16_acc,
+                    )
+                    # R17 slot0 = 0
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(17 * 2 * 8)
+                        + Int64(0 * 8),
+                        Uint64(0),
+                    )
+                    # R17 slot1 = r17_acc
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(17 * 2 * 8)
+                        + Int64(1 * 8),
+                        r17_acc,
+                    )
+                    # R18 slot0 = 0
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(18 * 2 * 8)
+                        + Int64(0 * 8),
+                        Uint64(0),
+                    )
+                    # R18 slot1 = r18_acc
+                    _st_global_u64(
+                        region_timing_ptr
+                        + Int64(cta_id) * Int64(_REGION_TIMING_PER_CTA_STRIDE)
+                        + Int64(18 * 2 * 8)
+                        + Int64(1 * 8),
+                        r18_acc,
                     )
 
                 # Region 10 entry: Stage 3.4 (arrival wait + last-CTA

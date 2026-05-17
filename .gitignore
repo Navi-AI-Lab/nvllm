@@ -360,3 +360,13 @@ benchmarks/nvllm/traces/cute_paged_attn/2026-05-02-phaseE-tax-3leg/**/*.pt.trace
 benchmarks/nvllm/traces/cute_paged_attn/2026-05-15-phaseE-tax-3leg-post-ssm/**/*.pt.trace.json.gz
 benchmarks/nvllm/traces/cute_paged_attn/2026-05-15-phaseE-tax-3leg-post-ssm/**/*_serve.log
 benchmarks/nvllm/traces/cute_paged_attn/2026-05-15-phaseE-tax-3leg-post-ssm/**/profiler_out_*.txt
+
+# 2026-05-16 launch-overhead profile (B' follow-up per project_b_prime_shipped).
+# Raw torch profiler traces local-only; CSV/log/md/json/npy committed.
+# Reproducer: docs/research/launch_overhead_profile/capture.sh.
+benchmarks/nvllm/traces/cute_paged_attn/2026-05-16-launch-overhead-profile/**/*.pt.trace.json.gz
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-16-launch-overhead-profile/**/*.csv
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-16-launch-overhead-profile/**/*.log
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-16-launch-overhead-profile/**/*.md
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-16-launch-overhead-profile/**/*.json
+!benchmarks/nvllm/traces/cute_paged_attn/2026-05-16-launch-overhead-profile/**/*.npy
