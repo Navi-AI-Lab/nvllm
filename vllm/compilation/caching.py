@@ -463,8 +463,14 @@ def reconstruct_serializable_fn_from_mega_artifact(
         )
 
     vllm_backend = VllmBackend(vllm_config, prefix, is_encoder)
-    dummy_cache_dir = os.path.join(envs.VLLM_CACHE_ROOT, "dummy_cache")
-    os.makedirs(dummy_cache_dir, exist_ok=True)
+    # nvllm: placeholder cache_dir for the AOT-load path (`disable_cache=True`,
+    # never written to). Was `<VLLM_CACHE_ROOT>/dummy_cache`, which broke when
+    # VLLM_CACHE_ROOT is mounted :ro for blessed-cache production serve.
+    # tempfile.mkdtemp lives in /tmp (always writable). The path is pinned on
+    # vllm_backend so its lifetime tracks the backend, avoiding GC of the
+    # directory while compiler_manager still references it.
+    dummy_cache_dir = tempfile.mkdtemp(prefix="vllm_dummy_cache_")
+    vllm_backend._dummy_cache_dir = dummy_cache_dir
     vllm_backend.compiler_manager.initialize_cache(
         cache_dir=dummy_cache_dir,
         disable_cache=True,

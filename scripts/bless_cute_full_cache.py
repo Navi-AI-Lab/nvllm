@@ -492,14 +492,6 @@ def phase1_bootstrap(
         bootstrap_log_path.write_text(log)
         _normalize_staging_permissions_for_host(staging_dir, image)
 
-    # vLLM workaround: caching.py:466-467 unconditionally calls
-    # `os.makedirs(<vllm_root>/dummy_cache, exist_ok=True)` on the AOT-load
-    # path, even when `disable_cache=True`. With our :ro Phase 2 mount that
-    # raises EROFS and torch.compile silently recompiles. Pre-creating the
-    # dir here makes the makedirs(exist_ok=True) a no-op under :ro
-    # (verified: makedirs on existing dir under read-only parent succeeds).
-    (staging_dir / "dummy_cache").mkdir(exist_ok=True)
-
     # Resolve the 4 expected files via globs (path-suffix hashes vary).
     resolved = {}
     for ent in expected_cache_files():
