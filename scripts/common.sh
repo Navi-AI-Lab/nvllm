@@ -243,9 +243,14 @@ nvllm_resolve_blessed_manifest() {
 
 # ---------------------------------------------------------------------------
 # nvllm_verify_blessed_cache <manifest_path>
-#   Read manifest's mount.host_path and files[]. For each file: must exist,
-#   non-empty, size match, sha256 match. Return 0 on full pass; return 1 on
-#   any drift with diagnostic to stderr.
+#   Read manifest's mounts[] (v2) or single mount (v1) and files[].
+#   For each file: must exist, non-empty, size match, sha256 match.
+#   Return 0 on full pass; return 1 on any drift with diagnostic to stderr.
+#
+#   Schema v1 (legacy): single `.mount` object; files[] entries have no
+#   `mount_id` and are all resolved under .mount.host_path.
+#   Schema v2: `.mounts[]` array (each with id + host_path + container_path
+#   + mode); each files[] entry carries `mount_id` for lookup.
 # ---------------------------------------------------------------------------
 nvllm_verify_blessed_cache() {
   local manifest="$1"
@@ -257,11 +262,39 @@ nvllm_verify_blessed_cache() {
     echo "ERROR: jq not found." >&2
     return 1
   fi
-  local host_path
-  host_path=$(jq -r '.mount.host_path' "$manifest")
-  host_path="${host_path/#\~/$HOME}"
-  if [ ! -d "$host_path" ]; then
-    echo "ERROR: blessed cache host_path missing: $host_path" >&2
+
+  local schema_version
+  schema_version=$(jq -r '.schema_version // 1' "$manifest")
+
+  # Build mount_id → host_path lookup as a TSV blob jq can join against.
+  # v1 synthesises a single "vllm_cache" entry from .mount.
+  local mounts_tsv
+  if [ "$schema_version" = "1" ]; then
+    local host_path
+    host_path=$(jq -r '.mount.host_path' "$manifest")
+    host_path="${host_path/#\~/$HOME}"
+    if [ ! -d "$host_path" ]; then
+      echo "ERROR: blessed cache host_path missing: $host_path" >&2
+      return 1
+    fi
+    mounts_tsv=$(printf 'vllm_cache\t%s\n' "$host_path")
+  elif [ "$schema_version" = "2" ]; then
+    local raw_tsv
+    raw_tsv=$(jq -r '.mounts[] | "\(.id)\t\(.host_path)"' "$manifest")
+    mounts_tsv=$(echo "$raw_tsv" | while IFS=$'\t' read -r mid hp; do
+      hp="${hp/#\~/$HOME}"
+      if [ ! -d "$hp" ]; then
+        echo "ERROR: mount '$mid' host_path missing: $hp" >&2
+        echo "__INVALID__"
+        break
+      fi
+      printf '%s\t%s\n' "$mid" "$hp"
+    done)
+    if echo "$mounts_tsv" | grep -q "^__INVALID__$"; then
+      return 1
+    fi
+  else
+    echo "ERROR: unsupported manifest schema_version=$schema_version (expect 1 or 2)" >&2
     return 1
   fi
 
@@ -273,11 +306,18 @@ nvllm_verify_blessed_cache() {
   fi
 
   local i=0 rel expected_sha expected_size full actual_sha actual_size
+  local mount_id host_path_for_mount
   while [ "$i" -lt "$n" ]; do
     rel=$(jq -r ".files[$i].relative_path" "$manifest")
     expected_sha=$(jq -r ".files[$i].sha256" "$manifest")
     expected_size=$(jq -r ".files[$i].size_bytes" "$manifest")
-    full="$host_path/$rel"
+    mount_id=$(jq -r ".files[$i].mount_id // \"vllm_cache\"" "$manifest")
+    host_path_for_mount=$(echo "$mounts_tsv" | awk -F'\t' -v m="$mount_id" '$1==m {print $2; exit}')
+    if [ -z "$host_path_for_mount" ]; then
+      echo "ERROR: files[$i] (rel=$rel) references unknown mount_id=$mount_id" >&2
+      return 1
+    fi
+    full="$host_path_for_mount/$rel"
     if [ ! -f "$full" ]; then
       echo "ERROR: blessed-cache file missing: $full" >&2
       return 1

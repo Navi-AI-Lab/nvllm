@@ -463,8 +463,18 @@ def reconstruct_serializable_fn_from_mega_artifact(
         )
 
     vllm_backend = VllmBackend(vllm_config, prefix, is_encoder)
-    dummy_cache_dir = os.path.join(envs.VLLM_CACHE_ROOT, "dummy_cache")
-    os.makedirs(dummy_cache_dir, exist_ok=True)
+    # nvllm: placeholder cache_dir for the AOT-load path (`disable_cache=True`,
+    # never written to). Was `<VLLM_CACHE_ROOT>/dummy_cache`, which broke when
+    # VLLM_CACHE_ROOT is mounted :ro for blessed-cache production serve.
+    # tempfile.mkdtemp lives in /tmp (always writable). Local import so the
+    # function-frame binding doesn't depend on caching.py's module globals —
+    # torch.compiler.load_compiled_function deserializes with
+    # f_globals=model.forward.__globals__, where `tempfile` isn't visible.
+    # The path is pinned on vllm_backend so its lifetime tracks the backend,
+    # avoiding GC of the directory while compiler_manager still references it.
+    import tempfile as _tempfile
+    dummy_cache_dir = _tempfile.mkdtemp(prefix="vllm_dummy_cache_")
+    vllm_backend._dummy_cache_dir = dummy_cache_dir
     vllm_backend.compiler_manager.initialize_cache(
         cache_dir=dummy_cache_dir,
         disable_cache=True,

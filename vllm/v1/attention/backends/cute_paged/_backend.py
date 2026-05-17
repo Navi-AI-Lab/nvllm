@@ -87,6 +87,18 @@ if os.environ.get("B12X_CUTE_COMPILE_DISK_CACHE", "0") == "1":
         )
     )
 
+# nvllm blessed-cache import-time gate. Verifies the manifest, file SHAs,
+# and mount RO-ness from inside the container, and (under STRICT=1) wires
+# a tripwire that raises if a cold compile is attempted. Fail-closed:
+# any verification error raises and the engine refuses to start. See
+# vllm/v1/attention/backends/cute_paged/blessed_cache_gate.py for the
+# env-var contract.
+if os.environ.get("NVLLM_BLESSED_CACHE_GATE", "0") == "1":
+    from vllm.v1.attention.backends.cute_paged.blessed_cache_gate import (
+        apply_blessed_cache_gate,
+    )
+    apply_blessed_cache_gate()
+
 
 # ---------------------------------------------------------------------------
 # Metadata
