@@ -76,7 +76,7 @@ docker build -f docker/Dockerfile.gb10 -t nvllm:gb10 .
 ### 2. Serve a model
 
 ```bash
-./scripts/serve.sh
+./scripts/serve-qwen35.sh
 ```
 
 First run downloads the model automatically (~18 GB).
@@ -94,16 +94,20 @@ curl http://localhost:8000/v1/chat/completions \
 
 | Script | Model | Status | Context |
 | --- | --- | --- | --- |
-| `serve.sh` | [Qwen3.5-27B-NVFP4](https://huggingface.co/ig1/Qwen3.5-27B-NVFP4) | Active (default) | 64K |
-| `serve-cute.sh` | [Qwen3.5-27B-NVFP4](https://huggingface.co/ig1/Qwen3.5-27B-NVFP4) (CuTe Paged Attention; override `HF_MODEL` env) | Active (kernel dev) | 64K |
+| `serve-qwen35.sh` | [Qwen3.5-27B-NVFP4](https://huggingface.co/ig1/Qwen3.5-27B-NVFP4) (CuTe Paged Attention; override `HF_MODEL` env) | Active (default) | 64K |
+| `serve-qwen35-full.sh` | Qwen3.5-27B-NVFP4 (CuTe + FULL_AND_PIECEWISE graphs via blessed cache) | Opt-in | 64K |
+| `serve-qwen35-triton.sh` | Qwen3.5-27B-NVFP4 (upstream triton_attn fallback) | Active | 64K |
+| `serve-qwen36.sh` | [Qwen3.6-27B-VLM-NVFP4-MTP](https://huggingface.co/natfii/Qwen3.6-27B-VLM-NVFP4-MTP) (CuTe + `qwen3_5_mtp` spec decode + `qwen3_xml` tool parser; vision preserved on disk) | Active | 64K |
 | `serve-nemotron.sh` | Nemotron-3-Super-120B-A12B-NVFP4 | Not Ready | 128K |
 | `serve-gemma4.sh` | Gemma 4 31B IT NVFP4 | Degraded (see script) | 32K |
+
+Backward-compat symlinks (`serve.sh`, `serve-cute.sh`, `serve-cute-full.sh`, `serve-cute-mtp.sh`) point at the new names so older docs and tooling still work.
 
 ### Flags
 
 | Flag | Effect |
 | --- | --- |
-| `--tq` | TurboQuant KV cache — more context capacity, ~25% lower throughput (serve.sh only) |
+| `--tq` | TurboQuant KV cache — more context capacity, ~25% lower throughput (serve-qwen35-triton.sh only) |
 | `--debug` | Eager mode, no CUDA graphs (for debugging) |
 
 ### Roadmap
@@ -114,6 +118,12 @@ curl http://localhost:8000/v1/chat/completions \
 - `CUTE_WO_SPLIT={2,4,8}` opt-in K-parallel W_O GEMV. Default remains `1`; production soak keeps optimized splits opt-in after wo8 showed +3.3% wall improvement, -25.52 ms p95 TPOT, and GSM8K parity within 1/50. See the [production soak writeup](benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/writeup.md).
 - CUDA graph support (FULL_AND_PIECEWISE mode)
 - End-to-end fusion validation through Qwen3NextAttention
+
+#### Now — Qwen3.6-27B bring-up
+
+- `serve-qwen36.sh` consumes `natfii/Qwen3.6-27B-VLM-NVFP4-MTP` (NVFP4 modelopt + grafted MTP head + retained vision tower; recipe from [`lna-lab/GGUF-to-NVFP4-SM120`](https://github.com/lna-lab/GGUF-to-NVFP4-SM120)).
+- `CUTE_WO_SPLIT=8` carries over from Qwen3.5 with parity quality (GSM8K-50 47/50) and ≈ -13% wall.
+- Fusion-buffer sizing is now spec-decode-aware (`vllm/v1/attention/backends/cute_paged/_backend.py` `attach_fusion`): `fusion_max_tokens = max_num_seqs * (1 + num_speculative_tokens)`. Without this, `_fusion_active` silently flipped to `False` every step when MTP was on (`fits_buffer` gate). With the patch, `CUTE_ATTN_FUSION=1` regresses ~22 % at the MTP=1 shape, so it stays off-default pending kernel re-tuning for `num_q=2` decode batches.
 
 #### Next — expand model support
 
@@ -148,7 +158,7 @@ Custom paged attention backend using CuTe Python DSL, targeting SM120/SM121 FP8 
 
 **Status:** Experimental CuTe DSL backend; production decode path since v0.3.0. The β-coop fused kernel (attention + W_O + RMSNorm + MLP) is the default. Opt-in `CUTE_WO_SPLIT=8` is production-evidenced but not the default: the controlled harness reports W_O `13754 μs → 1639 μs` (8.39×), while serving soak shows `wo8` as a modest wall/TPOT win with quality parity. See the [harness summary](benchmarks/nvllm/traces/cute_paged_attn/2026-05-03-w-o-k-parallel-harness/summary.md) and [production soak](benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/writeup.md).
 
-Launch with: `./scripts/serve-cute.sh` (default PIECEWISE CUDA graphs). To opt into the evidenced W_O split, run `CUTE_WO_SPLIT=8 ./scripts/serve-cute.sh`.
+Launch with: `./scripts/serve-qwen35.sh` (default PIECEWISE CUDA graphs). To opt into the evidenced W_O split, run `CUTE_WO_SPLIT=8 ./scripts/serve-qwen35.sh`.
 
 ## Acknowledgments
 

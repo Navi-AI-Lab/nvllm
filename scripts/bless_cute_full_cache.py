@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     cute_compile_host_cache.mkdir(parents=True, exist_ok=True)
 
-    # Launch config — must match serve-cute-full.sh defaults exactly.
+    # Launch config — must match serve-qwen35-full.sh defaults exactly.
     launch_config: dict[str, Any] = {
         "model_id": os.environ.get("HF_MODEL", "ig1/Qwen3.5-27B-NVFP4"),
         "kv_cache_dtype": "fp8_e4m3",
@@ -247,7 +247,7 @@ PHASE1_MAX_TOKENS = 8
 MOUNT_ID_VLLM_CACHE = "vllm_cache"
 MOUNT_ID_CUTE_CACHE = "cute_kernel_cache"
 
-# Mount container paths must match build_phase1_docker_args / serve-cute-full.sh.
+# Mount container paths must match build_phase1_docker_args / serve-qwen35-full.sh.
 MOUNT_CONTAINER_PATH = {
     MOUNT_ID_VLLM_CACHE: "/root/.cache/vllm",
     MOUNT_ID_CUTE_CACHE: "/opt/vllm/kernel_cache",
@@ -351,7 +351,7 @@ def build_phase1_docker_args(
 ) -> list[str]:
     """Build the docker run argv for the RW Phase-1 container.
 
-    Mirrors scripts/serve-cute-full.sh defaults but with probes OFF and
+    Mirrors scripts/serve-qwen35-full.sh defaults but with probes OFF and
     a RW mount of staging_dir at /root/.cache/vllm.
     """
     return [
@@ -650,7 +650,7 @@ def build_phase2_docker_args(
 
     Note: NVLLM_BLESSED_CACHE_GATE is intentionally NOT enabled here — there
     is no manifest to verify yet during bless. The gate runs at production
-    serve time (scripts/serve-cute-full.sh) once accept() has written the
+    serve time (scripts/serve-qwen35-full.sh) once accept() has written the
     manifest.
     """
     args = build_phase1_docker_args(

@@ -366,10 +366,10 @@ To bless this configuration, run:
 Expected wall time: ~15 min (1 cold compile + 5 fresh-container validation trials).
 
 For dev iteration without blessing, use eager mode:
-  ./scripts/serve-cute-full.sh --debug
+  ./scripts/serve-qwen35-full.sh --debug
 
 Or use the production PIECEWISE path which does not need blessed cache:
-  ./scripts/serve-cute.sh
+  ./scripts/serve-qwen35.sh
 EOF
   return 1
 }
