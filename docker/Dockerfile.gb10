@@ -4,7 +4,11 @@
 # This image builds vLLM from the nvllm fork (already patched -- no cherry-picks
 # or patch scripts needed). Target hardware: NVIDIA DGX Spark / GB10 (SM121).
 #
-# PyTorch: nightly cu132 pinned 2026-04-02
+# PyTorch: nightly cu132 pinned 2026-05-18 (bumped from 2026-04-02 — user-
+#          authorized override of CLAUDE.md no-bump rule for Step 11 / FULL+
+#          CuTe Z1 inductor non-determinism test; major version jumped 2.12 →
+#          2.13 in the upstream nightly stream around 2026-04-16, so this
+#          carries that jump too).
 # CUDA:    13.2 (devel base)
 # Arch:    SM121a (GB10 arch-specific, enables native FP4 cvt.e2m1x2)
 
@@ -31,10 +35,13 @@ ENV PATH="${CUDA_HOME}/bin:${PATH}"
 ENV LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
 
 # -- PyTorch nightly cu132 (pinned) --
+# torchvision/torchaudio .devN depend on torch .dev(N-1) in the nightly
+# build chain (vision and audio are built against yesterday's torch).
+# Pin torch one day behind tv/ta to match.
 RUN pip install --no-cache-dir \
-    torch==2.12.0.dev20260402+cu132 \
-    torchvision==0.27.0.dev20260402+cu132 \
-    torchaudio==2.11.0.dev20260402+cu132 \
+    torch==2.13.0.dev20260518+cu132 \
+    torchvision==0.28.0.dev20260519+cu132 \
+    torchaudio==2.11.0.dev20260519+cu132 \
     --index-url https://download.pytorch.org/whl/nightly/cu132
 
 # -- vLLM build dependencies --
@@ -60,9 +67,9 @@ ENV CCACHE_DIR=/tmp/ccache
 WORKDIR /app/nvllm
 
 # Constraint file: lock torch to our nightly cu132 so no dep can clobber it
-RUN echo "torch==2.12.0.dev20260402+cu132" > /tmp/constraints.txt \
-    && echo "torchvision==0.27.0.dev20260402+cu132" >> /tmp/constraints.txt \
-    && echo "torchaudio==2.11.0.dev20260402+cu132" >> /tmp/constraints.txt
+RUN echo "torch==2.13.0.dev20260518+cu132" > /tmp/constraints.txt \
+    && echo "torchvision==0.28.0.dev20260519+cu132" >> /tmp/constraints.txt \
+    && echo "torchaudio==2.11.0.dev20260519+cu132" >> /tmp/constraints.txt
 ENV PIP_CONSTRAINT=/tmp/constraints.txt
 
 # Install requirements (filter torch pins — we already installed nightly above)
