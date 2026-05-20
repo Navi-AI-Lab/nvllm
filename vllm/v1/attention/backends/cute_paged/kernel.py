@@ -1993,6 +1993,20 @@ if _CUTE_AVAILABLE:
             wo_global_scale = kwargs.get("wo_global_scale", None)  # scalar
             wo_output = kwargs.get("wo_output", None)        # [num_seqs, total_ctas_per_seq, N] f32 (deterministic stage + gather; slot 0 holds final sum)
 
+            # Phase B's `range_constexpr(5)` loop + `hd_wo = Int32(5120)` +
+            # `n_per_thr = Int32(40)` (kernel body below) hard-code the
+            # Qwen3.5-27B hidden size. Fail loud rather than silently
+            # mis-write when a different hidden size lands here.
+            if wo_weight is not None:
+                wo_hidden_dim = int(wo_weight.shape[0])
+                if wo_hidden_dim != 5120:
+                    raise AssertionError(
+                        f"CuTe decode W_O fusion is hard-coded to "
+                        f"hidden_dim=5120 (Qwen3.5/3.6-27B); got "
+                        f"wo_weight.shape[0]={wo_hidden_dim}. Disable "
+                        f"CUTE_ATTN_FUSION or rebuild the kernel."
+                    )
+
             # Phase C: RMSNorm fusion params (optional)
             rmsnorm_gamma = kwargs.get("rmsnorm_gamma", None)       # [hidden_dim] BF16
             rmsnorm_residual = kwargs.get("rmsnorm_residual", None) # [num_seqs, hidden_dim] BF16
@@ -2305,23 +2319,34 @@ def paged_attention_forward(
     # CUDA graph support (optional)
     gate_buf: torch.Tensor | None = None,            # [num_seqs, num_q_heads, head_dim] BF16
     padded_num_seqs: int | None = None,               # stable grid dim for graph capture
+    # Caller-supplied persistent output buffer. When non-None the CuTe
+    # decode kernel writes directly into it (no torch.empty_like per call,
+    # no post-return copy_). Must match query's shape and dtype.
+    output_buf: torch.Tensor | None = None,           # [num_tokens, num_q_heads, head_dim] BF16
 ) -> torch.Tensor:
     """Paged attention forward -- CuTe JIT kernel or PyTorch fallback.
 
     kv_cache is the unified 5D tensor [num_pages, 2, page_size, num_kv_heads, head_dim].
     Dim 1: 0=K, 1=V. The kernel computes K/V base pointers from stride(1).
 
-    Returns: [num_tokens, num_q_heads, head_dim] BF16
+    Returns: [num_tokens, num_q_heads, head_dim] BF16. When ``output_buf``
+    is provided, the returned tensor IS ``output_buf`` (no copy).
     """
     if not _CUTE_AVAILABLE or not _KERNELS_IMPLEMENTED:
         # Fallback to PyTorch reference until CuTe kernel bodies are written
-        from tests.nvllm.attention.reference import reference_paged_attention
-        return reference_paged_attention(
+        from vllm.v1.attention.backends.cute_paged._pytorch_reference import (
+            reference_paged_attention,
+        )
+        ref = reference_paged_attention(
             query, kv_cache[:, 0].contiguous(), kv_cache[:, 1].contiguous(),
             page_table, seq_lens,
             scale=scale, k_scale=k_scale, v_scale=v_scale,
             page_size=page_size, query_start_loc=query_start_loc,
         )
+        if output_buf is not None:
+            output_buf.copy_(ref)
+            return output_buf
+        return ref
 
     if page_size != 64:
         raise ValueError(
@@ -2335,13 +2360,19 @@ def paged_attention_forward(
 
     if not is_decode:
         # Prefill: use PyTorch reference until CuTe prefill body is written
-        from tests.nvllm.attention.reference import reference_paged_attention
-        return reference_paged_attention(
+        from vllm.v1.attention.backends.cute_paged._pytorch_reference import (
+            reference_paged_attention,
+        )
+        ref = reference_paged_attention(
             query, kv_cache[:, 0].contiguous(), kv_cache[:, 1].contiguous(),
             page_table, seq_lens,
             scale=scale, k_scale=k_scale, v_scale=v_scale,
             page_size=page_size, query_start_loc=query_start_loc,
         )
+        if output_buf is not None:
+            output_buf.copy_(ref)
+            return output_buf
+        return ref
 
     config = DECODE_CONFIG
     kernel = _get_compiled_kernel(config)
@@ -2367,7 +2398,7 @@ def paged_attention_forward(
         arrival_count=arrival_count,
         rmsnorm_eps=rmsnorm_eps,
         gate_buf=gate_buf,
-        output_buf=None,  # Not used yet, kernel allocates own for now
+        output_buf=output_buf,
         padded_num_seqs=padded_num_seqs,
     )
 

@@ -80,7 +80,7 @@ def _cute_mlp_forward_impl(
     nat = x.shape[0]
     b_mlp  = getattr(impl, "_mlp_fusion_bound", False)
     b_attn = getattr(impl, "_fusion_active", False)
-    max_n  = getattr(impl, "_fusion_max_num_seqs", 0)
+    max_n  = getattr(impl, "_fusion_max_tokens", 0)
     # Gate on bound + buffer-safety only. `_fusion_active` is NOT part
     # of the gate because under PIECEWISE CUDA graphs it's False at
     # capture (prefill shape) and the captured graph would bake in the
@@ -93,7 +93,7 @@ def _cute_mlp_forward_impl(
         if _dbg_key not in _DEBUG_SEEN:
             logger.info(
                 "[CUTE_DEBUG_MLP_FUSION] layer=%s _mlp_fusion_bound=%s "
-                "_fusion_active=%s nat=%d _fusion_max_num_seqs=%d "
+                "_fusion_active=%s nat=%d _fusion_max_tokens=%d "
                 "x.shape=%s can_fuse=%s",
                 layer_name, b_mlp, b_attn, nat, max_n, tuple(x.shape), can_fuse,
             )

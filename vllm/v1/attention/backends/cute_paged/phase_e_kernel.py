@@ -3,15 +3,25 @@
 # SPDX-FileCopyrightText: Copyright contributors to the nvllm fork
 """Phase E β kernel — one cooperative launch per fusion-active decoder layer.
 
-Phases (spec §3.1):
-    0. prologue input_layernorm   (single-CTA-per-seq; broadcast via SMEM)
-    1. attn (A+B+C)               (slice_ctas×num_k_tiles CTAs)
+Current production phases (post-C1.5, 54da780f3):
+    0. prologue input_layernorm   (placeholder side-channel; dummy γ + scratch
+                                   buffers passed in from _backend.py because
+                                   the per-layer input_LN runs from Python at
+                                   layer entry — Phase 0 output is unused)
+    1. attn A+B+C + W_O GEMV      (slice_ctas × num_k_tiles CTAs)
     2. grid barrier               (arrival counter + _threadfence)
     3. MLP (D)                    (same grid as phase 1, reuses SMEM)
-    4. ε epilogue                 (residual_final + RMSNorm(next_γ))
 
-Tasks: 11 (this file — skeleton + phase 0), 12 (phase 1), 13 (phase 2),
-14 (phase 3), 15 (phase 4).
+Phase 4 (ε epilogue with residual_final + next-layer RMSNorm bake) was deleted
+in C1.5 (54da780f3) — the kernel ends at the Phase 3 MLP write. The next
+layer's input_LN runs from Python at layer entry instead. The cross-layer
+LN-attach plumbing (attach_next_input_layernorm) was disabled in the same
+commit but kept commented in _backend.py.
+
+File layout (this file is mixed production + debug + test launchers):
+    Heartbeat / compile-cache state (L140-185)
+    Standalone phase debug launchers (L384-~2700) — test-only entry points
+    Production β-coop full path (L2742 onward) — used at serve time
 
 Plan: docs/superpowers/plans/2026-04-22-unreal-kernel-phase-e-d25.md
 """
@@ -186,20 +196,25 @@ _PHASE_E_COOP_FULL_COMPILE_CACHE: dict = {}
 
 
 class PhaseE_Beta_Kernel:
-    """Cooperative CuTe kernel fusing attn + MLP + residual + next-norm.
+    """Cooperative CuTe kernel fusing attn + W_O + MLP per decoder layer.
 
-    β-coop grid (after Task 16): (slice_ctas=8, num_k_tiles=8, num_seqs)
-        → 64 × num_seqs CTAs, single cooperative launch per layer.
-    β-lite fallback (already shipped): two-kernel path (attn + Phase_D ε).
+    Production path: ``run_beta_coop_full`` (β-coop). Grid
+    ``(slice_ctas=8, num_k_tiles=8, num_seqs)`` → 64 × num_seqs CTAs in a
+    single cooperative launch. Ends at the Phase 3 MLP write; the next
+    layer's input_LN runs from Python (C1.5 — see module docstring).
 
-    Phase-0-only debug grid (this task): (1, 1, num_seqs).
+    β-lite fallback: two-kernel path (paged attn + Phase_D MLP), used when
+    the resident-cap gate rejects β-coop or when explicitly forced via
+    ``CUTE_PHASE_E_PATH=lite``.
 
-    Block: (num_threads=128, 1, 1).
-    SMEM: 45568 B budget (attn K/V tiles dominate; phase 0 uses only the
-    cross-warp reduce scratch, 16 B).
+    Standalone phase launchers below (``run_phase_*_only``) are debug/test
+    entry points, not used by serving paths.
 
-    See spec §3.1 and plan
-    docs/superpowers/plans/2026-04-22-unreal-kernel-phase-e-d25.md.
+    Block: ``(num_threads=128, 1, 1)``.
+    SMEM: 45568 B budget — attn K/V tiles dominate; Phase 0 only touches
+    the cross-warp reduce scratch (16 B).
+
+    Spec: docs/superpowers/plans/2026-04-22-unreal-kernel-phase-e-d25.md.
     """
 
     def __init__(
@@ -218,6 +233,17 @@ class PhaseE_Beta_Kernel:
             f"hidden_size={hidden_size} must be divisible by num_threads=128 "
             f"for Phase E Phase 0 / ε epilogue to cover all elements without "
             f"a tail loop"
+        )
+        # Phase 1 W_O GEMV iterates output rows in 8-element groups, one
+        # group per thread per inner-loop step (see L4345-4354, L4572-4574).
+        # Without `hidden_size % 1024 == 0` (= num_threads × 8) the tail
+        # group would be partially covered. Fail loud rather than silently
+        # under-write — this is the failure mode of audit Finding 2.1.
+        assert hidden_size % (128 * 8) == 0, (
+            f"hidden_size={hidden_size} must be divisible by 1024 "
+            f"(num_threads × 8-element W_O group). Verified sizes: 5120 "
+            f"(Qwen3.5/3.6-27B). Unsupported sizes need explicit tail "
+            f"handling in Phase 1's W_O GEMV body."
         )
         self.hidden_size = hidden_size
         self.intermediate_size = intermediate_size
@@ -2739,30 +2765,29 @@ class PhaseE_Beta_Kernel:
                         next_hidden_base + Int64(idx) * Int64(2), rf)
 
     # =====================================================================
-    # Task 16: β-coop UNIFIED kernel — Phases 0 + 1 + 3 + 4 in one
+    # β-coop UNIFIED kernel — Phases 0 → 1 → grid-barrier → 3 in one
     # cooperative launch. Grid: (slice_ctas, num_k_tiles, num_seqs),
     # typically (8, 8, nat) = 64 CTAs per seq.
     # =====================================================================
     #
-    # Design (see subagent brief 2026-04-23):
-    #   * Phase 0 (input_layernorm): gated to bx==0 && by==0 (single CTA
-    #     per seq). Writes attn_input_bf16 as a side-channel output for
-    #     external consumers (next-layer QKV would fuse this in a fully-
-    #     integrated world). No data dependency with Phase 1 in the
-    #     debug harness (query is pre-projected).
-    #   * Phase 1 (attn A+B+C): gated to bx==0 && by<4 (4 kv-head CTAs).
-    #     Byte-for-byte copy of _kernel_phase_01 Phase 1 body. Writes
-    #     attn_output (Phase C BF16) + residual_output (BF16).
-    #   * GRID BARRIER: all 64 CTAs arrive; ensures Phase 3 sees
+    # Phases in production (post-C1.5, 54da780f3):
+    #   * Phase 0 (input_layernorm placeholder): gated to bx==0 && by==0
+    #     (single CTA per seq). Side-channel only — _backend.py supplies
+    #     a dummy γ + scratch buffer because per-layer input_LN runs from
+    #     Python at layer entry. Kept resident so the cached compile
+    #     artifact still matches the kernel body.
+    #   * Phase 1 (attn A+B+C + W_O GEMV): gated to bx==0 && by<4 for the
+    #     four kv-head CTAs (Phase A/B/C); W_O GEMV is split across the
+    #     full grid when CUTE_WO_SPLIT>1. Writes attn_output (BF16) and
+    #     residual_output (= residual_in + attn_out, BF16).
+    #   * GRID BARRIER: all 64 CTAs arrive; ensures Phase 3 sees the
     #     attn_output before loading it as its MLP input `x`.
-    #   * Phase 3 (MLP D): all 64 CTAs participate. Byte-for-byte copy of
-    #     _kernel_phase_3_only body, reading `x = attn_output[bz, :]`,
-    #     writing mlp_output + per-CTA partials + per-k-tile arrival.
-    #   * SECONDARY BARRIER (Phase D pattern): each k-tile's local-last-
-    #     CTA increments a secondary counter; the globally-last CTA
-    #     (counter old == num_k_tiles-1) proceeds to Phase 4.
-    #   * Phase 4 (ε epilogue): globally-last CTA per seq does
-    #     residual_final (in-place) + optional next-layer RMSNorm.
+    #   * Phase 3 (MLP D): all 64 CTAs participate. Writes mlp_output and
+    #     per-k-tile arrival counters.
+    #
+    # Phase 4 (ε epilogue / next-layer input_LN bake / secondary barrier)
+    # was deleted in C1.5 — the kernel returns at the end of Phase 3. The
+    # next layer's input_LN runs from Python at layer entry.
     #
     # SMEM: union-alias Phase 1 layout (45568 B) with Phase 3 layout
     # (21156 B). Total dynamic SMEM = max = 45568 B. The two layouts are
@@ -2772,15 +2797,13 @@ class PhaseE_Beta_Kernel:
     #   [nat]        i32  phase1_arrival_count  (4 attn CTAs arrive)
     #   [nat]        i32  grid_barrier          (64 CTAs arrive)
     #   [nat, nkt]   u32  phase3_arrival_count  (slice_ctas per k-tile)
-    #   [nat]        i32  secondary_barrier     (num_k_tiles last-CTAs)
     #
-    # Self-reset (mirrors mlp_kernel.py:1519): globally-last CTA at end of
-    # Phase 4 zeroes ALL counters for this seq — grid_barrier (via
-    # atomic_add(-total_ctas_per_seq)), secondary_barrier (via
-    # atomic_add(-num_k_tiles)). phase1_arrival_count is already self-
-    # reset by Phase 1's Phase C block (see _kernel_phase_01 line 1536).
-    # phase3_arrival_count is reset inline (per-k-tile last-CTA after it
-    # has written its slice of mlp_output).
+    # Counter reset (post-C1.5): grid_barrier and the deleted
+    # secondary_barrier are now allocated fresh (torch.zeros) per call in
+    # run_beta_coop_full, so no in-kernel reset is required.
+    # phase1_arrival_count is self-reset by Phase 1's Phase C block
+    # (_kernel_phase_01). phase3_arrival_count is reset inline by each
+    # per-k-tile last-CTA after it writes its slice of mlp_output.
     # =====================================================================
     def run_beta_coop_full(
         self,
@@ -3153,7 +3176,16 @@ class PhaseE_Beta_Kernel:
         # this function).
         # Reverted to counters-only — partial fix, capture-safe.
         phase1_arrival_count.zero_()
-        pre_wo_arrival_count.zero_()  # Task 6: pre-W_O arrival counter reset
+        # `pre_wo_arrival_count` is the W_O K-parallel producer→consumer
+        # arrival counter; the consumer mask `bx>0 && bx<wo_split` is
+        # empty at split=1, so the counter is never read in that mode.
+        # Skip the host reset on the default split=1 path (audit 2.6,
+        # 2026-05-19). The counter is still self-incremented by the
+        # attn-side CTAs, but reading garbage left over from a prior
+        # multi-split run can't happen because the counter is allocated
+        # zero in `attach_mlp_fusion` and the consumer mask is empty.
+        if self.wo_split > 1:
+            pre_wo_arrival_count.zero_()
         grid_barrier_i32.zero_()
         mlp_arrival_count.zero_()
         # mlp_partial_fp32.zero_()  # large FP32 — hangs capture

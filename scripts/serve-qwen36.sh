@@ -15,7 +15,10 @@
 #     QUANTIZATION=modelopt for checkpoints that ship ModelOpt-format metadata.
 #   - MAX_NUM_SEQS defaults to 1 during bring-up
 #   - CUTE_MLP_FUSION / CUTE_ATTN_FUSION / CUTE_PHASE_E_FUSION default to 0
-#     (CUTE_WO_SPLIT stays at 1 — the production-blessed K-parallel decode path)
+#     during Qwen3.6 bring-up (re-enable after MTP-aware kernel re-tuning).
+#     CUTE_WO_SPLIT defaults to 1 (the non-K-parallel path); set
+#     CUTE_WO_SPLIT=8 to opt into the evidenced K-parallel W_O GEMV
+#     (GSM8K-50 47/50, ≈ -13% wall — see README Qwen3.6 bring-up note).
 #
 # To enable vision later: remove the --language-model-only and
 # --limit-mm-per-prompt flags.

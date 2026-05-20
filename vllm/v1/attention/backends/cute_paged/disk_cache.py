@@ -208,9 +208,13 @@ def _function_fingerprint(func: Any) -> tuple[str, str, str]:
     qualname = getattr(
         func, "__qualname__", getattr(func, "__name__", type(func).__qualname__),
     )
-    # For our own package, use the tree fingerprint
+    # For our own package, the package fingerprint is already part of the
+    # cache-key payload (see `_build_full_cache_key_payload` below), so
+    # don't embed it a second time here — just emit a stable label and
+    # let the payload-level entry handle invalidation. (Audit Finding 2.7,
+    # 2026-05-19.)
     if module.startswith("vllm.v1.attention.backends.cute_paged"):
-        return module, qualname, f"cute_paged:{_package_fingerprint()}"
+        return module, qualname, "cute_paged"
     try:
         source = inspect.getsource(func)
         payload = source.encode("utf-8")
@@ -377,7 +381,7 @@ def _compile_options_cache_key(compile_callable: Any) -> tuple[str, ...]:
     return tuple(serialized)
 
 
-_CACHE_KEY_VERSION = "nvllm_cute_compile_cache_v2_ptr_canonical"
+_CACHE_KEY_VERSION = "nvllm_cute_compile_cache_v3_dedup_pkg_fp"
 
 
 def _build_full_cache_payload(
