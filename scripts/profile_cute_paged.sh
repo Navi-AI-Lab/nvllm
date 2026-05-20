@@ -99,6 +99,10 @@ docker run -d \
   -e VLLM_NVFP4_GEMM_BACKEND=cutlass \
   -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -e CUTE_MLP_FUSION="${CUTE_MLP_FUSION:-1}" \
+  -e CUTE_ATTN_FUSION="${CUTE_ATTN_FUSION:-1}" \
+  -e CUTE_PHASE_E_FUSION="${CUTE_PHASE_E_FUSION:-0}" \
+  -e CUTE_WO_SPLIT="${CUTE_WO_SPLIT:-1}" \
   --entrypoint "$NSYS_BIN" \
   "$NVLLM_IMAGE" \
   profile \
@@ -121,12 +125,12 @@ docker run -d \
   --max-model-len 65536 \
   --max-num-seqs 4 \
   --language-model-only \
-  --enable-prefix-caching \
   --mamba-cache-mode align \
   --mamba-block-size 64 \
   --trust-remote-code \
   --gpu-memory-utilization 0.80 \
   --max-num-batched-tokens 65536 \
+  --kernel-config '{"enable_flashinfer_autotune":false}' \
   --compilation-config '{"cudagraph_mode":"PIECEWISE"}'
 
 echo "Container started. nsys will capture at t=${NSYS_DELAY}s for ${DURATION}s."

@@ -1,74 +1,81 @@
-"""Binding test: the Qwen3_5Model.__init__ Phase E hook is present AND
-reads the correct attribute path to reach the CuTe impl.
+"""Source-contract tests for the post-C1.5 Phase E model-side wiring.
 
-Structural test — does NOT instantiate a model (too heavy for a unit
-test). Task 20's integration test catches runtime misbehavior; this one
-catches the two most common drift modes for this hook:
+C1.5 deleted the `attach_next_input_layernorm` cross-layer binding loop
+in `Qwen3_5Model.__init__`. The new invariants this test enforces:
 
-1. Hook missing from the source file.
-2. Hook present but reading the wrong attribute path
-   (`layer.self_attn.impl` instead of `layer.self_attn.attn.impl`).
-   `memory:feedback_verify_model_class` warns against this exact class
-   of bug — the hook would silently become dead code.
+  1. Every decoder layer entry runs `input_layernorm` unconditionally
+     (no per-layer `_phase_e_skip_next_ln` gate). Cross-layer LN bake is
+     gone — the Phase F.1 skip-op was retired.
+  2. The β-coop framework-output route is wired: the decoder's forward
+     calls the opaque op `cute_beta_coop_run` (defined in
+     `_beta_coop_op.py`) which delegates dispatch to `_backend.forward`.
+  3. The MLP consume step runs through the opaque op
+     `cute_phase_e_dispatch` (not the original Python `_phase_e_consumed`
+     gate, which dead-branched under PIECEWISE CUDA graphs).
 
-Reading `inspect.getsource(Qwen3_5Model.__init__)` does NOT work because
-`Qwen3_5Model` is wrapped with `@support_torch_compile`, which replaces
-`__init__` with a thin wrapper whose source doesn't include the class
-body. We read the module source instead.
+Structural tests via `inspect.getsource` on the model module — does NOT
+instantiate a model (too heavy for a unit test).
 """
+import inspect
+
 import pytest
 import torch
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
-def test_phase_e_binding_hook_present_in_source():
-    """Hook's identifying call must exist in the module source."""
-    import inspect
+def test_input_layernorm_runs_unconditionally_at_layer_entry():
+    """Layer entry must call `self.input_layernorm(hidden_states, residual)`
+    on the non-first-layer branch. C1.5 removed the conditional skip path.
+    """
     import vllm.nvllm.models.qwen3_5 as m
     src = inspect.getsource(m)
-    assert 'attach_next_input_layernorm' in src, (
-        "Qwen3_5Model.__init__ doesn't reference attach_next_input_layernorm"
+    assert "hidden_states, residual = self.input_layernorm(" in src, (
+        "Qwen3_5DecoderLayer.forward should always run input_layernorm "
+        "at layer entry post-C1.5 — the Phase F.1 skip-op was retired."
     )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
-def test_phase_e_binding_reads_attn_impl_not_self_attn_impl():
-    """Regression guard: the hook must read `self_attn.attn.impl`, not
-    `self_attn.impl`. The `.impl` attribute lives on the inner Attention
-    module (cf. existing pattern at self_attn.attn.impl in this file).
-
-    If this assertion fires, the hook is dead code: `getattr(layer.self_attn,
-    'impl', None)` returns None for every layer, every call to
-    attach_next_input_layernorm is skipped, and Phase E silently never binds.
-
-    We scope the substring check to the hook block itself — the pre-existing
-    forward-time code at L361/395 also contains `self_attn.attn.impl` and
-    would mask a hook regression without this scoping.
-    """
-    import inspect
+def test_beta_coop_framework_output_route_wired():
+    """The model must dispatch β-coop via the opaque op cute_beta_coop_run."""
     import vllm.nvllm.models.qwen3_5 as m
     src = inspect.getsource(m)
-
-    # Slice the module source to the hook block bounded by its landmark
-    # comment and the next init statement.
-    hook_start = src.find('Phase E cross-layer binding')
-    hook_end = src.find('self.make_empty_intermediate_tensors', hook_start)
-    assert hook_start != -1, "hook landmark comment missing from qwen3_5.py"
-    assert hook_end != -1 and hook_end > hook_start, (
-        "hook trailing landmark missing from qwen3_5.py"
+    assert "torch.ops.vllm.cute_beta_coop_run" in src, (
+        "Qwen3_5 attention forward should call cute_beta_coop_run for the "
+        "β-coop framework-output route (defined in _beta_coop_op.py). "
+        "A regression would silently route every step through the legacy "
+        "Python-projection path."
     )
-    hook_block = src[hook_start:hook_end]
 
-    # The hook must use the getattr-chain form. Checking only for the
-    # literal call `getattr(<layer>.self_attn, 'attn', ...)` — substring
-    # matches in comments would falsely pass, so we look for the actual
-    # runtime call pattern instead.
-    has_getattr_chain = (
-        "getattr(layer.self_attn, 'attn'" in hook_block
-        or "getattr(self.self_attn, 'attn'" in hook_block
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_phase_e_consume_uses_opaque_dispatch_op():
+    """MLP consume must run through cute_phase_e_dispatch."""
+    import vllm.nvllm.models.qwen3_5 as m
+    src = inspect.getsource(m)
+    assert "torch.ops.vllm.cute_phase_e_dispatch" in src, (
+        "Qwen3_5 decoder forward should call cute_phase_e_dispatch — "
+        "regression risk: the original Python _phase_e_consumed gate "
+        "dead-branched under PIECEWISE CUDA graphs (memory:feedback_"
+        "opaque_op_not_enough)."
     )
-    assert has_getattr_chain, (
-        "Phase E hook doesn't reach impl via a .attn getattr chain — "
-        "likely regressed to layer.self_attn.impl which is always None. "
-        "See existing pattern at qwen3_5.py:243, 261, 361, 395."
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_cross_layer_input_layernorm_attach_is_disabled():
+    """`attach_next_input_layernorm` must remain a no-op site (commented)
+    in _backend.py post-C1.5. The model module must not call it.
+    """
+    import vllm.nvllm.models.qwen3_5 as m
+    m_src = inspect.getsource(m)
+    # The call must NOT appear on any live (non-comment) line of the model.
+    # Strip comment-only lines, then assert the call site is absent.
+    code_lines = [
+        ln for ln in m_src.splitlines()
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+    code_text = "\n".join(code_lines)
+    assert "attach_next_input_layernorm(" not in code_text, (
+        "Qwen3_5Model.__init__ should NOT call attach_next_input_layernorm "
+        "post-C1.5 — the cross-layer LN bake was retired."
     )

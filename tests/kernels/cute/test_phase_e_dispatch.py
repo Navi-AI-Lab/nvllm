@@ -81,18 +81,27 @@ def _dispatch_path(
     coop_attached: bool,
     phase_e_active: bool = True,
 ) -> str:
-    """Mirror of _backend.py forward() predicate (Task 16).
+    """Mirror of _backend.py forward() predicate.
 
     Returns "coop", "lite", or "none".
+
+    Post-2026-04-26 contract (_backend.py:1396-1406): the resident-cap
+    fitness check `total_ctas <= resident_cap` is a HARD gate even under
+    `forced_path="coop"` — it was previously bypassed, which produced
+    CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE on multi-seq decode and silent
+    gibberish. β-lite picks up coop's rejected case under `auto` and `lite`.
     """
     if not phase_e_active:
         return "none"
-    use_beta_coop = coop_attached and (
-        forced_path == "coop"
-        or (forced_path == "auto" and total_ctas <= resident_cap)
+    cap_ok = total_ctas <= resident_cap
+    use_beta_coop = (
+        coop_attached
+        and cap_ok
+        and forced_path in ("coop", "auto")
     )
-    use_beta_lite = not use_beta_coop and (
-        forced_path == "lite" or forced_path == "auto"
+    use_beta_lite = (
+        not use_beta_coop
+        and forced_path in ("lite", "auto")
     )
     if use_beta_coop:
         return "coop"
@@ -105,13 +114,13 @@ def _dispatch_path(
     "forced,total,cap,attached,expected",
     [
         # --- forced="coop" ---
-        # Always coop when kernel attached, regardless of cap.
+        # Coop when kernel attached AND fits under cap.
         ("coop", 64,   96, True,  "coop"),
-        ("coop", 2048, 96, True,  "coop"),  # forced ignores cap
-        # If user explicitly forces "coop" but kernel not attached, neither
-        # path fires — silently falling back to lite would ignore the user's
-        # explicit request (they wanted coop or nothing). phase_e_consumed
-        # stays False and the caller uses the non-Phase-E path.
+        # Forced coop but over cap → none (hard cap: no silent fallback to
+        # lite when the user explicitly asked for coop).
+        ("coop", 2048, 96, True,  "none"),
+        # If user forces coop but kernel not attached, neither path fires
+        # — the caller uses the non-Phase-E path.
         ("coop", 64,   96, False, "none"),
 
         # --- forced="lite" ---
@@ -132,7 +141,7 @@ def _dispatch_path(
     ],
 )
 def test_dispatch_predicate(forced, total, cap, attached, expected):
-    """Gate 6.3 dispatch-safety: (forced_path × total_ctas × resident_cap ×
+    """Dispatch-safety: (forced_path × total_ctas × resident_cap ×
     coop_attached) → correct branch. Replicates _backend.py forward()."""
     assert _dispatch_path(forced, total, cap, attached) == expected
 

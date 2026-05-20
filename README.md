@@ -122,7 +122,7 @@ Backward-compat symlinks (`serve.sh`, `serve-cute.sh`, `serve-cute-full.sh`, `se
 #### Now — Qwen3.6-27B bring-up
 
 - `serve-qwen36.sh` consumes `natfii/Qwen3.6-27B-VLM-NVFP4-MTP` (NVFP4 modelopt + grafted MTP head + retained vision tower; recipe from [`lna-lab/GGUF-to-NVFP4-SM120`](https://github.com/lna-lab/GGUF-to-NVFP4-SM120)).
-- `CUTE_WO_SPLIT=8` carries over from Qwen3.5 with parity quality (GSM8K-50 47/50) and ≈ -13% wall.
+- `CUTE_WO_SPLIT=8` is evidenced opt-in for Qwen3.6 (GSM8K-50 47/50, ≈ -13% wall) — the script defaults split to `1`; set `CUTE_WO_SPLIT=8` explicitly to enable.
 - Fusion-buffer sizing is now spec-decode-aware (`vllm/v1/attention/backends/cute_paged/_backend.py` `attach_fusion`): `fusion_max_tokens = max_num_seqs * (1 + num_speculative_tokens)`. Without this, `_fusion_active` silently flipped to `False` every step when MTP was on (`fits_buffer` gate). With the patch, `CUTE_ATTN_FUSION=1` regresses ~22 % at the MTP=1 shape, so it stays off-default pending kernel re-tuning for `num_q=2` decode batches.
 
 #### Next — expand model support
@@ -156,9 +156,17 @@ Benchmarked on Qwen3.5-27B-NVFP4 (rate=8, max-num-seqs=4):
 
 Custom paged attention backend using CuTe Python DSL, targeting SM120/SM121 FP8 MMA instructions. Registered as `CUTE_PAGED` in vLLM's attention backend registry.
 
-**Status:** Experimental CuTe DSL backend; production decode path since v0.3.0. The β-coop fused kernel (attention + W_O + RMSNorm + MLP) is the default. Opt-in `CUTE_WO_SPLIT=8` is production-evidenced but not the default: the controlled harness reports W_O `13754 μs → 1639 μs` (8.39×), while serving soak shows `wo8` as a modest wall/TPOT win with quality parity. See the [harness summary](benchmarks/nvllm/traces/cute_paged_attn/2026-05-03-w-o-k-parallel-harness/summary.md) and [production soak](benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/writeup.md).
+**Status:** Experimental CuTe DSL backend; production decode path since v0.3.0. The β-coop fused kernel (attention + W_O + MLP) is the default for `serve-qwen35.sh` and the blessed `serve-qwen35-full.sh` path. Default state varies by script — see matrix below. Opt-in `CUTE_WO_SPLIT=8` is production-evidenced but not the default: the controlled harness reports W_O `13754 μs → 1639 μs` (8.39×), while serving soak shows `wo8` as a modest wall/TPOT win with quality parity. See the [harness summary](benchmarks/nvllm/traces/cute_paged_attn/2026-05-03-w-o-k-parallel-harness/summary.md) and [production soak](benchmarks/nvllm/traces/wo_split_prod_soak/2026-05-04-soak/writeup.md).
 
-Launch with: `./scripts/serve-qwen35.sh` (default PIECEWISE CUDA graphs). To opt into the evidenced W_O split, run `CUTE_WO_SPLIT=8 ./scripts/serve-qwen35.sh`.
+**Script defaults matrix:**
+
+| Script | Graph mode | `CUTE_ATTN_FUSION` | `CUTE_MLP_FUSION` | `CUTE_PHASE_E_FUSION` | `CUTE_WO_SPLIT` |
+| --- | --- | --- | --- | --- | --- |
+| `serve-qwen35.sh` | PIECEWISE | 1 | 1 | 0 | 1 (set `=8` to opt in) |
+| `serve-qwen35-full.sh` | FULL_AND_PIECEWISE (blessed cache) | 1 | 1 | 1 (lower-8) | (matches blessed manifest) |
+| `serve-qwen36.sh` | PIECEWISE | 0 | 0 | 0 | 1 (set `=8` to opt in) |
+
+Launch the production default with: `./scripts/serve-qwen35.sh` (PIECEWISE CUDA graphs). To opt into the evidenced W_O split, run `CUTE_WO_SPLIT=8 ./scripts/serve-qwen35.sh`. The Qwen3.6 path keeps fusions off during bring-up; see [Qwen3.6 bring-up](#now--qwen36-27b-bring-up) for context.
 
 ## Acknowledgments
 

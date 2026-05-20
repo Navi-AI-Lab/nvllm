@@ -549,7 +549,7 @@ class Qwen3_5DecoderLayer(nn.Module):
         # ---- Phase 4 framework-output route gate (trace-static only) ----
         # Phase 3 had this gate also check `_framework_decode_only` (Python
         # read of attn_metadata.is_decode_only at this point) and
-        # `nat <= _fusion_max_num_seqs`. Both are runtime-only signals that
+        # `nat <= _fusion_max_tokens`. Both are runtime-only signals that
         # torch.compile bakes to False at trace time → captured graph never
         # entered the framework-output route, only the legacy fall-through
         # ran. Phase 4 makes the gate trace-static so the graph emits
@@ -557,29 +557,6 @@ class Qwen3_5DecoderLayer(nn.Module):
         # eager body (splitting boundary at compilation.py:722) handles
         # runtime dispatch — β-coop, β-lite, or full-legacy fallback —
         # inside _backend.forward (writer-invariant per Edit 4 below).
-        #
-        # PHASE 3 ORIGINAL (commented per feedback_comment_not_delete; may
-        # be re-enabled if Phase 4 architecture is rolled back):
-        # _framework_decode_only = False
-        # if self.layer_type == "full_attention" and impl is not None:
-        #     try:
-        #         from vllm.forward_context import get_forward_context
-        #
-        #         _attn_md = get_forward_context().attn_metadata
-        #         if isinstance(_attn_md, dict):
-        #             _attn_md = _attn_md.get(self.self_attn.attn.layer_name)
-        #         _framework_decode_only = bool(
-        #             getattr(_attn_md, "is_decode_only", False)
-        #         )
-        #     except (RuntimeError, KeyError, AttributeError, TypeError):
-        #         _framework_decode_only = False
-        # _framework_output_route = (
-        #     self.layer_type == "full_attention"
-        #     and impl is not None
-        #     and getattr(impl, "_beta_coop_framework_output_bound", False)
-        #     and _framework_decode_only
-        #     and nat <= getattr(impl, "_fusion_max_num_seqs", 0)
-        # )
         _framework_output_route = (
             self.layer_type == "full_attention"
             and impl is not None
